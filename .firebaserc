@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "daao-a20c6"
+  },
+  "targets": {
+    "daao-a20c6": {
+      "hosting": {
+        "prod": ["testprojectmanagementtracking"]
+      }
+    }
+  }
+}
