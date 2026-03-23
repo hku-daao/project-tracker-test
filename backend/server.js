@@ -392,17 +392,22 @@ async function handleApiTeams(req, res) {
     }
     console.log(`handleApiTeams: Found ${(teamMembersData || []).length} team members`);
 
+    const isDirectorRole = (r) =>
+      r === 'director' || r === 'lead';
+    const isOfficerRole = (r) =>
+      r === 'officer' || r === 'member';
+
     const teams = (teamsData || []).map((team) => {
       const members = (teamMembersData || []).filter((tm) => tm.team_id === team.id);
       const directors = members
-        .filter((tm) => tm.role === 'lead')
+        .filter((tm) => isDirectorRole(tm.role))
         .map((tm) => {
           const staff = Array.isArray(tm.staff) ? tm.staff[0] : tm.staff;
           return staff?.app_id || null;
         })
         .filter((id) => id != null);
       const officers = members
-        .filter((tm) => tm.role === 'member')
+        .filter((tm) => isOfficerRole(tm.role))
         .map((tm) => {
           const staff = Array.isArray(tm.staff) ? tm.staff[0] : tm.staff;
           return staff?.app_id || null;
