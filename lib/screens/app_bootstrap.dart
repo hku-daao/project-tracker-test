@@ -5,11 +5,10 @@ import '../app_state.dart';
 import '../config/dev_role_fallback.dart';
 import '../config/supabase_config.dart';
 import '../services/staff_team_lookup_service.dart';
+import '../services/supabase_service.dart';
 import 'home_screen.dart';
 
-// Revamp: old backend + legacy Supabase loads are commented in _load(); restore when schema returns.
-
-/// On startup: revamp step 1 loads staff/team by email; legacy initiative/task sync is disabled.
+/// On startup: revamp step 1 loads staff/team by email; tasks + deleted-task audit load from Supabase.
 class AppBootstrap extends StatefulWidget {
   const AppBootstrap({super.key});
 
@@ -94,32 +93,22 @@ class _AppBootstrapState extends State<AppBootstrap> {
     }
     */
 
-    // --- LEGACY (commented): load initiatives / tasks / deleted from Supabase ---
+    // Load low-level tasks from Supabase (plural `tasks` + singular `task`) and deleted-task audit.
+    // Initiatives remain unloaded here unless you restore fetchInitiativesFromSupabase.
     if (!SupabaseConfig.isConfigured) {
       if (mounted) setState(() => _ready = true);
       return;
     }
-    /*
     try {
-      final initData = await SupabaseService.fetchInitiativesFromSupabase();
-      if (!mounted) return;
-      if (initData != null) {
-        state.applyInitiativesFromSupabase(initData);
-      } else {
-        setState(() => _error = 'Could not load initiatives from Supabase.');
-      }
       final taskData = await SupabaseService.fetchTasksFromSupabase();
       if (!mounted) return;
-      if (taskData != null) {
-        state.applyTasksFromSupabase(taskData);
-      }
+      state.applyTasksFromSupabase(taskData ?? TasksLoadResult.empty);
       final deletedAudit = await SupabaseService.fetchDeletedTasksFromSupabase();
       if (!mounted) return;
       state.applyDeletedTasksFromSupabase(deletedAudit);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      debugPrint('AppBootstrap: load tasks/deleted from Supabase: $e');
     }
-    */
     if (mounted) setState(() => _ready = true);
   }
 

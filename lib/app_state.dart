@@ -13,6 +13,7 @@ import 'models/team.dart';
 import 'priority.dart';
 import 'services/backend_api.dart';
 import 'services/supabase_service.dart';
+import 'utils/hk_time.dart';
 
 /// Global app state: initiatives (high-level), tasks (low-level), assignees, teams, comments, milestones.
 class AppState extends ChangeNotifier {
@@ -292,10 +293,13 @@ class AppState extends ChangeNotifier {
   }
 
   /// Low-level tasks for a team (task.teamId == teamId). Pass null for all.
+  /// Singular `task` rows often have no team — those [teamId] is null and still show when filtering by team.
   List<Task> tasksForTeam(String? teamId) {
     final all = tasks;
     if (teamId == null || teamId.isEmpty) return all;
-    return all.where((t) => t.teamId == teamId).toList();
+    return all
+        .where((t) => t.teamId == null || t.teamId == teamId)
+        .toList();
   }
 
   List<Initiative> initiativesForTeam(String? teamId) {
@@ -406,6 +410,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void replaceTask(Task t) {
+    final i = _tasks.indexWhere((x) => x.id == t.id);
+    if (i < 0) return;
+    _tasks[i] = t;
+    notifyListeners();
+  }
+
+  void removeTaskFromList(String taskId) {
+    _tasks.removeWhere((t) => t.id == taskId);
+    _comments.removeWhere((c) => c.taskId == taskId);
+    _milestones.removeWhere((m) => m.taskId == taskId);
+    notifyListeners();
+  }
+
   String addTask({
     required String name,
     required String description,
@@ -427,7 +445,7 @@ class AppState extends ChangeNotifier {
       status: status,
       startDate: startDate,
       endDate: endDate,
-      createdAt: DateTime.now(),
+      createdAt: HkTime.localCreatedAtForTask(),
     );
     _tasks.add(task);
     notifyListeners();

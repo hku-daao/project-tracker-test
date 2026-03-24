@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../app_state.dart';
 import '../config/supabase_config.dart';
 import '../models/staff_for_assignment.dart';
 import '../priority.dart';
@@ -105,6 +107,12 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
     return out;
   }
 
+  static int _dateOnlyCompare(DateTime a, DateTime b) {
+    final da = DateTime(a.year, a.month, a.day);
+    final db = DateTime(b.year, b.month, b.day);
+    return da.compareTo(db);
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!SupabaseConfig.isConfigured) {
@@ -115,9 +123,21 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
       );
       return;
     }
+    if (_startDate != null &&
+        _dueDate != null &&
+        _dateOnlyCompare(_startDate!, _dueDate!) > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Start date cannot be after due date.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     final assignees = _assigneeIdsForInsert();
-    final err = await SupabaseService.insertTaskTableRow(
+    final creatorKey = context.read<AppState>().userStaffAppId;
+    final ins = await SupabaseService.insertTaskTableRow(
       taskName: _taskNameController.text.trim(),
       assignees: assignees,
       priority: priorityToDisplayName(_priority),
@@ -126,14 +146,15 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
       description: _descController.text.trim().isEmpty
           ? null
           : _descController.text.trim(),
-      active: _active ? 1 : 0,
+      status: _active ? 'Incomplete' : 'Deleted',
+      creatorStaffLookupKey: creatorKey,
     );
     if (!mounted) return;
     setState(() => _submitting = false);
-    if (err != null) {
+    if (ins.error != null) {
       showCopyableSnackBar(
         context,
-        err,
+        ins.error!,
         backgroundColor: Colors.orange,
         duration: const Duration(seconds: 12),
       );
@@ -363,8 +384,8 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
               ),
               const SizedBox(height: 8),
               SwitchListTile(
-                title: const Text('Active'),
-                subtitle: const Text('Off = deleted / inactive (0)'),
+                title: const Text('Normal task'),
+                subtitle: const Text('On: status Incomplete (default). Off: Deleted.'),
                 value: _active,
                 onChanged: (v) => setState(() => _active = v),
               ),

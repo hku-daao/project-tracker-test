@@ -8,6 +8,7 @@ import '../models/sub_task.dart';
 import '../models/deleted_record.dart';
 import '../models/staff_for_assignment.dart';
 import '../models/task.dart';
+import '../utils/hk_time.dart';
 
 class InitiativesLoadResult {
   final List<Initiative> initiatives;
@@ -31,6 +32,8 @@ class TasksLoadResult {
     required this.milestones,
     required this.comments,
   });
+
+  static const empty = TasksLoadResult(tasks: [], milestones: [], comments: []);
 }
 
 class SupabaseService {
@@ -49,6 +52,16 @@ class SupabaseService {
     return DateTime.now();
   }
 
+  static DateTime? _parseDateTimeNullable(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return v;
+    if (v is String) {
+      final p = DateTime.tryParse(v);
+      return p;
+    }
+    return null;
+  }
+
   static TaskStatus _taskStatusFromDb(String? s) {
     switch (s) {
       case 'in_progress':
@@ -58,6 +71,189 @@ class SupabaseService {
       default:
         return TaskStatus.todo;
     }
+  }
+
+  /// Status strings on singular [`task`] (e.g. Incomplete) vs legacy [`tasks`] (todo/in_progress/done).
+  static TaskStatus _taskStatusFromSingularTaskDb(String? s) {
+    final t = s?.trim().toLowerCase() ?? '';
+    if (t == 'done' || t == 'completed' || t == 'complete') return TaskStatus.done;
+    if (t == 'in_progress' || t == 'in progress') return TaskStatus.inProgress;
+    if (t == 'delete' || t == 'deleted') return TaskStatus.todo;
+    return TaskStatus.todo;
+  }
+
+  static String? _updateByDisplayName(
+    Map<String, dynamic> row,
+    Map<String, String> staffUuidToName,
+  ) {
+    final raw = row['update_by']?.toString().trim();
+    if (raw == null || raw.isEmpty) return null;
+    return staffUuidToName[raw] ?? raw;
+  }
+
+  static final Map<String, String> _staffNameCache = {};
+
+  /// Resolves [staff.id] or [staff.app_id] to display name (cached).
+  static Future<String> staffDisplayNameForKey(String key) async {
+    final k = key.trim();
+    if (k.isEmpty) return '';
+    final cached = _staffNameCache[k];
+    if (cached != null) return cached;
+    if (!_enabled) return k;
+    try {
+      final supabase = Supabase.instance.client;
+      final byApp =
+          await supabase.from('staff').select('name').eq('app_id', k).maybeSingle();
+      if (byApp != null) {
+        final n = byApp['name'] as String? ?? k;
+        _staffNameCache[k] = n;
+        return n;
+      }
+      if (_looksLikeUuid(k)) {
+        final byId =
+            await supabase.from('staff').select('name').eq('id', k).maybeSingle();
+        if (byId != null) {
+          final n = byId['name'] as String? ?? k;
+          _staffNameCache[k] = n;
+          return n;
+        }
+      }
+    } catch (_) {}
+    return k;
+  }
+
+  /// Batch resolve assignee keys to names for list subtitles.
+  static Future<Map<String, String>> staffDisplayNamesForKeys(
+      List<String> keys) async {
+    final out = <String, String>{};
+    for (final k in keys.toSet()) {
+      if (k.isEmpty) continue;
+      out[k] = await staffDisplayNameForKey(k);
+    }
+    return out;
+  }
+
+  static Future<Map<String, dynamic>?> fetchSingularTaskById(String taskId) async {
+    if (!_enabled) return null;
+    try {
+      final r = await Supabase.instance.client
+          .from('task')
+          .select()
+          .eq('id', taskId)
+          .maybeSingle();
+      if (r == null) return null;
+      return Map<String, dynamic>.from(r);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Updates one row in singular [`task`]. Pass only fields to change.
+  static Future<String?> updateSingularTaskRow({
+    required String taskId,
+    String? taskName,
+    String? description,
+    String? priority,
+    List<String?>? assigneeSlots,
+    DateTime? startDate,
+    DateTime? dueDate,
+    bool clearStartDate = false,
+    bool clearDueDate = false,
+    String? status,
+    String? updateByStaffLookupKey,
+  }) async {
+    if (!_enabled) return 'Supabase not configured';
+    try {
+      final map = <String, dynamic>{};
+      if (taskName != null) map['task_name'] = taskName;
+      if (description != null) map['description'] = description;
+      if (priority != null) map['priority'] = priority;
+      if (assigneeSlots != null) {
+        for (var i = 0; i < 10; i++) {
+          final key = 'assignee_${(i + 1).toString().padLeft(2, '0')}';
+          final v = i < assigneeSlots.length ? assigneeSlots[i]?.trim() : null;
+          map[key] = (v == null || v.isEmpty) ? null : v;
+        }
+      }
+      if (clearStartDate) {
+        map['start_date'] = null;
+      } else if (startDate != null) {
+        map['start_date'] = HkTime.dateOnlyHkMidnightForDb(startDate);
+      }
+      if (clearDueDate) {
+        map['due_date'] = null;
+      } else if (dueDate != null) {
+        map['due_date'] = HkTime.dateOnlyHkMidnightForDb(dueDate);
+      }
+      if (status != null) map['status'] = status;
+      final lookup = updateByStaffLookupKey?.trim();
+      if (lookup != null && lookup.isNotEmpty) {
+        final staffId = await _staffRowIdForAssigneeKey(lookup);
+        if (staffId != null && staffId.isNotEmpty) {
+          map['update_by'] = staffId;
+          map['update_date'] = HkTime.timestampForDb();
+        }
+      }
+      if (map.isEmpty) return null;
+      await Supabase.instance.client.from('task').update(map).eq('id', taskId);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  static int _priorityFromFlexible(dynamic p) {
+    if (p is num) return p.toInt().clamp(1, 2);
+    final s = p?.toString().trim().toLowerCase() ?? '';
+    if (s.contains('urgent') || s == '2') return 2;
+    return 1;
+  }
+
+  /// Maps a row from singular [`task`] (task_name, assignee_01…) into [Task].
+  /// Includes rows with status `Deleted` for the Deleted tab.
+  static Task? _taskFromSingularTaskRow(
+    Map<String, dynamic> row,
+    Map<String, String> staffUuidToAppId,
+    Map<String, String> teamUuidToAppId,
+    Map<String, String> staffUuidToName,
+  ) {
+    final id = row['id']?.toString() ?? row['task_id']?.toString();
+    if (id == null || id.isEmpty) return null;
+    final statusRaw = row['status']?.toString().trim() ?? '';
+
+    final assigneeIds = <String>[];
+    for (var i = 1; i <= 10; i++) {
+      final key = 'assignee_${i.toString().padLeft(2, '0')}';
+      final v = row[key];
+      if (v == null) continue;
+      final sid = v.toString().trim();
+      if (sid.isEmpty) continue;
+      assigneeIds.add(staffUuidToAppId[sid] ?? sid);
+    }
+
+    final teamUuid = row['team_id']?.toString();
+    String? teamAppId;
+    if (teamUuid != null && teamUuid.isNotEmpty) {
+      teamAppId = teamUuidToAppId[teamUuid];
+    }
+
+    return Task(
+      id: id,
+      teamId: teamAppId,
+      name: row['task_name'] as String? ?? row['name'] as String? ?? '',
+      description: row['description'] as String? ?? '',
+      assigneeIds: assigneeIds,
+      priority: _priorityFromFlexible(row['priority']),
+      startDate: _parseDate(row['start_date']),
+      endDate: _parseDate(row['due_date']) ?? _parseDate(row['end_date']),
+      createdAt: _parseDateTime(row['created_at'] ?? row['create_date']),
+      status: _taskStatusFromSingularTaskDb(row['status'] as String?),
+      progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
+      isSingularTableRow: true,
+      dbStatus: statusRaw.isEmpty ? null : statusRaw,
+      updateByStaffName: _updateByDisplayName(row, staffUuidToName),
+      updateDate: _parseDateTimeNullable(row['update_date']),
+    );
   }
 
   static String _taskStatusToDb(TaskStatus s) {
@@ -268,36 +464,49 @@ class SupabaseService {
   static Future<TasksLoadResult?> fetchTasksFromSupabase() async {
     if (!_enabled) return null;
     try {
-      final maps = await _loadMaps();
-      if (maps == null) return null;
-      final teamUuidToAppId = maps.teamUuidToAppId;
-      final staffUuidToAppId = maps.staffUuidToAppId;
-      final staffUuidToName = maps.staffUuidToName;
+      var teamUuidToAppId = <String, String>{};
+      var staffUuidToAppId = <String, String>{};
+      var staffUuidToName = <String, String>{};
+      try {
+        final maps = await _loadMaps();
+        if (maps != null) {
+          teamUuidToAppId = maps.teamUuidToAppId;
+          staffUuidToAppId = maps.staffUuidToAppId;
+          staffUuidToName = maps.staffUuidToName;
+        }
+      } catch (_) {}
       final supabase = Supabase.instance.client;
 
-      final taskRes =
-          await supabase.from('tasks').select().order('created_at', ascending: false);
-      final taskRows = taskRes as List;
-      if (taskRows.isEmpty) {
-        return const TasksLoadResult(tasks: [], milestones: [], comments: []);
+      final taskRows = <dynamic>[];
+      try {
+        final taskRes =
+            await supabase.from('tasks').select().order('created_at', ascending: false);
+        taskRows.addAll(taskRes as List);
+      } catch (_) {
+        // Plural `tasks` missing, RLS, or unused — still load singular `task` below.
       }
+      final taskIds = taskRows
+          .map((r) => (r as Map)['id'] as String?)
+          .whereType<String>()
+          .toList();
 
-      final taskIds = taskRows.map((r) => r['id'] as String).toList();
-
-      final assignRes = await supabase
-          .from('task_assignees')
-          .select('task_id, staff_id')
-          .inFilter('task_id', taskIds);
       final assignByTask = <String, List<String>>{};
-      for (final row in (assignRes as List)) {
-        final tid = row['task_id'] as String;
-        final sid = row['staff_id'] as String;
-        final appId = staffUuidToAppId[sid] ?? sid;
-        assignByTask.putIfAbsent(tid, () => []).add(appId);
+      if (taskIds.isNotEmpty) {
+        final assignRes = await supabase
+            .from('task_assignees')
+            .select('task_id, staff_id')
+            .inFilter('task_id', taskIds);
+        for (final row in (assignRes as List)) {
+          final tid = row['task_id'] as String;
+          final sid = row['staff_id'] as String;
+          final appId = staffUuidToAppId[sid] ?? sid;
+          assignByTask.putIfAbsent(tid, () => []).add(appId);
+        }
       }
 
       final tasks = <Task>[];
-      for (final row in taskRows) {
+      for (final raw in taskRows) {
+        final row = Map<String, dynamic>.from(raw as Map);
         final id = row['id'] as String;
         final teamUuid = row['team_id'] as String?;
         final teamAppId =
@@ -317,52 +526,91 @@ class SupabaseService {
         ));
       }
 
-      List<Milestone> milestones = [];
+      // Rows created by [insertTaskTableRow] live in singular [`task`], not [`tasks`].
+      final singularTasks = <Task>[];
       try {
-        final mileRes = await supabase
-            .from('task_milestones')
-            .select()
-            .inFilter('task_id', taskIds);
-        for (final row in (mileRes as List)) {
-          milestones.add(Milestone(
-            id: row['id'] as String,
-            taskId: row['task_id'] as String,
-            label: row['label'] as String? ?? '',
-            progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
-            isCompleted: row['is_completed'] as bool? ?? false,
-            completedAt: _parseDate(row['completed_at']),
-          ));
+        dynamic singularRes;
+        try {
+          singularRes =
+              await supabase.from('task').select().order('created_at', ascending: false);
+        } catch (_) {
+          try {
+            singularRes =
+                await supabase.from('task').select().order('create_date', ascending: false);
+          } catch (_) {
+            singularRes = await supabase.from('task').select();
+          }
+        }
+        for (final raw in (singularRes as List)) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          final t = _taskFromSingularTaskRow(
+              row, staffUuidToAppId, teamUuidToAppId, staffUuidToName);
+          if (t != null) singularTasks.add(t);
         }
       } catch (_) {
-        // table may not exist yet
+        // table missing or RLS
       }
 
-      final commRes = await supabase
-          .from('comments')
-          .select()
-          .eq('entity_type', 'task')
-          .inFilter('entity_id', taskIds)
-          .order('created_at');
+      final byId = <String, Task>{};
+      for (final t in tasks) {
+        byId[t.id] = t;
+      }
+      for (final t in singularTasks) {
+        byId.putIfAbsent(t.id, () => t);
+      }
+      final merged = byId.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      List<Milestone> milestones = [];
+      if (taskIds.isNotEmpty) {
+        try {
+          final mileRes = await supabase
+              .from('task_milestones')
+              .select()
+              .inFilter('task_id', taskIds);
+          for (final row in (mileRes as List)) {
+            milestones.add(Milestone(
+              id: row['id'] as String,
+              taskId: row['task_id'] as String,
+              label: row['label'] as String? ?? '',
+              progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
+              isCompleted: row['is_completed'] as bool? ?? false,
+              completedAt: _parseDate(row['completed_at']),
+            ));
+          }
+        } catch (_) {
+          // table may not exist yet
+        }
+      }
+
       final comments = <TaskComment>[];
-      for (final row in (commRes as List)) {
-        final authorId = row['author_id'] as String;
-        comments.add(TaskComment(
-          id: row['id'] as String,
-          taskId: row['entity_id'] as String,
-          authorId: staffUuidToAppId[authorId] ?? authorId,
-          authorName: staffUuidToName[authorId] ?? authorId,
-          body: row['body'] as String? ?? '',
-          createdAt: _parseDateTime(row['created_at']),
-        ));
+      if (taskIds.isNotEmpty) {
+        final commRes = await supabase
+            .from('comments')
+            .select()
+            .eq('entity_type', 'task')
+            .inFilter('entity_id', taskIds)
+            .order('created_at');
+        for (final row in (commRes as List)) {
+          final authorId = row['author_id'] as String;
+          comments.add(TaskComment(
+            id: row['id'] as String,
+            taskId: row['entity_id'] as String,
+            authorId: staffUuidToAppId[authorId] ?? authorId,
+            authorName: staffUuidToName[authorId] ?? authorId,
+            body: row['body'] as String? ?? '',
+            createdAt: _parseDateTime(row['created_at']),
+          ));
+        }
       }
 
       return TasksLoadResult(
-        tasks: tasks,
+        tasks: merged,
         milestones: milestones,
         comments: comments,
       );
     } catch (_) {
-      return null;
+      return TasksLoadResult.empty;
     }
   }
 
@@ -431,6 +679,23 @@ class SupabaseService {
     return out.take(10).toList();
   }
 
+  /// Returns [staff.app_id] when set, else [staffUuid] — matches how [Task.assigneeIds] is stored after fetch.
+  static Future<String> assigneeListKeyFromStaffUuid(String staffUuid) async {
+    final u = staffUuid.trim();
+    if (u.isEmpty) return u;
+    if (!_enabled) return u;
+    try {
+      final r = await Supabase.instance.client
+          .from('staff')
+          .select('app_id')
+          .eq('id', u)
+          .maybeSingle();
+      final app = r?['app_id'] as String?;
+      if (app != null && app.trim().isNotEmpty) return app.trim();
+    } catch (_) {}
+    return u;
+  }
+
   static Future<String?> _staffRowIdForAssigneeKey(String key) async {
     final k = key.trim();
     if (k.isEmpty) return null;
@@ -473,18 +738,24 @@ class SupabaseService {
 
   /// Inserts one row into the singular [`task`] table (not legacy [`tasks`]).
   /// [assignees] — up to 10 values, each the string form of **`staff.id`** (uuid).
-  static Future<String?> insertTaskTableRow({
+  /// [status] — must match your DB `task.status` constraint (default `Incomplete`).
+  /// [creatorStaffLookupKey] — `staff.app_id` or `staff.id` (uuid); sets `create_by` to
+  /// resolved **`staff.id`** and `create_date` to now. `update_by` / `update_date` left unset (NULL).
+  ///
+  /// Returns `(error, taskId)` — [error] if insert failed, else [taskId] from the new row.
+  static Future<({String? error, String? taskId})> insertTaskTableRow({
     required String taskName,
     List<String?> assignees = const [],
     String? priority,
     DateTime? startDate,
     DateTime? dueDate,
     String? description,
-    int active = 1,
+    String status = 'Incomplete',
+    String? creatorStaffLookupKey,
   }) async {
-    if (!_enabled) return 'Supabase not configured';
+    if (!_enabled) return (error: 'Supabase not configured', taskId: null);
     final name = taskName.trim();
-    if (name.isEmpty) return 'task_name is required';
+    if (name.isEmpty) return (error: 'task_name is required', taskId: null);
     try {
       var padded = List<String?>.from(assignees);
       while (padded.length < 10) {
@@ -493,17 +764,27 @@ class SupabaseService {
       if (padded.length > 10) {
         padded = padded.sublist(0, 10);
       }
+      final s = status.trim();
+      if (s.isEmpty) return (error: 'status is required', taskId: null);
       final map = <String, dynamic>{
         'task_name': name,
         'priority': priority,
         'description': description,
-        'active': active.clamp(0, 1),
+        'status': s,
       };
+      final lookup = creatorStaffLookupKey?.trim();
+      if (lookup != null && lookup.isNotEmpty) {
+        final staffId = await _staffRowIdForAssigneeKey(lookup);
+        if (staffId != null && staffId.isNotEmpty) {
+          map['create_by'] = staffId;
+          map['create_date'] = HkTime.timestampForDb();
+        }
+      }
       if (startDate != null) {
-        map['start_date'] = startDate.toUtc().toIso8601String();
+        map['start_date'] = HkTime.dateOnlyHkMidnightForDb(startDate);
       }
       if (dueDate != null) {
-        map['due_date'] = dueDate.toUtc().toIso8601String();
+        map['due_date'] = HkTime.dateOnlyHkMidnightForDb(dueDate);
       }
       for (var i = 0; i < 10; i++) {
         final raw = padded[i]?.trim();
@@ -511,7 +792,43 @@ class SupabaseService {
           map['assignee_${(i + 1).toString().padLeft(2, '0')}'] = raw;
         }
       }
-      await Supabase.instance.client.from('task').insert(map);
+      final res = await Supabase.instance.client
+          .from('task')
+          .insert(map)
+          .select('id')
+          .maybeSingle();
+      final id = res?['id']?.toString();
+      return (error: null, taskId: id);
+    } catch (e) {
+      return (error: e.toString(), taskId: null);
+    }
+  }
+
+  /// Inserts into `public."comment"` (singular table name in Postgres).
+  static Future<String?> insertSingularCommentRow({
+    required String taskId,
+    required String description,
+    String status = '',
+    String? creatorStaffLookupKey,
+  }) async {
+    if (!_enabled) return 'Supabase not configured';
+    final d = description.trim();
+    if (d.isEmpty) return null;
+    try {
+      final map = <String, dynamic>{
+        'task_id': taskId,
+        'description': d,
+        'status': status,
+        'create_date': HkTime.todayDateOnlyForDb(),
+      };
+      final lookup = creatorStaffLookupKey?.trim();
+      if (lookup != null && lookup.isNotEmpty) {
+        final staffId = await _staffRowIdForAssigneeKey(lookup);
+        if (staffId != null && staffId.isNotEmpty) {
+          map['create_by'] = staffId;
+        }
+      }
+      await Supabase.instance.client.from('comment').insert(map);
       return null;
     } catch (e) {
       return e.toString();

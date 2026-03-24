@@ -46,6 +46,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     });
   }
 
+  static int _dateOnlyCompare(DateTime a, DateTime b) {
+    final da = DateTime(a.year, a.month, a.day);
+    final db = DateTime(b.year, b.month, b.day);
+    return da.compareTo(db);
+  }
+
   Future<void> _loadSupabaseAssigneePicker() async {
     if (!SupabaseConfig.isConfigured) return;
     setState(() {
@@ -259,6 +265,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final capturedEnd = _endDate;
     final commentText = _commentsController.text.trim();
 
+    if (capturedStart != null &&
+        capturedEnd != null &&
+        _dateOnlyCompare(capturedStart, capturedEnd) > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Start date cannot be after due date.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     final localId = state.addTask(
       name: name,
       description: description,
@@ -271,40 +289,60 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
 
     String? cloudErr;
+    String? insertedTaskId;
     if (SupabaseConfig.isConfigured) {
       final slots = await SupabaseService.assigneeSlotsForTask(directorIds);
-      cloudErr = await SupabaseService.insertTaskTableRow(
+      final ins = await SupabaseService.insertTaskTableRow(
         taskName: name,
         assignees: slots,
         priority: priorityToDisplayName(priority),
         startDate: capturedStart,
         dueDate: capturedEnd,
         description: description.isEmpty ? null : description,
-        active: 1,
+        status: 'Incomplete',
+        creatorStaffLookupKey: state.userStaffAppId,
       );
+      cloudErr = ins.error;
+      insertedTaskId = ins.taskId;
     }
 
     if (commentText.isNotEmpty) {
-      // Attribute to the logged-in user, not the first selected director.
-      final userId = state.userStaffAppId;
-      final String authorId;
-      final String authorName;
-      if (userId != null && userId.isNotEmpty) {
-        authorId = userId;
-        authorName = state.assigneeById(userId)?.name ?? userId;
-      } else {
-        authorId = directorIds.isNotEmpty
-            ? directorIds.first
-            : state.assignees.first.id;
-        final author = state.assigneeById(authorId);
-        authorName = author?.name ?? authorId;
+      if (SupabaseConfig.isConfigured && cloudErr == null && insertedTaskId != null) {
+        final cErr = await SupabaseService.insertSingularCommentRow(
+          taskId: insertedTaskId,
+          description: commentText,
+          creatorStaffLookupKey: state.userStaffAppId,
+        );
+        if (!mounted) return;
+        if (cErr != null) {
+          showCopyableSnackBar(
+            context,
+            'Task created, but comment was not saved: $cErr',
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 10),
+          );
+        }
+      } else if (!SupabaseConfig.isConfigured) {
+        final userId = state.userStaffAppId;
+        final String authorId;
+        final String authorName;
+        if (userId != null && userId.isNotEmpty) {
+          authorId = userId;
+          authorName = state.assigneeById(userId)?.name ?? userId;
+        } else {
+          authorId = directorIds.isNotEmpty
+              ? directorIds.first
+              : state.assignees.first.id;
+          final author = state.assigneeById(authorId);
+          authorName = author?.name ?? authorId;
+        }
+        state.addComment(
+          taskId: localId,
+          authorId: authorId,
+          authorName: authorName,
+          body: commentText,
+        );
       }
-      state.addComment(
-        taskId: localId,
-        authorId: authorId,
-        authorName: authorName,
-        body: commentText,
-      );
     }
 
     _nameController.clear();
@@ -719,8 +757,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             TextFormField(
               controller: _commentsController,
               decoration: const InputDecoration(
-                labelText: 'Updates/ Comments',
-                hintText: 'Updates/ Comments',
+                labelText: 'Comments',
+                hintText: 'Comments',
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),

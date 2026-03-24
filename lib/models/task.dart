@@ -31,6 +31,18 @@ class Task {
   final List<Milestone> milestones;
   final List<TaskComment> comments;
 
+  /// True when this row comes from singular [`task`] (not legacy [`tasks`]).
+  final bool isSingularTableRow;
+
+  /// Raw `task.status` from DB for singular table (e.g. Incomplete, Completed).
+  final String? dbStatus;
+
+  /// Last updater display name (singular `task.update_by` → `staff.name`).
+  final String? updateByStaffName;
+
+  /// Last update time from singular `task.update_date`.
+  final DateTime? updateDate;
+
   const Task({
     required this.id,
     this.teamId,
@@ -45,6 +57,10 @@ class Task {
     this.progressPercent = 0,
     this.milestones = const [],
     this.comments = const [],
+    this.isSingularTableRow = false,
+    this.dbStatus,
+    this.updateByStaffName,
+    this.updateDate,
   });
 
   Task copyWith({
@@ -61,6 +77,10 @@ class Task {
     int? progressPercent,
     List<Milestone>? milestones,
     List<TaskComment>? comments,
+    bool? isSingularTableRow,
+    String? dbStatus,
+    String? updateByStaffName,
+    DateTime? updateDate,
   }) {
     return Task(
       id: id ?? this.id,
@@ -76,6 +96,10 @@ class Task {
       progressPercent: progressPercent ?? this.progressPercent,
       milestones: milestones ?? this.milestones,
       comments: comments ?? this.comments,
+      isSingularTableRow: isSingularTableRow ?? this.isSingularTableRow,
+      dbStatus: dbStatus ?? this.dbStatus,
+      updateByStaffName: updateByStaffName ?? this.updateByStaffName,
+      updateDate: updateDate ?? this.updateDate,
     );
   }
 
