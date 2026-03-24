@@ -72,7 +72,7 @@ class _LowLevelTaskListScreenState extends State<LowLevelTaskListScreen> {
                 value: null,
                 child: Text('All tasks'),
               ),
-              ...AppState.teams.map(
+              ...context.watch<AppState>().teams.map(
                 (Team team) => DropdownMenuItem<String?>(
                   value: team.id,
                   child: Text(team.name),

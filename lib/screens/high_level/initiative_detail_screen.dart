@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../app_state.dart';
+import '../../models/comment.dart';
 import '../../models/initiative.dart';
 import '../../models/sub_task.dart';
 import '../../priority.dart';
@@ -66,7 +67,10 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                       runSpacing: 4,
                       children: [
                         _Chip(label: priorityToDisplayName(init.priority)),
-                        _Chip(label: '$progress%'),
+                        _Chip(
+                          label: '$progress%',
+                          backgroundColor: _progressColor(progress),
+                        ),
                         if (init.startDate != null)
                           _Chip(
                               label:
@@ -77,7 +81,13 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                                   'Due ${DateFormat.yMMMd().format(init.endDate!)}'),
                         ...init.directorIds.map((id) {
                           final a = state.assigneeById(id);
-                          return _Chip(label: a?.name ?? id);
+                          final isDirector = state.isDirector(id);
+                          return _Chip(
+                            label: a?.name ?? id,
+                            backgroundColor: isDirector
+                                ? Colors.lightBlue.shade100
+                                : Colors.purple.shade100,
+                          );
                         }),
                       ],
                     ),
@@ -93,10 +103,36 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
               value: progress / 100,
               minHeight: 10,
               borderRadius: BorderRadius.circular(4),
+              valueColor: AlwaysStoppedAnimation<Color>(_progressColor(progress)),
+              backgroundColor: _progressColor(progress).withValues(alpha: 0.3),
             ),
             const SizedBox(height: 8),
             Text('$progress%',
                 style: Theme.of(context).textTheme.titleMedium),
+            if (subTasks.isEmpty) ...[
+              const SizedBox(height: 8),
+              progress >= 100
+                  ? OutlinedButton.icon(
+                      onPressed: () {
+                        state.markInitiativeIncomplete(init.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Marked incomplete')),
+                        );
+                      },
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: const Text('Mark incomplete'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: () {
+                        state.markInitiativeComplete(init.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Marked as complete')),
+                        );
+                      },
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: const Text('Mark Initiative/ Task complete'),
+                    ),
+            ],
             if (subTasks.isNotEmpty) ...[
               const SizedBox(height: 12),
               ...subTasks.map((s) => _SubTaskRow(
@@ -139,32 +175,29 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                   )),
             ],
             const SizedBox(height: 24),
-            const Text('Comments',
+            const Text('Updates/ Comments',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             TextField(
               controller: _commentController,
               decoration: const InputDecoration(
-                hintText: 'Add a comment...',
+                hintText: 'Add an update/ comment…',
                 border: OutlineInputBorder(),
               ),
               maxLines: 3,
             ),
             const SizedBox(height: 8),
-            FilledButton(
+            FilledButton.icon(
               onPressed: () => _addComment(context, state, init),
-              child: const Text('Post comment'),
+              icon: const Icon(Icons.add),
+              label: const Text('Add update/ comment'),
             ),
             const SizedBox(height: 16),
-            ...comments.map((c) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(c.body),
-                    subtitle: Text(
-                      '${c.authorName} · ${DateFormat.yMMMd().add_Hm().format(c.createdAt)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
+            ...comments.map((c) => _CommentCard(
+                  comment: c,
+                  state: state,
+                  onEdit: () => _editComment(context, state, c),
+                  onDelete: () => _deleteComment(context, state, c),
                 )),
           ],
         ),
@@ -172,23 +205,94 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
     );
   }
 
+  static Color _progressColor(int percent) {
+    if (percent >= 100) return Colors.green;
+    if (percent >= 50) return Color.lerp(Colors.yellow, Colors.green, (percent - 50) / 50)!;
+    return Color.lerp(Colors.red, Colors.yellow, percent / 50)!;
+  }
+
   void _addComment(
       BuildContext context, AppState state, Initiative init) {
     final body = _commentController.text.trim();
     if (body.isEmpty) return;
-    final authorId = init.directorIds.isNotEmpty
-        ? init.directorIds.first
-        : state.assignees.first.id;
-    final author = state.assigneeById(authorId);
+    // Attribute to the logged-in user (from /api/me), not the first director.
+    final userId = state.userStaffAppId;
+    final String authorId;
+    final String authorName;
+    if (userId != null && userId.isNotEmpty) {
+      authorId = userId;
+      authorName = state.assigneeById(userId)?.name ?? userId;
+    } else {
+      authorId = init.directorIds.isNotEmpty
+          ? init.directorIds.first
+          : state.assignees.first.id;
+      final author = state.assigneeById(authorId);
+      authorName = author?.name ?? authorId;
+    }
     state.addComment(
       taskId: init.id,
       authorId: authorId,
-      authorName: author?.name ?? authorId,
+      authorName: authorName,
       body: body,
     );
     _commentController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Comment added')));
+        const SnackBar(content: Text('Update/ comment added')));
+  }
+
+  void _editComment(BuildContext context, AppState state, TaskComment c) {
+    final controller = TextEditingController(text: c.body);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit update/ comment'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newBody = controller.text.trim();
+              if (newBody.isNotEmpty) state.updateComment(c.id, newBody);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteComment(BuildContext context, AppState state, TaskComment c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete update/ comment'),
+        content: const Text('Remove this update/ comment?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () {
+              state.deleteComment(c.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showAddSubTask(
@@ -209,15 +313,30 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               if (labelController.text.trim().isEmpty) return;
-              state.addSubTask(
+              final err = await state.addSubTask(
                 initiativeId: initiativeId,
                 label: labelController.text.trim(),
               );
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sub-task added')));
+              if (!context.mounted) return;
+              if (err != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Sub-task kept locally only. Cloud: $err',
+                    ),
+                    backgroundColor: Colors.orange,
+                    duration: const Duration(seconds: 10),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Sub-task added')),
+                );
+              }
             },
             child: const Text('Add'),
           ),
@@ -303,11 +422,63 @@ class _SubTaskRow extends StatelessWidget {
 
 class _Chip extends StatelessWidget {
   final String label;
+  final Color? backgroundColor;
 
-  const _Chip({required this.label});
+  const _Chip({required this.label, this.backgroundColor});
 
   @override
   Widget build(BuildContext context) {
-    return Chip(label: Text(label));
+    return Chip(
+      label: Text(label),
+      backgroundColor: backgroundColor,
+    );
+  }
+}
+
+class _CommentCard extends StatelessWidget {
+  final TaskComment comment;
+  final AppState state;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _CommentCard({
+    required this.comment,
+    required this.state,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  static const Duration _editWindow = Duration(hours: 1);
+
+  @override
+  Widget build(BuildContext context) {
+    final canEdit = DateTime.now().difference(comment.createdAt) < _editWindow;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(comment.body),
+        subtitle: Text(
+          '${comment.authorName} · ${DateFormat.yMMMd().add_Hm().format(comment.createdAt)}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        trailing: canEdit
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: onEdit,
+                    tooltip: 'Edit',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: onDelete,
+                    tooltip: 'Delete',
+                  ),
+                ],
+              )
+            : null,
+      ),
+    );
   }
 }

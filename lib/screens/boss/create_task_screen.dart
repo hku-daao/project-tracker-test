@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../app_state.dart';
+import '../../models/task.dart';
 import '../../priority.dart';
+import '../../config/supabase_config.dart';
+import '../../services/supabase_service.dart';
+import '../../utils/copyable_snackbar.dart';
 
 class CreateTaskScreen extends StatefulWidget {
   const CreateTaskScreen({super.key});
@@ -26,7 +30,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedAssigneeIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -34,13 +38,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       );
       return;
     }
-    context.read<AppState>().addTask(
-          name: _nameController.text.trim(),
-          description: _descController.text.trim(),
-          assigneeIds: _selectedAssigneeIds.toList(),
-          priority: _priority,
-          startDate: _startDate,
-          endDate: _endDate,
+    final assigneeIds = _selectedAssigneeIds.toList();
+    final name = _nameController.text.trim();
+    final description = _descController.text.trim();
+    final priority = _priority;
+    final start = _startDate;
+    final end = _endDate;
+
+    final id = context.read<AppState>().addTask(
+          name: name,
+          description: description,
+          assigneeIds: assigneeIds,
+          priority: priority,
+          startDate: start,
+          endDate: end,
         );
     _nameController.clear();
     _descController.clear();
@@ -50,9 +61,39 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _startDate = null;
       _endDate = null;
     });
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Task created')),
     );
+    if (SupabaseConfig.isConfigured) {
+      final err = await SupabaseService.insertTask(
+        taskId: id,
+        teamId: null,
+        assigneeIds: assigneeIds,
+        name: name,
+        description: description,
+        priority: priority,
+        status: TaskStatus.todo,
+        startDate: start,
+        endDate: end,
+      );
+      if (!mounted) return;
+      if (err != null) {
+        showCopyableSnackBar(
+          context,
+          'Supabase: $err',
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 12),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Task synced to Supabase'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
 
   @override

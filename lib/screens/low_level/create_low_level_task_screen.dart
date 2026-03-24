@@ -4,6 +4,9 @@ import '../../app_state.dart';
 import '../../models/task.dart';
 import '../../models/team.dart';
 import '../../priority.dart';
+import '../../config/supabase_config.dart';
+import '../../services/supabase_service.dart';
+import '../../utils/copyable_snackbar.dart';
 
 /// Low-level view: Directors assign tasks to Responsible Officers (Planner-style).
 class CreateLowLevelTaskScreen extends StatefulWidget {
@@ -39,7 +42,7 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
     return context.read<AppState>().getOfficersForTeam(_selectedTeamId!);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedTeamId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,15 +65,24 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
       );
       return;
     }
-    context.read<AppState>().addTask(
-          name: _nameController.text.trim(),
-          description: _descController.text.trim(),
-          assigneeIds: _selectedOfficerIds.toList(),
-          priority: _priority,
-          teamId: _selectedTeamId,
-          status: _status,
-          startDate: _startDate,
-          endDate: _endDate,
+    final teamId = _selectedTeamId!;
+    final assigneeIds = _selectedOfficerIds.toList();
+    final name = _nameController.text.trim();
+    final description = _descController.text.trim();
+    final priority = _priority;
+    final status = _status;
+    final start = _startDate;
+    final end = _endDate;
+
+    final id = context.read<AppState>().addTask(
+          name: name,
+          description: description,
+          assigneeIds: assigneeIds,
+          priority: priority,
+          teamId: teamId,
+          status: status,
+          startDate: start,
+          endDate: end,
         );
     _nameController.clear();
     _descController.clear();
@@ -83,9 +95,39 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
       _startDate = null;
       _endDate = null;
     });
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Task created')),
     );
+    if (SupabaseConfig.isConfigured) {
+      final err = await SupabaseService.insertTask(
+        taskId: id,
+        teamId: teamId,
+        assigneeIds: assigneeIds,
+        name: name,
+        description: description,
+        priority: priority,
+        status: status,
+        startDate: start,
+        endDate: end,
+      );
+      if (!mounted) return;
+      if (err != null) {
+        showCopyableSnackBar(
+          context,
+          'Supabase: $err',
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 12),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Task synced to Supabase'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -110,7 +152,7 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
                   value: null,
                   child: Text('Select team'),
                 ),
-                ...AppState.teams.map(
+                ...context.watch<AppState>().teams.map(
                   (Team t) => DropdownMenuItem<String?>(
                     value: t.id,
                     child: Text(t.name),
@@ -273,7 +315,8 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
             TextFormField(
               controller: _commentsController,
               decoration: const InputDecoration(
-                labelText: 'Comments',
+                labelText: 'Updates/ Comments',
+                hintText: 'Add an update/ comment…',
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),

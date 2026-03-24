@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import 'models/assignee.dart';
+import 'models/staff_team_lookup.dart';
 import 'models/comment.dart';
 import 'models/deleted_record.dart';
 import 'models/initiative.dart';
@@ -9,69 +11,18 @@ import 'models/task.dart';
 import 'models/reminder.dart';
 import 'models/team.dart';
 import 'priority.dart';
+import 'services/backend_api.dart';
+import 'services/supabase_service.dart';
 
 /// Global app state: initiatives (high-level), tasks (low-level), assignees, teams, comments, milestones.
 class AppState extends ChangeNotifier {
-  final List<Assignee> _assignees = [
-    // Directors
-    const Assignee(id: 'may', name: 'May Wong'),
-    const Assignee(id: 'olive', name: 'Olive Wong'),
-    const Assignee(id: 'janice', name: 'Janice Chan'),
-    const Assignee(id: 'ken', name: 'Ken Lee'),
-    const Assignee(id: 'monica', name: 'Monica Wong'),
-    // Alumni Team – Responsible Officers
-    const Assignee(id: 'funa', name: 'Funa Li'),
-    const Assignee(id: 'anthony_tai', name: 'Anthony Tai'),
-    const Assignee(id: 'holly_tang', name: 'Holly Tang'),
-    const Assignee(id: 'sally_oh', name: 'Sally Oh Yea Won'),
-    const Assignee(id: 'sally_cheng', name: 'Sally Cheng'),
-    const Assignee(id: 'rui_wang', name: 'Rui Wang'),
-    const Assignee(id: 'i_ki_chan', name: 'I Ki Chan'),
-    const Assignee(id: 'janelle_wong', name: 'Janelle Wong'),
-    const Assignee(id: 'carol_luk', name: 'Carol Luk'),
-    // Fundraising Team – Responsible Officers
-    const Assignee(id: 'charlotte_siu', name: 'Charlotte Siu'),
-    const Assignee(id: 'eva_tang', name: 'Eva Tang'),
-    const Assignee(id: 'katerina', name: 'Katerina Au'),
-    const Assignee(id: 'elaine_lam', name: 'Elaine Lam'),
-    const Assignee(id: 'judi_tsang', name: 'Judi Tsang'),
-    const Assignee(id: 'kelly_lee', name: 'Kelly Lee'),
-    const Assignee(id: 'melody_tang', name: 'Melody Tang'),
-    const Assignee(id: 'aura_lu', name: 'Aura Lu'),
-    // Advancement Intelligence Team – Responsible Officers
-    const Assignee(id: 'calvin_lee', name: 'Calvin Lee'),
-    const Assignee(id: 'lunan_chow', name: 'Lunan Chow'),
-    const Assignee(id: 'ken_wong', name: 'Ken Wong'),
-    const Assignee(id: 'waikay_pang', name: 'Wai-kay Pang'),
-  ];
+  /// Staff members loaded from database (via /api/staff).
+  final List<Assignee> _assignees = [];
 
-  /// Teams with hierarchy: Directors and Responsible Officers (2.1.2, 2.1.3).
-  static const List<Team> teams = [
-    Team(
-      id: 'alumni',
-      name: 'Alumni Team',
-      directorIds: ['monica'],
-      officerIds: [
-        'funa', 'anthony_tai', 'holly_tang', 'sally_oh', 'sally_cheng',
-        'rui_wang', 'i_ki_chan', 'janelle_wong', 'carol_luk',
-      ],
-    ),
-    Team(
-      id: 'fundraising',
-      name: 'Fundraising Team',
-      directorIds: ['may', 'olive', 'janice'],
-      officerIds: [
-        'charlotte_siu', 'eva_tang', 'katerina', 'elaine_lam', 'judi_tsang',
-        'kelly_lee', 'melody_tang', 'aura_lu',
-      ],
-    ),
-    Team(
-      id: 'advancement_intel',
-      name: 'Advancement Intelligence Team',
-      directorIds: ['ken'],
-      officerIds: ['calvin_lee', 'lunan_chow', 'ken_wong', 'waikay_pang'],
-    ),
-  ];
+  /// Teams with hierarchy loaded from database (via /api/teams).
+  List<Team> _teams = [];
+
+  List<Team> get teams => List.unmodifiable(_teams);
 
   final List<Initiative> _initiatives = [];
   final List<Task> _tasks = [];
@@ -80,16 +31,118 @@ class AppState extends ChangeNotifier {
   final List<SubTask> _subTasks = [];
   final List<DeletedSubTaskRecord> _deletedSubTasks = [];
   final List<DeletedTaskRecord> _deletedTasks = [];
+  final Set<String> _manuallyCompletedInitiatives = {};
 
-  int _initiativeIdCounter = 1;
-  int _taskIdCounter = 1;
-  int _commentIdCounter = 1;
-  int _milestoneIdCounter = 1;
-  int _subTaskIdCounter = 1;
+  /// RBAC: from backend /api/me (server-enforced).
+  String? _userRole;
+  String? _userStaffAppId;
+  List<AssignableStaffEntry> _assignableStaffFromServer = [];
+
+  /// Revamp step 1: staff + team lookup by login email (Supabase).
+  StaffTeamLookupResult? _revampStaffLookup;
+
+  StaffTeamLookupResult? get revampStaffLookup => _revampStaffLookup;
+
+  void setRevampStaffLookup(StaffTeamLookupResult? v) {
+    _revampStaffLookup = v;
+    notifyListeners();
+  }
+
+  String? get userRole => _userRole;
+  String? get userStaffAppId => _userStaffAppId;
+  List<AssignableStaffEntry> get assignableStaffFromServer =>
+      List.unmodifiable(_assignableStaffFromServer);
+
+  /// sys_admin and dept_head see High-level View and Low-level View (with segment labels).
+  bool get canSeeHighLevelView =>
+      _userRole == 'sys_admin' || _userRole == 'dept_head';
+
+  /// All roles see Low-level View (Initiatives/ Tasks, Create, My Initiatives/ Tasks).
+  bool get canSeeLowLevelView => true;
+
+  void setUserProfile({
+    String? role,
+    String? staffAppId,
+    List<AssignableStaffEntry>? assignableStaff,
+  }) {
+    _userRole = role;
+    _userStaffAppId = staffAppId;
+    _assignableStaffFromServer = assignableStaff ?? [];
+    notifyListeners();
+  }
+
+  /// Load teams and staff from backend. Call this after user authentication.
+  Future<void> loadTeamsAndStaff(String idToken) async {
+    try {
+      final api = BackendApi();
+      final [teamsData, staffData] = await Future.wait([
+        api.getTeams(idToken),
+        api.getStaff(idToken),
+      ]);
+
+      debugPrint('AppState.loadTeamsAndStaff: teams=${teamsData.length}, staff=${staffData.length}');
+
+      // Update teams
+      _teams = teamsData.map((t) {
+        final directorIds = (t['directorIds'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+        final officerIds = (t['officerIds'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+        return Team(
+          id: t['id']?.toString() ?? '',
+          name: t['name']?.toString() ?? '',
+          directorIds: directorIds,
+          officerIds: officerIds,
+        );
+      }).toList();
+
+      // Update assignees
+      _assignees.clear();
+      _assignees.addAll(staffData.map((s) {
+        return Assignee(
+          id: s['id']?.toString() ?? '',
+          name: s['name']?.toString() ?? '',
+        );
+      }));
+
+      debugPrint('AppState.loadTeamsAndStaff: Loaded ${_teams.length} teams, ${_assignees.length} assignees');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to load teams and staff: $e');
+    }
+  }
 
   List<Assignee> get assignees => List.unmodifiable(_assignees);
 
   List<Initiative> get initiatives => List.unmodifiable(_initiatives);
+
+  /// Replace initiatives (and related sub-tasks/comments) from Supabase after fetch.
+  void applyInitiativesFromSupabase(InitiativesLoadResult result) {
+    final ids = result.initiatives.map((e) => e.id).toSet();
+    _comments.removeWhere((c) => ids.contains(c.taskId));
+    _comments.addAll(result.comments);
+    _subTasks.removeWhere((s) => ids.contains(s.initiativeId));
+    _subTasks.addAll(result.subTasks);
+    _initiatives.clear();
+    _initiatives.addAll(result.initiatives);
+    notifyListeners();
+  }
+
+  /// Replace tasks, task milestones, and task comments from Supabase after fetch.
+  void applyTasksFromSupabase(TasksLoadResult result) {
+    final ids = result.tasks.map((t) => t.id).toSet();
+    _comments.removeWhere((c) => ids.contains(c.taskId));
+    _comments.addAll(result.comments);
+    _milestones.removeWhere((m) => ids.contains(m.taskId));
+    _milestones.addAll(result.milestones);
+    _tasks.clear();
+    _tasks.addAll(result.tasks);
+    notifyListeners();
+  }
 
   List<Task> get tasks {
     return _tasks.map((t) => _taskWithCommentsAndMilestones(t)).toList();
@@ -156,12 +209,23 @@ class AppState extends ChangeNotifier {
         .toList();
   }
 
-  /// Overall progress % for an initiative (from sub-tasks: completed / total).
+  /// Overall progress % for an initiative (from sub-tasks, or 100 if manually completed).
   int initiativeProgressPercent(String initiativeId) {
+    if (_manuallyCompletedInitiatives.contains(initiativeId)) return 100;
     final st = subTasksForInitiative(initiativeId);
     if (st.isEmpty) return 0;
     final completed = st.where((s) => s.isCompleted).length;
     return ((completed / st.length) * 100).round().clamp(0, 100);
+  }
+
+  void markInitiativeComplete(String initiativeId) {
+    _manuallyCompletedInitiatives.add(initiativeId);
+    notifyListeners();
+  }
+
+  void markInitiativeIncomplete(String initiativeId) {
+    _manuallyCompletedInitiatives.remove(initiativeId);
+    notifyListeners();
   }
 
   Task? taskById(String id) {
@@ -171,6 +235,11 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  /// True if this assignee is a Director (supervisor level) in any team.
+  bool isDirector(String assigneeId) {
+    return teams.any((t) => t.directorIds.contains(assigneeId));
   }
 
   List<Assignee> getDirectorsForTeam(String teamId) {
@@ -183,6 +252,25 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return [];
     }
+  }
+
+  /// Directors + Officers for given team ids, sorted by name (ascending).
+  List<Assignee> getAssigneesForTeams(List<String> teamIds) {
+    final seen = <String>{};
+    final list = <Assignee>[];
+    for (final tid in teamIds) {
+      try {
+        final team = teams.firstWhere((t) => t.id == tid);
+        for (final id in [...team.directorIds, ...team.officerIds]) {
+          if (seen.add(id)) {
+            final a = assigneeById(id);
+            if (a != null) list.add(a);
+          }
+        }
+      } catch (_) {}
+    }
+    list.sort((a, b) => a.name.compareTo(b.name));
+    return list;
   }
 
   List<Assignee> getOfficersForTeam(String teamId) {
@@ -277,7 +365,8 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  void addInitiative({
+  /// Returns the new initiative id (UUID). Supabase sync is done by the caller.
+  String addInitiative({
     required String teamId,
     required List<String> directorIds,
     required String name,
@@ -286,7 +375,7 @@ class AppState extends ChangeNotifier {
     DateTime? startDate,
     DateTime? endDate,
   }) {
-    final id = 'init_${_initiativeIdCounter++}';
+    final id = const Uuid().v4();
     _initiatives.add(Initiative(
       id: id,
       teamId: teamId,
@@ -299,6 +388,7 @@ class AppState extends ChangeNotifier {
       createdAt: DateTime.now(),
     ));
     notifyListeners();
+    return id;
   }
 
   void updateInitiative(String id, {String? teamId, List<String>? directorIds, String? name, String? description, int? priority, DateTime? startDate, DateTime? endDate}) {
@@ -316,7 +406,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addTask({
+  String addTask({
     required String name,
     required String description,
     required List<String> assigneeIds,
@@ -326,7 +416,7 @@ class AppState extends ChangeNotifier {
     DateTime? startDate,
     DateTime? endDate,
   }) {
-    final id = 'task_${_taskIdCounter++}';
+    final id = const Uuid().v4();
     final task = Task(
       id: id,
       teamId: teamId,
@@ -341,6 +431,7 @@ class AppState extends ChangeNotifier {
     );
     _tasks.add(task);
     notifyListeners();
+    return id;
   }
 
   void addComment({
@@ -349,7 +440,7 @@ class AppState extends ChangeNotifier {
     required String authorName,
     required String body,
   }) {
-    final id = 'comment_${_commentIdCounter++}';
+    final id = const Uuid().v4();
     _comments.add(TaskComment(
       id: id,
       taskId: taskId,
@@ -359,6 +450,34 @@ class AppState extends ChangeNotifier {
       createdAt: DateTime.now(),
     ));
     notifyListeners();
+    final entityType =
+        _initiatives.any((i) => i.id == taskId) ? 'initiative' : 'task';
+    SupabaseService.insertComment(
+      commentId: id,
+      entityType: entityType,
+      entityId: taskId,
+      authorAppId: authorId,
+      body: body,
+    );
+  }
+
+  void updateComment(String commentId, String newBody) {
+    final i = _comments.indexWhere((c) => c.id == commentId);
+    if (i < 0) return;
+    _comments[i] = TaskComment(
+      id: _comments[i].id,
+      taskId: _comments[i].taskId,
+      authorId: _comments[i].authorId,
+      authorName: _comments[i].authorName,
+      body: newBody,
+      createdAt: _comments[i].createdAt,
+    );
+    notifyListeners();
+  }
+
+  void deleteComment(String commentId) {
+    _comments.removeWhere((c) => c.id == commentId);
+    notifyListeners();
   }
 
   void addMilestone({
@@ -366,58 +485,89 @@ class AppState extends ChangeNotifier {
     required String label,
     required int progressPercent,
   }) {
-    final id = 'milestone_${_milestoneIdCounter++}';
+    final id = const Uuid().v4();
+    final p = progressPercent.clamp(0, 100);
     _milestones.add(Milestone(
       id: id,
       taskId: taskId,
       label: label,
-      progressPercent: progressPercent.clamp(0, 100),
+      progressPercent: p,
     ));
     notifyListeners();
+    SupabaseService.insertTaskMilestone(
+      milestoneId: id,
+      taskId: taskId,
+      label: label,
+      progressPercent: p,
+    );
   }
 
   void updateTaskProgress(String taskId, int progressPercent) {
     final i = _tasks.indexWhere((t) => t.id == taskId);
     if (i < 0) return;
+    final p = progressPercent.clamp(0, 100);
+    final st = p >= 100 ? TaskStatus.done : TaskStatus.inProgress;
     _tasks[i] = _tasks[i].copyWith(
-      progressPercent: progressPercent.clamp(0, 100),
-      status: progressPercent >= 100 ? TaskStatus.done : TaskStatus.inProgress,
+      progressPercent: p,
+      status: st,
     );
     notifyListeners();
+    SupabaseService.updateTask(
+      taskId: taskId,
+      status: st,
+      progressPercent: p,
+    );
   }
 
   void updateTaskStatus(String taskId, TaskStatus status) {
     final i = _tasks.indexWhere((t) => t.id == taskId);
     if (i < 0) return;
+    final pp = status == TaskStatus.done ? 100 : _tasks[i].progressPercent;
     _tasks[i] = _tasks[i].copyWith(
       status: status,
-      progressPercent: status == TaskStatus.done ? 100 : _tasks[i].progressPercent,
+      progressPercent: pp,
     );
     notifyListeners();
+    SupabaseService.updateTask(
+      taskId: taskId,
+      status: status,
+      progressPercent: status == TaskStatus.done ? 100 : null,
+    );
   }
 
   void updateMilestoneProgress(String milestoneId, int progressPercent) {
     final i = _milestones.indexWhere((m) => m.id == milestoneId);
     if (i < 0) return;
+    final p = progressPercent.clamp(0, 100);
     _milestones[i] = _milestones[i].copyWith(
-      progressPercent: progressPercent.clamp(0, 100),
-      isCompleted: progressPercent >= 100,
-      completedAt: progressPercent >= 100 ? DateTime.now() : null,
+      progressPercent: p,
+      isCompleted: p >= 100,
+      completedAt: p >= 100 ? DateTime.now() : null,
     );
     notifyListeners();
+    SupabaseService.updateTaskMilestone(
+      milestoneId: milestoneId,
+      progressPercent: p,
+    );
   }
 
-  void addSubTask({
+  /// Returns Supabase error string if cloud save failed; null if OK or Supabase off.
+  Future<String?> addSubTask({
     required String initiativeId,
     required String label,
-  }) {
-    final id = 'subtask_${_subTaskIdCounter++}';
+  }) async {
+    final id = const Uuid().v4();
     _subTasks.add(SubTask(
       id: id,
       initiativeId: initiativeId,
       label: label,
     ));
     notifyListeners();
+    return SupabaseService.insertInitiativeSubTask(
+      subTaskId: id,
+      initiativeId: initiativeId,
+      label: label,
+    );
   }
 
   void updateSubTaskCompleted(String subTaskId, bool isCompleted) {
@@ -425,6 +575,10 @@ class AppState extends ChangeNotifier {
     if (i < 0) return;
     _subTasks[i] = _subTasks[i].copyWith(isCompleted: isCompleted);
     notifyListeners();
+    SupabaseService.updateInitiativeSubTask(
+      subTaskId: subTaskId,
+      isCompleted: isCompleted,
+    );
   }
 
   void deleteSubTask(String subTaskId, String deletedByName) {
@@ -443,6 +597,8 @@ class AppState extends ChangeNotifier {
     final i = _tasks.indexWhere((t) => t.id == taskId);
     if (i < 0) return;
     final t = _tasks.removeAt(i);
+    _comments.removeWhere((c) => c.taskId == taskId);
+    _milestones.removeWhere((m) => m.taskId == taskId);
     _deletedTasks.add(DeletedTaskRecord(
       taskId: t.id,
       taskName: t.name,
@@ -451,6 +607,19 @@ class AppState extends ChangeNotifier {
       deletedAt: DateTime.now(),
       deletedByName: deletedByName,
     ));
+    notifyListeners();
+    SupabaseService.recordDeletedTaskAudit(
+      taskId: t.id,
+      taskName: t.name,
+      teamId: t.teamId,
+      assigneeIds: t.assigneeIds,
+      deletedByName: deletedByName,
+    );
+  }
+
+  void applyDeletedTasksFromSupabase(List<DeletedTaskRecord> records) {
+    _deletedTasks.clear();
+    _deletedTasks.addAll(records);
     notifyListeners();
   }
 

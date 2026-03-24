@@ -2,6 +2,10 @@
 
 A new Flutter project.
 
+## Deploy / environments
+
+**Testing vs production** (Firebase Hosting, Supabase, Railway) is documented in **`docs/ENVIRONMENTS.md`**. Web deploy steps: **`DEPLOY.md`**.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

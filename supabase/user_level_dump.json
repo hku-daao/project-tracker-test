@@ -1,0 +1,971 @@
+{
+  "staff": [
+    {
+      "userid": 1,
+      "loginID": "yang.wang@hku.hk",
+      "username": "Yang Wang",
+      "active": 1
+    },
+    {
+      "userid": 2,
+      "loginID": "jessicatai@hku.hk",
+      "username": "Jessica Tai",
+      "active": 1
+    },
+    {
+      "userid": 3,
+      "loginID": "alanl@hku.hk",
+      "username": "Alan LEUNG",
+      "chinesename": "梁偉倫",
+      "active": 1
+    },
+    {
+      "userid": 4,
+      "loginID": "anthony.tai@hku.hk",
+      "username": "Anthony TAI",
+      "chinesename": "戴鈞濠",
+      "active": 1
+    },
+    {
+      "userid": 5,
+      "loginID": "auralu@hku.hk",
+      "username": "Aura LU",
+      "chinesename": "盧曉旭",
+      "active": 1
+    },
+    {
+      "userid": 6,
+      "loginID": "bhwl@hku.hk",
+      "username": "Brenda LAU",
+      "chinesename": "劉曉雲",
+      "active": 1
+    },
+    {
+      "userid": 7,
+      "loginID": "leec2@hku.hk",
+      "username": "Calvin LEE",
+      "chinesename": "李嘉康",
+      "active": 1
+    },
+    {
+      "userid": 8,
+      "loginID": "carolluk@hku.hk",
+      "username": "Carol LUK",
+      "chinesename": "陸可欣",
+      "active": 1
+    },
+    {
+      "userid": 9,
+      "loginID": "charlotte.siu@hku.hk",
+      "username": "Charlotte SIU",
+      "chinesename": "蕭雪蘭",
+      "active": 1
+    },
+    {
+      "userid": 10,
+      "loginID": "csmfung@hku.hk",
+      "username": "Connie FUNG",
+      "chinesename": "馮秀雯",
+      "active": 1
+    },
+    {
+      "userid": 11,
+      "loginID": "lamyle@hku.hk",
+      "username": "Elaine LAM",
+      "chinesename": "林綺玲",
+      "active": 1
+    },
+    {
+      "userid": 12,
+      "loginID": "evatangc@hku.hk",
+      "username": "Eva TANG",
+      "chinesename": "鄧芷晴",
+      "active": 1
+    },
+    {
+      "userid": 13,
+      "loginID": "funali@hku.hk",
+      "username": "Funa LI",
+      "chinesename": "李氟鈉",
+      "active": 1
+    },
+    {
+      "userid": 14,
+      "loginID": "hollyt@hku.hk",
+      "username": "Holly TANG ",
+      "chinesename": "鄧秀明",
+      "active": 1
+    },
+    {
+      "userid": 15,
+      "loginID": "ikichan@hku.hk",
+      "username": "Iki CHAN",
+      "chinesename": "陳苡祈",
+      "active": 1
+    },
+    {
+      "userid": 16,
+      "loginID": "janellew@hku.hk",
+      "username": "Janelle WONG",
+      "chinesename": "黃倩宜",
+      "active": 1
+    },
+    {
+      "userid": 17,
+      "loginID": "janice.chan@hku.hk",
+      "username": "Janice CHAN",
+      "chinesename": "陳碧華",
+      "active": 1
+    },
+    {
+      "userid": 18,
+      "loginID": "jodiehct@hku.hk",
+      "username": "Jodie TSUI",
+      "chinesename": "徐凱政",
+      "active": 1
+    },
+    {
+      "userid": 19,
+      "loginID": "judityy@hku.hk",
+      "username": "Judi TSANG",
+      "chinesename": "曾婉愉",
+      "active": 1
+    },
+    {
+      "userid": 20,
+      "loginID": "karina.leung@hku.hk",
+      "username": "Karina LEUNG",
+      "chinesename": "梁玉如",
+      "active": 1
+    },
+    {
+      "userid": 21,
+      "loginID": "katerina@hku.hk",
+      "username": "Katerina AU",
+      "chinesename": "區靜琦",
+      "active": 1
+    },
+    {
+      "userid": 22,
+      "loginID": "kellylht@hku.hk",
+      "username": "Kelly LEE",
+      "chinesename": "李凱婷",
+      "active": 1
+    },
+    {
+      "userid": 23,
+      "loginID": "kenkylee@hku.hk",
+      "username": "Ken LEE",
+      "chinesename": "李啓仁",
+      "active": 1
+    },
+    {
+      "userid": 24,
+      "loginID": "hkuken@hku.hk",
+      "username": "Ken WONG",
+      "chinesename": "黃煖根",
+      "active": 1
+    },
+    {
+      "userid": 25,
+      "loginID": "leodc@hku.hk",
+      "username": "Leo CHAN",
+      "chinesename": "陳文傑",
+      "active": 1
+    },
+    {
+      "userid": 26,
+      "loginID": "lunanchow@hku.hk",
+      "username": "Lunan CHOW",
+      "chinesename": "周嘉龍",
+      "active": 1
+    },
+    {
+      "userid": 27,
+      "loginID": "melodytang@hku.hk",
+      "username": "Melody TANG",
+      "chinesename": "鄧慧中",
+      "active": 1
+    },
+    {
+      "userid": 28,
+      "loginID": "mayw@hku.hk",
+      "username": "May WONG",
+      "chinesename": "黃雅欣",
+      "active": 1
+    },
+    {
+      "userid": 29,
+      "loginID": "monicaw@hku.hk",
+      "username": "Monica WONG",
+      "chinesename": "黃珮瑤",
+      "active": 1
+    },
+    {
+      "userid": 30,
+      "loginID": "olivew@hku.hk",
+      "username": "Olive WONG",
+      "chinesename": "黃靄霖",
+      "active": 1
+    },
+    {
+      "userid": 31,
+      "loginID": "pmkwan@hku.hk",
+      "username": "Pauly WAN",
+      "chinesename": "尹美琼",
+      "active": 1
+    },
+    {
+      "userid": 32,
+      "loginID": "ronnielee@hku.hk",
+      "username": "Ronnie LEE",
+      "chinesename": "李奕朗",
+      "active": 1
+    },
+    {
+      "userid": 33,
+      "loginID": "ruiwang@hku.hk",
+      "username": "Rui WANG ",
+      "chinesename": "王睿",
+      "active": 1
+    },
+    {
+      "userid": 34,
+      "loginID": "lscheng@hku.hk",
+      "username": "Sally CHENG",
+      "chinesename": "鄭麗嫦",
+      "active": 1
+    },
+    {
+      "userid": 35,
+      "loginID": "ohyeawon@hku.hk",
+      "username": "Sally OH",
+      "chinesename": "吳睿媛",
+      "active": 1
+    },
+    {
+      "userid": 36,
+      "loginID": "ssylo@hku.hk",
+      "username": "Shirley LO",
+      "chinesename": "羅尚玉",
+      "active": 1
+    },
+    {
+      "userid": 37,
+      "loginID": "waikay.pang@hku.hk",
+      "username": "Wai-kay PANG",
+      "chinesename": "彭偉基",
+      "active": 1
+    },
+    {
+      "userid": 38,
+      "loginID": "winkyysw@hku.hk",
+      "username": "Winky YEUNG",
+      "chinesename": "楊詩詠",
+      "active": 1
+    },
+    {
+      "userid": 39,
+      "loginID": "emilygc@hku.hk",
+      "username": "Cong GAO",
+      "chinesename": "",
+      "active": 1
+    }
+  ],
+  "teams": [
+    {
+      "teamid": 1,
+      "dept": "DAAO",
+      "team": "Fundraising Team",
+      "active": 1
+    },
+    {
+      "teamid": 2,
+      "dept": "DAAO",
+      "team": "Alumni Affairs Team",
+      "active": 1
+    },
+    {
+      "teamid": 3,
+      "dept": "DAAO",
+      "team": "Advancement Intelligence Team",
+      "active": 1
+    },
+    {
+      "teamid": 4,
+      "dept": "DAAO",
+      "team": "Admin Team",
+      "active": 1
+    }
+  ],
+  "roles": [
+    {
+      "roleid": 1,
+      "role": "sys admin"
+    },
+    {
+      "roleid": 2,
+      "role": "dept head"
+    },
+    {
+      "roleid": 3,
+      "role": "supervisor"
+    },
+    {
+      "roleid": 4,
+      "role": "general"
+    }
+  ],
+  "subordinate_mapping": [
+    {
+      "smapid": 1,
+      "teamid": 2,
+      "super_id": 1,
+      "subo_id": 13,
+      "active": 1
+    },
+    {
+      "smapid": 2,
+      "teamid": 1,
+      "super_id": 1,
+      "subo_id": 17,
+      "active": 1
+    },
+    {
+      "smapid": 3,
+      "teamid": 3,
+      "super_id": 1,
+      "subo_id": 23,
+      "active": 1
+    },
+    {
+      "smapid": 4,
+      "teamid": 3,
+      "super_id": 1,
+      "subo_id": 26,
+      "active": 1
+    },
+    {
+      "smapid": 5,
+      "teamid": 1,
+      "super_id": 1,
+      "subo_id": 28,
+      "active": 1
+    },
+    {
+      "smapid": 6,
+      "teamid": 2,
+      "super_id": 1,
+      "subo_id": 29,
+      "active": 1
+    },
+    {
+      "smapid": 7,
+      "teamid": 1,
+      "super_id": 1,
+      "subo_id": 30,
+      "active": 1
+    },
+    {
+      "smapid": 8,
+      "teamid": 1,
+      "super_id": 1,
+      "subo_id": 36,
+      "active": 1
+    },
+    {
+      "smapid": 9,
+      "teamid": 2,
+      "super_id": 2,
+      "subo_id": 13,
+      "active": 1
+    },
+    {
+      "smapid": 10,
+      "teamid": 1,
+      "super_id": 2,
+      "subo_id": 17,
+      "active": 1
+    },
+    {
+      "smapid": 11,
+      "teamid": 3,
+      "super_id": 2,
+      "subo_id": 23,
+      "active": 1
+    },
+    {
+      "smapid": 12,
+      "teamid": 3,
+      "super_id": 2,
+      "subo_id": 26,
+      "active": 1
+    },
+    {
+      "smapid": 13,
+      "teamid": 1,
+      "super_id": 2,
+      "subo_id": 28,
+      "active": 1
+    },
+    {
+      "smapid": 14,
+      "teamid": 2,
+      "super_id": 2,
+      "subo_id": 29,
+      "active": 1
+    },
+    {
+      "smapid": 15,
+      "teamid": 1,
+      "super_id": 2,
+      "subo_id": 30,
+      "active": 1
+    },
+    {
+      "smapid": 16,
+      "teamid": 1,
+      "super_id": 2,
+      "subo_id": 36,
+      "active": 1
+    },
+    {
+      "smapid": 17,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 6,
+      "active": 1
+    },
+    {
+      "smapid": 18,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 7,
+      "active": 1
+    },
+    {
+      "smapid": 19,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 18,
+      "active": 1
+    },
+    {
+      "smapid": 20,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 20,
+      "active": 1
+    },
+    {
+      "smapid": 21,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 24,
+      "active": 1
+    },
+    {
+      "smapid": 22,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 25,
+      "active": 1
+    },
+    {
+      "smapid": 23,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 26,
+      "active": 1
+    },
+    {
+      "smapid": 24,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 37,
+      "active": 1
+    },
+    {
+      "smapid": 25,
+      "teamid": 3,
+      "super_id": 23,
+      "subo_id": 38,
+      "active": 1
+    },
+    {
+      "smapid": 26,
+      "teamid": 3,
+      "super_id": 26,
+      "subo_id": 7,
+      "active": 1
+    },
+    {
+      "smapid": 27,
+      "teamid": 3,
+      "super_id": 26,
+      "subo_id": 24,
+      "active": 1
+    },
+    {
+      "smapid": 28,
+      "teamid": 3,
+      "super_id": 26,
+      "subo_id": 37,
+      "active": 1
+    },
+    {
+      "smapid": 29,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 4,
+      "active": 1
+    },
+    {
+      "smapid": 30,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 8,
+      "active": 1
+    },
+    {
+      "smapid": 31,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 13,
+      "active": 1
+    },
+    {
+      "smapid": 32,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 14,
+      "active": 1
+    },
+    {
+      "smapid": 33,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 15,
+      "active": 1
+    },
+    {
+      "smapid": 34,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 16,
+      "active": 1
+    },
+    {
+      "smapid": 35,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 33,
+      "active": 1
+    },
+    {
+      "smapid": 36,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 34,
+      "active": 1
+    },
+    {
+      "smapid": 37,
+      "teamid": 2,
+      "super_id": 29,
+      "subo_id": 35,
+      "active": 1
+    },
+    {
+      "smapid": 38,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 5,
+      "active": 1
+    },
+    {
+      "smapid": 39,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 9,
+      "active": 1
+    },
+    {
+      "smapid": 40,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 11,
+      "active": 1
+    },
+    {
+      "smapid": 41,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 12,
+      "active": 1
+    },
+    {
+      "smapid": 42,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 17,
+      "active": 1
+    },
+    {
+      "smapid": 43,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 19,
+      "active": 1
+    },
+    {
+      "smapid": 44,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 21,
+      "active": 1
+    },
+    {
+      "smapid": 45,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 22,
+      "active": 1
+    },
+    {
+      "smapid": 46,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 27,
+      "active": 1
+    },
+    {
+      "smapid": 47,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 30,
+      "active": 1
+    },
+    {
+      "smapid": 48,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 31,
+      "active": 1
+    },
+    {
+      "smapid": 49,
+      "teamid": 1,
+      "super_id": 28,
+      "subo_id": 39,
+      "active": 1
+    }
+  ],
+  "user_role_mapping": [
+    {
+      "urmapid": 1,
+      "userid": 1,
+      "roleid": 4
+    },
+    {
+      "urmapid": 2,
+      "userid": 2,
+      "roleid": 4
+    },
+    {
+      "urmapid": 3,
+      "userid": 3,
+      "roleid": 4
+    },
+    {
+      "urmapid": 4,
+      "userid": 4,
+      "roleid": 4
+    },
+    {
+      "urmapid": 5,
+      "userid": 5,
+      "roleid": 4
+    },
+    {
+      "urmapid": 6,
+      "userid": 6,
+      "roleid": 4
+    },
+    {
+      "urmapid": 7,
+      "userid": 7,
+      "roleid": 4
+    },
+    {
+      "urmapid": 8,
+      "userid": 8,
+      "roleid": 4
+    },
+    {
+      "urmapid": 9,
+      "userid": 9,
+      "roleid": 4
+    },
+    {
+      "urmapid": 10,
+      "userid": 10,
+      "roleid": 4
+    },
+    {
+      "urmapid": 11,
+      "userid": 11,
+      "roleid": 4
+    },
+    {
+      "urmapid": 12,
+      "userid": 12,
+      "roleid": 4
+    },
+    {
+      "urmapid": 13,
+      "userid": 13,
+      "roleid": 4
+    },
+    {
+      "urmapid": 14,
+      "userid": 14,
+      "roleid": 4
+    },
+    {
+      "urmapid": 15,
+      "userid": 15,
+      "roleid": 4
+    },
+    {
+      "urmapid": 16,
+      "userid": 16,
+      "roleid": 4
+    },
+    {
+      "urmapid": 17,
+      "userid": 17,
+      "roleid": 4
+    },
+    {
+      "urmapid": 18,
+      "userid": 18,
+      "roleid": 4
+    },
+    {
+      "urmapid": 19,
+      "userid": 19,
+      "roleid": 4
+    },
+    {
+      "urmapid": 20,
+      "userid": 20,
+      "roleid": 4
+    },
+    {
+      "urmapid": 21,
+      "userid": 21,
+      "roleid": 4
+    },
+    {
+      "urmapid": 22,
+      "userid": 22,
+      "roleid": 4
+    },
+    {
+      "urmapid": 23,
+      "userid": 23,
+      "roleid": 4
+    },
+    {
+      "urmapid": 24,
+      "userid": 24,
+      "roleid": 4
+    },
+    {
+      "urmapid": 25,
+      "userid": 25,
+      "roleid": 4
+    },
+    {
+      "urmapid": 26,
+      "userid": 26,
+      "roleid": 4
+    },
+    {
+      "urmapid": 27,
+      "userid": 27,
+      "roleid": 4
+    },
+    {
+      "urmapid": 28,
+      "userid": 28,
+      "roleid": 4
+    },
+    {
+      "urmapid": 29,
+      "userid": 29,
+      "roleid": 4
+    },
+    {
+      "urmapid": 30,
+      "userid": 30,
+      "roleid": 4
+    },
+    {
+      "urmapid": 31,
+      "userid": 31,
+      "roleid": 4
+    },
+    {
+      "urmapid": 32,
+      "userid": 32,
+      "roleid": 4
+    },
+    {
+      "urmapid": 33,
+      "userid": 33,
+      "roleid": 4
+    },
+    {
+      "urmapid": 34,
+      "userid": 34,
+      "roleid": 4
+    },
+    {
+      "urmapid": 35,
+      "userid": 35,
+      "roleid": 4
+    },
+    {
+      "urmapid": 36,
+      "userid": 36,
+      "roleid": 4
+    },
+    {
+      "urmapid": 37,
+      "userid": 37,
+      "roleid": 4
+    },
+    {
+      "urmapid": 38,
+      "userid": 38,
+      "roleid": 4
+    },
+    {
+      "urmapid": 39,
+      "userid": 39,
+      "roleid": 4
+    },
+    {
+      "urmapid": 40,
+      "userid": 1,
+      "roleid": 2
+    },
+    {
+      "urmapid": 41,
+      "userid": 2,
+      "roleid": 2
+    },
+    {
+      "urmapid": 42,
+      "userid": 1,
+      "roleid": 3
+    },
+    {
+      "urmapid": 43,
+      "userid": 2,
+      "roleid": 3
+    },
+    {
+      "urmapid": 44,
+      "userid": 6,
+      "roleid": 3
+    },
+    {
+      "urmapid": 45,
+      "userid": 9,
+      "roleid": 3
+    },
+    {
+      "urmapid": 46,
+      "userid": 13,
+      "roleid": 3
+    },
+    {
+      "urmapid": 47,
+      "userid": 15,
+      "roleid": 3
+    },
+    {
+      "urmapid": 48,
+      "userid": 17,
+      "roleid": 3
+    },
+    {
+      "urmapid": 49,
+      "userid": 23,
+      "roleid": 3
+    },
+    {
+      "urmapid": 50,
+      "userid": 25,
+      "roleid": 3
+    },
+    {
+      "urmapid": 51,
+      "userid": 26,
+      "roleid": 3
+    },
+    {
+      "urmapid": 52,
+      "userid": 27,
+      "roleid": 3
+    },
+    {
+      "urmapid": 53,
+      "userid": 28,
+      "roleid": 3
+    },
+    {
+      "urmapid": 54,
+      "userid": 29,
+      "roleid": 3
+    },
+    {
+      "urmapid": 55,
+      "userid": 30,
+      "roleid": 3
+    },
+    {
+      "urmapid": 56,
+      "userid": 32,
+      "roleid": 3
+    },
+    {
+      "urmapid": 57,
+      "userid": 36,
+      "roleid": 3
+    },
+    {
+      "urmapid": 58,
+      "userid": 7,
+      "roleid": 1
+    },
+    {
+      "urmapid": 59,
+      "userid": 23,
+      "roleid": 1
+    },
+    {
+      "urmapid": 60,
+      "userid": 24,
+      "roleid": 1
+    },
+    {
+      "urmapid": 61,
+      "userid": 26,
+      "roleid": 1
+    }
+  ]
+}

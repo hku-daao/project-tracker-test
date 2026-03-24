@@ -7,13 +7,15 @@ This folder contains the schema design and migration for storing **staff** and *
 1. **Create or select the project**  
    In [Supabase Dashboard](https://supabase.com/dashboard), create a project named **DAAO Apps** (or use an existing one).
 
-2. **Run the migration**  
+2. **Run the migrations**  
    - Open **SQL Editor** in the project.  
-   - Copy the contents of `migrations/001_initial_schema.sql`.  
-   - Run the script.  
-   - All tables will be created in the `public` schema.
+   - Run `migrations/001_initial_schema.sql`, then `migrations/002_add_app_id_for_sync.sql`.  
+   - All tables will be created; `teams` and `staff` get an `app_id` column for Flutter sync.
 
-3. **Optional: Supabase CLI**  
+3. **Seed teams and staff (for initiative sync)**  
+   - Run `seed_teams_and_staff.sql` in the SQL Editor so the Flutter app can look up teams and directors by `app_id` when creating initiatives.
+
+4. **Optional: Supabase CLI**  
    If you use the [Supabase CLI](https://supabase.com/docs/guides/cli):
    ```bash
    supabase link --project-ref <your-project-ref>
@@ -26,6 +28,8 @@ This folder contains the schema design and migration for storing **staff** and *
 |------|--------|
 | `schema-design.md` | Full table design, relationships, indexes, and data extraction notes |
 | `migrations/001_initial_schema.sql` | SQL that creates all tables and indexes |
+| `migrations/002_add_app_id_for_sync.sql` | Adds `app_id` to teams and staff for Flutter sync |
+| `seed_teams_and_staff.sql` | Seed data so creating an initiative in Flutter inserts into Supabase |
 
 ## Tables created
 
@@ -35,8 +39,21 @@ This folder contains the schema design and migration for storing **staff** and *
 - **Comments:** `comments` (for both initiatives and tasks)
 - **Audit:** `deleted_sub_tasks`, `deleted_tasks`
 
+## Flutter initiative sync
+
+When a user creates an initiative in the app, a row is inserted into Supabase `initiatives` and `initiative_directors` if:
+
+1. **Supabase is configured** in the app: set `lib/config/supabase_config.dart` with your project URL and anon key (Dashboard → Project Settings → API).
+2. **Migrations 001 and 002** are applied and **seed_teams_and_staff.sql** has been run so `teams` and `staff` have `app_id` values matching the Flutter app.
+
+**If no row appears in Supabase:**
+
+- After tapping "Create Initiative", check the **snackbar** (orange = error message, green = "Synced to Supabase").
+- **"Team not found for app_id …"** or **"No directors found …"** → Run `seed_teams_and_staff.sql` in the SQL Editor.
+- **Supabase not configured** → Set `url` and `anonKey` in `lib/config/supabase_config.dart`.
+- **Permission/RLS errors** → In Supabase, Table Editor → select `initiatives` → ensure RLS allows insert with your anon key, or disable RLS for development (Dashboard → Authentication → Policies).
+
 ## Next steps
 
-- Seed `staff` and `teams` (and `team_members`) from your current app data.  
 - Add [Row Level Security (RLS)](https://supabase.com/docs/guides/auth/row-level-security) and policies when you add authentication.  
-- Integrate the Flutter app with [supabase_flutter](https://pub.dev/packages/supabase_flutter) and switch from in-memory state to these tables.
+- Optionally load initiatives from Supabase on app start instead of only in-memory state.

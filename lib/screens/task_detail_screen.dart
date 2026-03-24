@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../app_state.dart';
 import '../models/task.dart';
+import '../models/comment.dart';
 import '../priority.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -171,16 +172,36 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               child: const Text('Post comment'),
             ),
             const SizedBox(height: 16),
-            ...task.comments.map((c) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(c.body),
-                    subtitle: Text(
-                      '${c.authorName} · ${DateFormat.yMMMd().add_Hm().format(c.createdAt)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+            ...task.comments.map((c) {
+              final canEdit = DateTime.now().difference(c.createdAt) < const Duration(hours: 1);
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(c.body),
+                  subtitle: Text(
+                    '${c.authorName} · ${DateFormat.yMMMd().add_Hm().format(c.createdAt)}',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                )),
+                  trailing: canEdit
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _editComment(context, state, c),
+                              tooltip: 'Edit',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _deleteComment(context, state, c),
+                              tooltip: 'Delete',
+                            ),
+                          ],
+                        )
+                      : null,
+                ),
+              );
+            }),
           ],
         ),
       ),
@@ -283,6 +304,61 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _editComment(BuildContext context, AppState state, TaskComment c) {
+    final controller = TextEditingController(text: c.body);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit update/ comment'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newBody = controller.text.trim();
+              if (newBody.isNotEmpty) state.updateComment(c.id, newBody);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteComment(BuildContext context, AppState state, TaskComment c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete update/ comment'),
+        content: const Text('Remove this update/ comment?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () {
+              state.deleteComment(c.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

@@ -37,7 +37,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
                 value: null,
                 child: Text('All tasks'),
               ),
-              ...AppState.teams.map(
+              ...context.watch<AppState>().teams.map(
                 (team) => DropdownMenuItem<String?>(
                   value: team.id,
                   child: Text(team.name),

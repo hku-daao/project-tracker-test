@@ -5,8 +5,14 @@
   "targets": {
     "daao-a20c6": {
       "hosting": {
-        "prod": ["testprojectmanagementtracking"]
+        "production": [
+          "projecttrackerdaao"
+        ],
+        "testing": [
+          "project-tracker-test"
+        ]
       }
     }
-  }
+  },
+  "etags": {}
 }
