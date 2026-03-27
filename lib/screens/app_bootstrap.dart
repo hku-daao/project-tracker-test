@@ -96,6 +96,19 @@ class _AppBootstrapState extends State<AppBootstrap> {
       final deletedAudit = await SupabaseService.fetchDeletedTasksFromSupabase();
       if (!mounted) return;
       state.applyDeletedTasksFromSupabase(deletedAudit);
+      final filterTeams = await SupabaseService.fetchTeamsForFilterFromSupabase();
+      final staffLabels = await SupabaseService.fetchStaffAssigneesFromSupabase();
+      final appIdToTeamId = await SupabaseService.fetchStaffAppIdToTeamIdMap();
+      if (!mounted) return;
+      if (filterTeams.isNotEmpty) {
+        state.setTeamsForFilter(filterTeams);
+      }
+      if (staffLabels.isNotEmpty) {
+        state.mergeAssigneesFromSupabase(staffLabels);
+      }
+      if (appIdToTeamId.isNotEmpty) {
+        state.setStaffAppIdToTeamIdMap(appIdToTeamId);
+      }
     } catch (e) {
       debugPrint('AppBootstrap: load tasks/deleted from Supabase: $e');
     }

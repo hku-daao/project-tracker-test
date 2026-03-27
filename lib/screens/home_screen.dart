@@ -9,7 +9,6 @@ import '../../config/api_config.dart';
 import '../../config/environment_config.dart';
 import '../../config/supabase_config.dart';
 import '../../services/backend_api.dart';
-import 'create_supabase_task_screen.dart';
 import 'high_level/initiative_list_screen.dart';
 import 'high_level/create_task_screen.dart';
 import 'admin/system_admin_screen.dart';
@@ -85,18 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (SupabaseConfig.isConfigured)
-            IconButton(
-              icon: const Icon(Icons.add_task),
-              tooltip: 'Create task (Supabase)',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => const CreateSupabaseTaskScreen(),
-                  ),
-                );
-              },
-            ),
           if (FirebaseAuth.instance.currentUser?.email?.toLowerCase() ==
               AdminConfig.systemAdminEmail.toLowerCase())
             IconButton(

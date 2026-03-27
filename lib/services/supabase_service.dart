@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../models/assignee.dart';
 import '../models/comment.dart';
 import '../models/initiative.dart';
 import '../models/milestone.dart';
@@ -9,6 +11,7 @@ import '../models/deleted_record.dart';
 import '../models/singular_comment.dart';
 import '../models/staff_for_assignment.dart';
 import '../models/task.dart';
+import '../models/team.dart';
 import '../utils/hk_time.dart';
 
 class InitiativesLoadResult {
@@ -363,6 +366,89 @@ class SupabaseService {
       return StaffAssigneePickerData(teams: teams, staff: staff);
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Teams for the Tasks tab "Filter by team". [Team.id] is `team.team_id`, same as [Task.teamId].
+  static Future<List<Team>> fetchTeamsForFilterFromSupabase() async {
+    if (!_enabled) return [];
+    try {
+      final supabase = Supabase.instance.client;
+      final teamRes =
+          await supabase.from('team').select('team_id, team_name').order('team_name');
+      final staffRes = await supabase.from('staff').select('app_id, team_id');
+      final byTeam = <String, List<String>>{};
+      for (final raw in (staffRes as List)) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        final tid = m['team_id']?.toString().trim() ?? '';
+        final aid = m['app_id']?.toString().trim() ?? '';
+        if (tid.isEmpty || aid.isEmpty) continue;
+        byTeam.putIfAbsent(tid, () => []).add(aid);
+      }
+      final teams = <Team>[];
+      for (final raw in (teamRes as List)) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        final tid = m['team_id']?.toString().trim() ?? '';
+        if (tid.isEmpty) continue;
+        final name = m['team_name'] as String? ?? tid;
+        final members = List<String>.from(byTeam[tid] ?? [])..sort();
+        teams.add(Team(
+          id: tid,
+          name: name,
+          directorIds: const [],
+          officerIds: members,
+        ));
+      }
+      return teams;
+    } catch (e, st) {
+      debugPrint('fetchTeamsForFilterFromSupabase: $e\n$st');
+      return [];
+    }
+  }
+
+  /// Lookup keys ( `staff.app_id` or `staff.id` UUID ) → `staff.team_id` for team filtering.
+  static Future<Map<String, String>> fetchStaffAppIdToTeamIdMap() async {
+    if (!_enabled) return {};
+    try {
+      final res = await Supabase.instance.client
+          .from('staff')
+          .select('id, app_id, team_id');
+      final map = <String, String>{};
+      for (final raw in (res as List)) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        final pk = m['id']?.toString().trim() ?? '';
+        final aid = m['app_id']?.toString().trim() ?? '';
+        final tid = m['team_id']?.toString().trim() ?? '';
+        if (tid.isEmpty) continue;
+        if (aid.isNotEmpty) map[aid] = tid;
+        if (pk.isNotEmpty) map[pk] = tid;
+      }
+      return map;
+    } catch (e, st) {
+      debugPrint('fetchStaffAppIdToTeamIdMap: $e\n$st');
+      return {};
+    }
+  }
+
+  /// Staff rows for assignee name resolution (e.g. "Filter by team member").
+  static Future<List<Assignee>> fetchStaffAssigneesFromSupabase() async {
+    if (!_enabled) return [];
+    try {
+      final res = await Supabase.instance.client
+          .from('staff')
+          .select('app_id, name')
+          .order('name');
+      final out = <Assignee>[];
+      for (final raw in (res as List)) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        final id = m['app_id']?.toString().trim() ?? '';
+        if (id.isEmpty) continue;
+        out.add(Assignee(id: id, name: m['name'] as String? ?? id));
+      }
+      return out;
+    } catch (e, st) {
+      debugPrint('fetchStaffAssigneesFromSupabase: $e\n$st');
+      return [];
     }
   }
 

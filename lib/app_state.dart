@@ -23,6 +23,9 @@ class AppState extends ChangeNotifier {
   /// Teams with hierarchy loaded from database (via /api/teams).
   List<Team> _teams = [];
 
+  /// [staff.app_id] → [staff.team_id] for team filter (assignees may belong to a team when `task.team_id` is null).
+  Map<String, String> _staffTeamIdByAssigneeAppId = {};
+
   List<Team> get teams => List.unmodifiable(_teams);
 
   final List<Initiative> _initiatives = [];
@@ -76,6 +79,51 @@ class AppState extends ChangeNotifier {
     _userStaffAppId = staffAppId;
     _assignableStaffFromServer = assignableStaff ?? [];
     notifyListeners();
+  }
+
+  /// Replace teams used for filters (ids must match [Task.teamId] from Supabase singular `task`).
+  void setTeamsForFilter(List<Team> teams) {
+    _teams = List<Team>.from(teams);
+    notifyListeners();
+  }
+
+  /// Merge/replace assignees from Supabase `staff` (for filter labels when backend staff is not loaded).
+  void mergeAssigneesFromSupabase(List<Assignee> incoming) {
+    final map = <String, Assignee>{for (final a in _assignees) a.id: a};
+    for (final a in incoming) {
+      map[a.id] = a;
+    }
+    _assignees
+      ..clear()
+      ..addAll(map.values);
+    notifyListeners();
+  }
+
+  void setStaffAppIdToTeamIdMap(Map<String, String> map) {
+    _staffTeamIdByAssigneeAppId = Map<String, String>.from(map);
+    notifyListeners();
+  }
+
+  bool _taskMatchesTeamFilter(Task t, String teamId) {
+    final rowTeam = t.teamId?.trim();
+    if (rowTeam != null && rowTeam.isNotEmpty && rowTeam == teamId) {
+      return true;
+    }
+    for (final assigneeKey in t.assigneeIds) {
+      if (_staffTeamIdByAssigneeAppId[assigneeKey] == teamId) return true;
+    }
+    return false;
+  }
+
+  bool _deletedTaskMatchesTeamFilter(DeletedTaskRecord r, String teamId) {
+    final rowTeam = r.teamId?.trim();
+    if (rowTeam != null && rowTeam.isNotEmpty && rowTeam == teamId) {
+      return true;
+    }
+    for (final id in r.assigneeIds) {
+      if (_staffTeamIdByAssigneeAppId[id] == teamId) return true;
+    }
+    return false;
   }
 
   /// Load teams and staff from backend. Call this after user authentication.
@@ -206,7 +254,9 @@ class AppState extends ChangeNotifier {
 
   List<DeletedTaskRecord> deletedTasksForTeam(String? teamId) {
     if (teamId == null || teamId.isEmpty) return _deletedTasks;
-    return _deletedTasks.where((r) => r.teamId == teamId).toList();
+    return _deletedTasks
+        .where((r) => _deletedTaskMatchesTeamFilter(r, teamId))
+        .toList();
   }
 
   /// Deleted tasks that were assigned to this assignee (for My Tasks audit).
@@ -298,8 +348,8 @@ class AppState extends ChangeNotifier {
     return tasks.where((t) => t.assigneeIds.contains(assigneeId)).toList();
   }
 
-  /// Low-level tasks for a team (task.teamId == teamId). Pass null for all.
-  /// Singular `task` rows often have no team — those [teamId] is null and still show when filtering by team.
+  /// Low-level tasks for a team: `task.team_id` matches **or** any assignee's `staff.team_id` matches
+  /// (same id as filter dropdown: Supabase `team.team_id`).
   /// Tasks visible to the current user: assignee slots must be self or a subordinate (see [subordinate] table).
   List<Task> tasksForTeam(String? teamId) {
     var all = tasks;
@@ -312,9 +362,7 @@ class AppState extends ChangeNotifier {
           .toList();
     }
     if (teamId == null || teamId.isEmpty) return all;
-    return all
-        .where((t) => t.teamId == null || t.teamId == teamId)
-        .toList();
+    return all.where((t) => _taskMatchesTeamFilter(t, teamId)).toList();
   }
 
   List<Initiative> initiativesForTeam(String? teamId) {
@@ -357,7 +405,7 @@ class AppState extends ChangeNotifier {
       if (t.status == TaskStatus.done) continue;
       try {
         final team = teams.firstWhere((x) => x.id == t.teamId);
-        final names = team.directorIds
+        final names = [...team.directorIds, ...team.officerIds]
             .map((id) => assigneeById(id)?.name ?? id)
             .toList();
       if (t.priority == priorityUrgent) {
