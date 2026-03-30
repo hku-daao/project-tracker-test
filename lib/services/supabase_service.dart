@@ -869,6 +869,10 @@ class SupabaseService {
     return null;
   }
 
+  /// Resolves `staff.app_id` or `staff.id` (uuid) to `staff.id` (uuid).
+  static Future<String?> staffRowIdForAssigneeKey(String key) =>
+      _staffRowIdForAssigneeKey(key);
+
   /// Loads all staff for multi-select; values stored in `task.assignee_xx` are [`StaffListRow.id`].
   static Future<List<StaffListRow>> fetchStaffListForTaskPicker() async {
     if (!_enabled) return [];
@@ -976,17 +980,18 @@ class SupabaseService {
   static Future<String?> insertSingularCommentRow({
     required String taskId,
     required String description,
-    String status = '',
+    String status = 'Active',
     String? creatorStaffLookupKey,
   }) async {
     if (!_enabled) return 'Supabase not configured';
     final d = description.trim();
     if (d.isEmpty) return null;
     try {
+      final st = status.trim();
       final map = <String, dynamic>{
         'task_id': taskId,
         'description': d,
-        'status': status,
+        'status': st.isEmpty ? 'Active' : st,
         'create_date': HkTime.timestampForDb(),
       };
       final lookup = creatorStaffLookupKey?.trim();
@@ -1003,7 +1008,60 @@ class SupabaseService {
     }
   }
 
-  /// Loads `public."comment"` for [taskId], ordered by `create_date` ascending.
+  static Future<String?> updateSingularCommentRow({
+    required String commentId,
+    required String description,
+    String? updaterStaffLookupKey,
+  }) async {
+    if (!_enabled) return 'Supabase not configured';
+    final d = description.trim();
+    if (d.isEmpty) return 'Comment is empty';
+    try {
+      final map = <String, dynamic>{
+        'description': d,
+        'update_date': HkTime.timestampForDb(),
+      };
+      final lookup = updaterStaffLookupKey?.trim();
+      if (lookup != null && lookup.isNotEmpty) {
+        final staffId = await _staffRowIdForAssigneeKey(lookup);
+        if (staffId != null && staffId.isNotEmpty) {
+          map['update_by'] = staffId;
+        }
+      }
+      await Supabase.instance.client.from('comment').update(map).eq('id', commentId);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Sets `status` to `Deleted` and stamps `update_date` / `update_by`.
+  static Future<String?> softDeleteSingularCommentRow({
+    required String commentId,
+    String? updaterStaffLookupKey,
+  }) async {
+    if (!_enabled) return 'Supabase not configured';
+    try {
+      final map = <String, dynamic>{
+        'status': 'Deleted',
+        'update_date': HkTime.timestampForDb(),
+      };
+      final lookup = updaterStaffLookupKey?.trim();
+      if (lookup != null && lookup.isNotEmpty) {
+        final staffId = await _staffRowIdForAssigneeKey(lookup);
+        if (staffId != null && staffId.isNotEmpty) {
+          map['update_by'] = staffId;
+        }
+      }
+      await Supabase.instance.client.from('comment').update(map).eq('id', commentId);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Loads `public."comment"` for [taskId]. Non-deleted rows first (by `create_date`),
+  /// then deleted rows (by `create_date`), so soft-deleted items appear at the bottom.
   static Future<List<SingularCommentRowDisplay>> fetchSingularCommentsForTask(
       String taskId) async {
     if (!_enabled) return [];
@@ -1020,9 +1078,7 @@ class SupabaseService {
       final idSet = <String>{};
       for (final r in rows) {
         final cb = r['create_by']?.toString().trim();
-        final ub = r['update_by']?.toString().trim();
         if (cb != null && cb.isNotEmpty) idSet.add(cb);
-        if (ub != null && ub.isNotEmpty) idSet.add(ub);
       }
       final names = <String, String>{};
       for (final id in idSet) {
@@ -1032,22 +1088,28 @@ class SupabaseService {
       for (final r in rows) {
         final id = r['id']?.toString() ?? '';
         if (id.isEmpty) continue;
-        final ub = r['update_by']?.toString().trim();
-        final useUpdate = ub != null && ub.isNotEmpty;
-        final staffKey = useUpdate ? ub : r['create_by']?.toString().trim();
-        final name = (staffKey != null && staffKey.isNotEmpty)
-            ? (names[staffKey] ?? staffKey)
-            : '—';
-        final tsRaw = useUpdate ? r['update_date'] : r['create_date'];
-        final ts = _parseDateTimeNullable(tsRaw);
+        final cb = r['create_by']?.toString().trim();
+        final name =
+            (cb != null && cb.isNotEmpty) ? (names[cb] ?? cb) : '—';
+        final statusStr = r['status']?.toString() ?? '';
         out.add(SingularCommentRowDisplay(
           id: id,
           description: r['description']?.toString() ?? '',
-          status: r['status']?.toString() ?? '',
+          status: statusStr,
+          createByStaffId: cb,
           displayStaffName: name,
-          displayTimestampUtc: ts,
+          createTimestampUtc: _parseDateTimeNullable(r['create_date']),
+          updateTimestampUtc: _parseDateTimeNullable(r['update_date']),
         ));
       }
+      out.sort((a, b) {
+        if (a.isDeleted != b.isDeleted) {
+          return a.isDeleted ? 1 : -1;
+        }
+        final ac = a.createTimestampUtc ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bc = b.createTimestampUtc ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return ac.compareTo(bc);
+      });
       return out;
     } catch (_) {
       return [];

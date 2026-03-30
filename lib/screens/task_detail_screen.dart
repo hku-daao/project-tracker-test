@@ -87,9 +87,23 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   bool _saving = false;
   List<SingularCommentRowDisplay> _tableComments = [];
   bool _loadingTableComments = false;
+  String? _myStaffUuid;
+  bool _myStaffUuidRequested = false;
 
   static const int _maxAssignees = 10;
   static const Color _selGreen = Color(0xFF1B5E20);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_myStaffUuidRequested) return;
+    _myStaffUuidRequested = true;
+    final lk = context.read<AppState>().userStaffAppId?.trim();
+    if (lk == null || lk.isEmpty) return;
+    SupabaseService.staffRowIdForAssigneeKey(lk).then((id) {
+      if (mounted) setState(() => _myStaffUuid = id);
+    });
+  }
 
   @override
   void initState() {
@@ -117,11 +131,166 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     });
   }
 
-  String _formatCommentTs(DateTime? stored) {
+  String _formatCommentPostedTs(DateTime? stored) {
     if (stored == null) return '—';
     return DateFormat.yMMMd()
         .add_Hm()
         .format(stored.add(const Duration(hours: 8)));
+  }
+
+  /// Display line: `Last updated: MMM dd, yyyy, HH:mm` (HK wall clock, +8h from stored UTC).
+  String _formatCommentLastUpdatedLine(DateTime? stored) {
+    if (stored == null) return 'Last updated: —';
+    final shown = stored.add(const Duration(hours: 8));
+    return 'Last updated: ${DateFormat('MMM dd, yyyy, HH:mm').format(shown)}';
+  }
+
+  bool _isOwnSingularComment(SingularCommentRowDisplay c) {
+    final mine = _myStaffUuid?.trim();
+    final cb = c.createByStaffId?.trim();
+    if (mine == null || mine.isEmpty || cb == null || cb.isEmpty) {
+      return false;
+    }
+    return mine == cb;
+  }
+
+  Future<void> _editSingularComment(SingularCommentRowDisplay c) async {
+    final state = context.read<AppState>();
+    final controller = TextEditingController(text: c.description);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit comment'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            labelText: 'Comment',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final newBody = controller.text.trim();
+    controller.dispose();
+    if (ok != true || !mounted) return;
+    final err = await SupabaseService.updateSingularCommentRow(
+      commentId: c.id,
+      description: newBody,
+      updaterStaffLookupKey: state.userStaffAppId,
+    );
+    if (!mounted) return;
+    if (err != null) {
+      showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+      return;
+    }
+    await _loadTableComments();
+  }
+
+  Future<void> _confirmDeleteSingularComment(SingularCommentRowDisplay c) async {
+    final state = context.read<AppState>();
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete comment?'),
+        content: const Text(
+          'This comment will be marked as deleted and stay visible at the bottom of the list.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    final err = await SupabaseService.softDeleteSingularCommentRow(
+      commentId: c.id,
+      updaterStaffLookupKey: state.userStaffAppId,
+    );
+    if (!mounted) return;
+    if (err != null) {
+      showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+      return;
+    }
+    await _loadTableComments();
+  }
+
+  Widget _buildSingularCommentTile(BuildContext context, SingularCommentRowDisplay c) {
+    final theme = Theme.of(context);
+    final isDeleted = c.isDeleted;
+    final grey = Colors.grey.shade600;
+    final showActions = !isDeleted && _isOwnSingularComment(c) && !_saving;
+    final subtitleChildren = <Widget>[
+      Text(
+        '${c.displayStaffName} · ${_formatCommentPostedTs(c.createTimestampUtc)}',
+        style: theme.textTheme.bodySmall,
+      ),
+    ];
+    if (c.updateTimestampUtc != null) {
+      subtitleChildren.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _formatCommentLastUpdatedLine(c.updateTimestampUtc),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: isDeleted ? Colors.grey.shade100 : null,
+      child: ListTile(
+        isThreeLine: c.updateTimestampUtc != null,
+        title: Text(
+          c.description,
+          style: isDeleted
+              ? theme.textTheme.bodyLarge?.copyWith(color: grey)
+              : null,
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: subtitleChildren,
+        ),
+        trailing: showActions
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Edit',
+                    icon: const Icon(Icons.edit_outlined, size: 22),
+                    onPressed: () => _editSingularComment(c),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete',
+                    icon: const Icon(Icons.delete_outline, size: 22),
+                    onPressed: () => _confirmDeleteSingularComment(c),
+                  ),
+                ],
+              )
+            : null,
+      ),
+    );
   }
 
   @override
@@ -513,6 +682,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         final cErr = await SupabaseService.insertSingularCommentRow(
           taskId: task.id,
           description: commentBody,
+          status: 'Active',
           creatorStaffLookupKey: state.userStaffAppId,
         );
         if (!mounted) return;
@@ -1057,18 +1227,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else
-              ..._tableComments.map((c) {
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(c.description),
-                    subtitle: Text(
-                      '${c.displayStaffName} · ${_formatCommentTs(c.displayTimestampUtc)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                );
-              }),
+              ..._tableComments.map((c) => _buildSingularCommentTile(context, c)),
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : () => _saveTaskFields(state, task),

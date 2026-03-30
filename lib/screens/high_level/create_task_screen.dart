@@ -386,6 +386,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
         final cErr = await SupabaseService.insertSingularCommentRow(
           taskId: insertedTaskId,
           description: commentText,
+          status: 'Active',
           creatorStaffLookupKey: state.userStaffAppId,
         );
         if (!mounted) return;
