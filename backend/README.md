@@ -19,6 +19,20 @@ Copy `.env.example` to `.env` and set these three variables:
 | **SUPABASE_SERVICE_ROLE_KEY** | Same page → **Project API keys** → **service_role** (secret). Use this, not the anon key. |
 | **FIREBASE_SERVICE_ACCOUNT_JSON** | [Firebase Console](https://console.firebase.google.com/) → your project (e.g. daao-a20c6) → **Project settings** (gear) → **Service accounts** → **Generate new private key** → download JSON. Paste the **entire JSON as one line** (no line breaks) as the value. |
 | **CORS_ORIGINS** (optional) | Comma-separated extra **https** origins for the Flutter web app (e.g. a custom domain). Built-in defaults already include `https://project-tracker-test.web.app`, production `*.web.app` URLs, and HKU domains. Set this if you host the web app on another hostname. |
+| **MAILGUN_API_KEY** (optional) | Mailgun **Private API key** (`key-…`). |
+| **MAILGUN_DOMAIN** (optional) | Sending domain in Mailgun (e.g. sandbox `sandbox….mailgun.org`). |
+| **MAILGUN_BASE_URL** (optional) | Default `https://api.mailgun.net` (US). Use `https://api.eu.mailgun.net` for EU domains. |
+| **MAILGUN_FROM** (optional) | Full `From` header, e.g. `Project Tracker <postmaster@sandbox….mailgun.org>`. If omitted, the server uses `postmaster@<MAILGUN_DOMAIN>`. |
+
+### Mailgun test (admin only)
+
+After the variables above are set, redeploy Railway. `GET /health` includes `mailgunConfigured: true` when the key and domain are non-empty.
+
+**Send one test email** (must be signed in as the user whose email equals **`ADMIN_EMAIL`** on Railway):
+
+`POST /api/admin/test-mailgun` with header `Authorization: Bearer <Firebase ID token>` and JSON body `{ "to": "recipient@example.com" }`.
+
+- **Sandbox domain:** In [Mailgun](https://app.mailgun.com/) → *Sending* → *Domains* → your sandbox → **Authorized recipients** — add the inbox you use in `"to"`. Sandbox cannot send to arbitrary addresses.
 
 ### Get Firebase service account JSON (step by step)
 

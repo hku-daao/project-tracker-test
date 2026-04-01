@@ -2,6 +2,11 @@ require('dotenv').config();
 const http = require('http');
 const { createClient } = require('@supabase/supabase-js');
 
+const MAILGUN_API_KEY = (process.env.MAILGUN_API_KEY || '').trim();
+const MAILGUN_DOMAIN = (process.env.MAILGUN_DOMAIN || '').trim();
+const MAILGUN_BASE_URL = (process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net').trim().replace(/\/$/, '');
+const MAILGUN_FROM = (process.env.MAILGUN_FROM || '').trim();
+
 const PORT = process.env.PORT || 3000;
 
 // Trim — copy/paste in Railway sometimes adds trailing newlines, which breaks Supabase URL.
@@ -15,7 +20,8 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'test-admin@test.com').toLowerCa
 const DEFAULT_CORS_ORIGINS = [
   'https://project-tracker-test.web.app',
   'https://project-tracker-test.firebaseapp.com',
-  'https://projecttrackerdaao.web.app',
+  'https://project-tracker-production.web.app',
+  'https://project-tracker-production.firebaseapp.com',
   'https://daao-a20c6.web.app',
   'https://testprojectmanagementtracking.firebaseapp.com',
   'https://projecttrackertest.hku-ia.ai',
@@ -503,11 +509,85 @@ async function handleHealth(req, res) {
     // Safe diagnostics (no secrets). If supabaseConfigured is false, check Railway Variables on THIS service.
     firebaseConfigured: !!firebaseAdmin,
     supabaseConfigured: !!supabase,
+    mailgunConfigured: !!(MAILGUN_API_KEY && MAILGUN_DOMAIN),
     env: {
       supabaseUrlSet: SUPABASE_URL.length > 0,
       supabaseServiceRoleKeySet: SUPABASE_SERVICE_ROLE_KEY.length > 0,
     },
   });
+}
+
+/**
+ * Send via Mailgun HTTP API (application/x-www-form-urlencoded).
+ * @returns {{ ok: true, id: string } | { ok: false, error: string, detail?: string }}
+ */
+async function sendMailgun({ to, subject, text }) {
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    return { ok: false, error: 'Mailgun not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN)' };
+  }
+  const from =
+    MAILGUN_FROM ||
+    `postmaster@${MAILGUN_DOMAIN}`;
+  const url = `${MAILGUN_BASE_URL}/v3/${encodeURIComponent(MAILGUN_DOMAIN)}/messages`;
+  const auth = Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
+  const body = new URLSearchParams({
+    from,
+    to,
+    subject,
+    text: text || '',
+  });
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+    const raw = await r.text();
+    if (!r.ok) {
+      return { ok: false, error: `Mailgun HTTP ${r.status}`, detail: raw.slice(0, 500) };
+    }
+    let id = '';
+    try {
+      const j = JSON.parse(raw);
+      id = (j && j.id) || '';
+    } catch (_) {}
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
+/** Admin-only: POST body `{ "to": "you@example.com" }` — sends one test email (sandbox: recipient must be authorized in Mailgun). */
+async function handleAdminTestMailgun(req, res) {
+  const session = await requireAdmin(req, res);
+  if (!session) return;
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const to = (body.to || '').trim();
+    if (!to) {
+      sendJson(req, res, 400, { error: 'JSON body must include "to" (recipient email)' });
+      return;
+    }
+    const result = await sendMailgun({
+      to,
+      subject: 'Project Tracker — Mailgun test (Railway production)',
+      text: `Test message sent at ${new Date().toISOString()}\n\nIf you use a Mailgun sandbox domain, the recipient must be listed as an authorized recipient in Mailgun.`,
+    });
+    if (result.ok) {
+      sendJson(req, res, 200, { ok: true, mailgunId: result.id || null });
+    } else {
+      sendJson(req, res, 502, { ok: false, error: result.error, detail: result.detail });
+    }
+  } catch (e) {
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -560,6 +640,10 @@ const server = http.createServer(async (req, res) => {
     await handleAdminSubordinate(req, res);
     return;
   }
+  if (path === '/api/admin/test-mailgun' && req.method === 'POST') {
+    await handleAdminTestMailgun(req, res);
+    return;
+  }
   if (path === '/health' || path === '/') {
     await handleHealth(req, res);
     return;
@@ -575,5 +659,8 @@ server.listen(PORT, () => {
   );
   console.log(
     `Supabase: ${supabase ? 'ok' : 'missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'}`,
+  );
+  console.log(
+    `Mailgun: ${MAILGUN_API_KEY && MAILGUN_DOMAIN ? 'ok' : 'optional (MAILGUN_API_KEY, MAILGUN_DOMAIN)'}`,
   );
 });
