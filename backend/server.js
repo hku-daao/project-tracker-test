@@ -834,11 +834,13 @@ function buildUrgentTaskReminderEmail(displayName, taskName, taskUrl, dueYmd) {
   const safeTitle = escapeHtml(taskName);
   const safeUrl = escapeHtml(taskUrl);
   const safeDue = escapeHtml(dueYmd);
+  const landing = `${PROJECT_TRACKER_LANDING_URL}/`;
+  const safeLanding = escapeHtml(landing);
   const html = `<p>Hi ${safeName}. You have a task due.</p>
 <p>You have an <b>upcoming</b> task</p>
 <p><b><u><a href="${safeUrl}" style="color:#1565C0;">${safeTitle}</a></u></b></p>
 <p>Due Date: ${safeDue}</p>
-<p>Project Tracker</p>`;
+<p><a href="${safeLanding}" style="color:#1565C0;">Project Tracker</a></p>`;
   const text = `Hi ${displayName}. You have a task due.
 
 You have an upcoming task
@@ -848,7 +850,8 @@ ${taskUrl}
 
 Due Date: ${dueYmd}
 
-Project Tracker`;
+Project Tracker
+${landing}`;
   return { html, text };
 }
 
@@ -1107,31 +1110,53 @@ async function runDueTodayTaskReminderJob() {
   return summary;
 }
 
-async function handleCronUrgentTaskReminders(req, res) {
-  if (req.method !== 'POST') {
-    sendJson(req, res, 405, { error: 'Method not allowed' });
-    return;
-  }
+/** Returns true if the request was rejected (response already sent). */
+function cronUnauthorized(req, res) {
   if (!CRON_SECRET) {
     sendJson(req, res, 503, {
       error:
         'CRON_SECRET is not set on this server. In Railway → your service → Variables, add CRON_SECRET (any long random string), redeploy, then send the same value in the X-Cron-Secret header.',
     });
-    return;
+    return true;
   }
   if (!verifyCronSecret(req)) {
     sendJson(req, res, 401, {
       error:
         'X-Cron-Secret does not match CRON_SECRET on the server. Fix the header value or Railway Variables.',
     });
+    return true;
+  }
+  return false;
+}
+
+async function handleCronUrgentTaskReminders(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
     return;
   }
+  if (cronUnauthorized(req, res)) return;
   try {
     const urgent = await runUrgentTaskReminderJob();
     const dueToday = await runDueTodayTaskReminderJob();
     sendJson(req, res, 200, { ok: true, urgent, dueToday });
   } catch (e) {
     console.error('handleCronUrgentTaskReminders:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
+/** POST — only the due-today reminder job (HK calendar: today = due_date). Same CRON_SECRET as other cron routes. */
+async function handleCronDueTodayOnly(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  if (cronUnauthorized(req, res)) return;
+  try {
+    const dueToday = await runDueTodayTaskReminderJob();
+    sendJson(req, res, 200, { ok: true, dueToday });
+  } catch (e) {
+    console.error('handleCronDueTodayOnly:', e);
     sendJson(req, res, 500, { error: e.message || String(e) });
   }
 }
@@ -1221,11 +1246,13 @@ async function handleNotifyTaskAssigned(req, res) {
       }
       const safeCreator = escapeHtml(staffDisplayName);
       const safeTitle = escapeHtml(taskName);
+      const landing = `${PROJECT_TRACKER_LANDING_URL}/`;
+      const safeLanding = escapeHtml(landing);
       const html = `<p>${safeCreator} assigned you a task.</p>
 <p>Task: <a href="${escapeHtml(taskUrl)}">${safeTitle}</a></p>
 <p>Due Date: ${escapeHtml(dueLine)}</p>
-<p>Project Tracker</p>`;
-      const text = `${staffDisplayName} assigned you a task.\nTask: ${taskName}\n${taskUrl}\nDue Date: ${dueLine}\nProject Tracker`;
+<p><a href="${safeLanding}" style="color:#1565C0;">Project Tracker</a></p>`;
+      const text = `${staffDisplayName} assigned you a task.\nTask: ${taskName}\n${taskUrl}\nDue Date: ${dueLine}\nProject Tracker\n${landing}`;
       const r = await sendMailgun({
         to,
         subject,
@@ -1449,6 +1476,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/api/cron/urgent-task-reminders' && req.method === 'POST') {
     await handleCronUrgentTaskReminders(req, res);
+    return;
+  }
+  if (path === '/api/cron/due-today-reminders' && req.method === 'POST') {
+    await handleCronDueTodayOnly(req, res);
     return;
   }
   if (path === '/health' || path === '/') {
