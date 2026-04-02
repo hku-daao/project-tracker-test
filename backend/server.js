@@ -1,5 +1,6 @@
 require('dotenv').config();
 const http = require('http');
+const cron = require('node-cron');
 const { createClient } = require('@supabase/supabase-js');
 
 const MAILGUN_API_KEY = (process.env.MAILGUN_API_KEY || '').trim();
@@ -16,6 +17,9 @@ const PUBLIC_WEB_APP_URL = (process.env.PUBLIC_WEB_APP_URL || 'https://projecttr
 const PROJECT_TRACKER_LANDING_URL = (
   process.env.PROJECT_TRACKER_LANDING_URL || 'https://projecttracker.hku-ia.ai'
 ).trim().replace(/\/$/, '');
+
+/** POST /api/cron/* — optional shared secret (Railway / external scheduler). */
+const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 const PORT = process.env.PORT || 3000;
 
@@ -520,6 +524,8 @@ async function handleHealth(req, res) {
     firebaseConfigured: !!firebaseAdmin,
     supabaseConfigured: !!supabase,
     mailgunConfigured: !!(MAILGUN_API_KEY && MAILGUN_DOMAIN),
+    urgentReminderCronEnabled: process.env.DISABLE_INTERNAL_URGENT_CRON !== 'true',
+    cronSecretConfigured: CRON_SECRET.length > 0,
     env: {
       supabaseUrlSet: SUPABASE_URL.length > 0,
       supabaseServiceRoleKeySet: SUPABASE_SERVICE_ROLE_KEY.length > 0,
@@ -674,6 +680,201 @@ function formatTaskDueDateYYYYMMDD(raw) {
   const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${mo}-${day}`;
+}
+
+function verifyCronSecret(req) {
+  if (!CRON_SECRET) return false;
+  const h = String(req.headers['x-cron-secret'] || '').trim();
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  return h === CRON_SECRET || bearer === CRON_SECRET;
+}
+
+/** Hong Kong calendar day bounds (ms) for a date/timestamptz from the DB. */
+function hkDayStartEndMs(raw) {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const dayStr = `${m[1]}-${m[2]}-${m[3]}`;
+    return {
+      startMs: new Date(`${dayStr}T00:00:00+08:00`).getTime(),
+      endMs: new Date(`${dayStr}T23:59:59.999+08:00`).getTime(),
+    };
+  }
+  const t = new Date(s).getTime();
+  if (Number.isNaN(t)) return null;
+  const d = new Date(s);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const dayStr = `${y}-${mo}-${day}`;
+  return {
+    startMs: new Date(`${dayStr}T00:00:00+08:00`).getTime(),
+    endMs: new Date(`${dayStr}T23:59:59.999+08:00`).getTime(),
+  };
+}
+
+/** True when [now] is at or past 80% of the interval from start-date (HK 00:00) to due-date (HK 23:59:59.999). */
+function hasReachedEightyPercentWindow(startRaw, dueRaw, nowMs) {
+  const startB = hkDayStartEndMs(startRaw);
+  const dueB = hkDayStartEndMs(dueRaw);
+  if (!startB || !dueB) return false;
+  const t0 = startB.startMs;
+  const t1 = dueB.endMs;
+  const total = t1 - t0;
+  if (total <= 0) return false;
+  const elapsed = nowMs - t0;
+  return elapsed / total >= 0.8;
+}
+
+function taskStatusBlocksUrgentReminder(statusRaw) {
+  const s = String(statusRaw || '')
+    .trim()
+    .toLowerCase();
+  return s === 'completed' || s === 'deleted';
+}
+
+function buildUrgentTaskReminderEmail(displayName, taskName, taskUrl, dueYmd) {
+  const safeName = escapeHtml(displayName);
+  const safeTitle = escapeHtml(taskName);
+  const safeUrl = escapeHtml(taskUrl);
+  const safeDue = escapeHtml(dueYmd);
+  const html = `<p>Hi ${safeName}. You have a task due.</p>
+<p>You have an <b>upcoming</b> task</p>
+<p><b><u><a href="${safeUrl}" style="color:#1565C0;">${safeTitle}</a></u></b></p>
+<p>Due Date: ${safeDue}</p>
+<p>Project Tracker</p>`;
+  const text = `Hi ${displayName}. You have a task due.
+
+You have an upcoming task
+
+${taskName}
+${taskUrl}
+
+Due Date: ${dueYmd}
+
+Project Tracker`;
+  return { html, text };
+}
+
+/**
+ * Sends urgent task emails (80% window) to assignees; sets urgent_reminder_sent when done without Mailgun failures.
+ * Called by daily cron (09:00 Asia/Hong_Kong) and POST /api/cron/urgent-task-reminders.
+ */
+async function runUrgentTaskReminderJob() {
+  const nowMs = Date.now();
+  const summary = {
+    scanned: 0,
+    eligible: 0,
+    emailsAttempted: 0,
+    emailsOk: 0,
+    tasksFlagged: 0,
+    errors: [],
+  };
+  if (!supabase) {
+    summary.errors.push('Supabase not configured');
+    return summary;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    summary.errors.push('Mailgun not configured');
+    return summary;
+  }
+
+  const { data: tasks, error: qErr } = await supabase
+    .from('task')
+    .select('*')
+    .eq('urgent_reminder_sent', false);
+
+  if (qErr) {
+    summary.errors.push(qErr.message || String(qErr));
+    return summary;
+  }
+
+  const list = tasks || [];
+  summary.scanned = list.length;
+
+  for (const taskRow of list) {
+    if (taskStatusBlocksUrgentReminder(taskRow.status)) continue;
+    if (taskRow.start_date == null || taskRow.due_date == null) continue;
+    if (!hasReachedEightyPercentWindow(taskRow.start_date, taskRow.due_date, nowMs)) {
+      continue;
+    }
+
+    summary.eligible += 1;
+    const taskId = String(taskRow.id || '').trim();
+    const taskName = String(taskRow.task_name || '').trim() || '(no title)';
+    const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
+    const dueYmd = formatTaskDueDateYYYYMMDD(taskRow.due_date);
+    const assigneeIds = collectTaskAssigneeStaffIds(taskRow);
+
+    const sendResults = [];
+    for (const staffId of assigneeIds) {
+      const { data: staffRow } = await supabase
+        .from('staff')
+        .select('email, name, display_name')
+        .eq('id', staffId)
+        .maybeSingle();
+      const to = (staffRow?.email || '').trim();
+      if (!to) {
+        sendResults.push({ staffId, ok: false, skipped: 'no email' });
+        continue;
+      }
+      const displayName =
+        (staffRow.display_name || '').trim() ||
+        (staffRow.name || '').trim() ||
+        to;
+      const { html, text } = buildUrgentTaskReminderEmail(
+        displayName,
+        taskName,
+        taskUrl,
+        dueYmd,
+      );
+      const r = await sendMailgun({
+        to,
+        subject: 'You have upcoming tasks due',
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+      });
+      summary.emailsAttempted += 1;
+      if (r.ok) summary.emailsOk += 1;
+      sendResults.push({ to, ok: r.ok, error: r.ok ? null : r.error });
+    }
+
+    const failedMailgun = sendResults.some((x) => !x.ok && !x.skipped);
+    if (!failedMailgun) {
+      const { error: uErr } = await supabase
+        .from('task')
+        .update({ urgent_reminder_sent: true })
+        .eq('id', taskId);
+      if (uErr) {
+        summary.errors.push(`Update ${taskId}: ${uErr.message}`);
+      } else {
+        summary.tasksFlagged += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
+async function handleCronUrgentTaskReminders(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  if (!verifyCronSecret(req)) {
+    sendJson(req, res, 401, { error: 'Unauthorized (set CRON_SECRET and X-Cron-Secret header)' });
+    return;
+  }
+  try {
+    const summary = await runUrgentTaskReminderJob();
+    sendJson(req, res, 200, { ok: true, ...summary });
+  } catch (e) {
+    console.error('handleCronUrgentTaskReminders:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
 }
 
 /**
@@ -987,6 +1188,10 @@ const server = http.createServer(async (req, res) => {
     await handleNotifyTaskComment(req, res);
     return;
   }
+  if (path === '/api/cron/urgent-task-reminders' && req.method === 'POST') {
+    await handleCronUrgentTaskReminders(req, res);
+    return;
+  }
   if (path === '/health' || path === '/') {
     await handleHealth(req, res);
     return;
@@ -1006,4 +1211,18 @@ server.listen(PORT, () => {
   console.log(
     `Mailgun: ${MAILGUN_API_KEY && MAILGUN_DOMAIN ? 'ok' : 'optional (MAILGUN_API_KEY, MAILGUN_DOMAIN)'}`,
   );
+  if (process.env.DISABLE_INTERNAL_URGENT_CRON !== 'true') {
+    cron.schedule(
+      '0 9 * * *',
+      () => {
+        runUrgentTaskReminderJob().catch((e) =>
+          console.error('urgent-task-reminders cron:', e),
+        );
+      },
+      { timezone: 'Asia/Hong_Kong' },
+    );
+    console.log(
+      'Urgent task reminders: scheduled daily at 09:00 Asia/Hong_Kong (DISABLE_INTERNAL_URGENT_CRON=true to turn off)',
+    );
+  }
 });

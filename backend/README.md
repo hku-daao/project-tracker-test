@@ -25,6 +25,10 @@ Copy `.env.example` to `.env` and set these three variables:
 | **MAILGUN_FROM** (optional) | Default **From** when Mailgun is called without an override (e.g. admin test email). If omitted, the server uses `postmaster@<MAILGUN_DOMAIN>`. |
 | **MAILGUN_NOTIFICATION_FROM** (optional) | Verified **From** for **task-assignment** emails (`POST /api/notify/task-assigned`). Defaults to `no-reply@sandbox1d79a2f6002c44b28ab0f0ec99a11179.mailgun.org` for the sandbox domain; set this when you use a production Mailgun domain. **Reply-To** is still the creator’s `staff.email`. |
 | **PUBLIC_WEB_APP_URL** (optional) | Public HTTPS origin for **task links in emails** (no trailing slash), e.g. `https://projecttracker.hku-ia.ai` (production) or `https://project-tracker-test.web.app` (testing). Default: `https://projecttracker.hku-ia.ai`. |
+| **CRON_SECRET** (optional) | Shared secret for **`POST /api/cron/urgent-task-reminders`** (header `X-Cron-Secret` or `Authorization: Bearer …`). Use if you trigger the urgent-task job from an external scheduler; required for that HTTP route to return 200. |
+| **DISABLE_INTERNAL_URGENT_CRON** (optional) | Set to `true` to disable the in-process **daily 09:00 Asia/Hong_Kong** run that sends **80% window** urgent task emails. |
+
+Apply Supabase migration **`028_task_urgent_reminder_sent.sql`** so `task.urgent_reminder_sent` exists.
 
 Assignment emails (`POST /api/notify/task-assigned`) require the signed-in user’s Firebase **email** to match **`staff.email`** for `task.create_by`, or the API returns 403.
 
