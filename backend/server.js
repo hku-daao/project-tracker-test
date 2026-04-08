@@ -680,8 +680,8 @@ function formatUpdateDateYYYYMMDD(raw) {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Hong_Kong' });
 }
 
-/** Formats task.update_date as `yyyy-mm-dd hh:mm UTC+8` (wall clock in Asia/Hong_Kong). */
-function formatUpdateDateTimeUTC8(raw) {
+/** Formats task.update_date as `yyyy-mm-dd hh:mm` (wall clock in Asia/Hong_Kong). */
+function formatUpdateDateTimeYmdHm(raw) {
   if (raw == null || raw === '') return '—';
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return '—';
@@ -699,7 +699,7 @@ function formatUpdateDateTimeUTC8(raw) {
     if (p.type === 'minute') mm = p.value.padStart(2, '0');
   }
   const hm = hh && mm ? `${hh}:${mm}` : '—';
-  return `${datePart} ${hm} UTC+8`;
+  return `${datePart} ${hm}`;
 }
 
 /** Formats task.due_date as YYYY-MM-DD for emails (avoids timezone shift on date-only strings). */
@@ -1518,8 +1518,8 @@ async function handleNotifyTaskUpdated(req, res) {
     const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
     const subject = `Task updated - ${taskTitleForSubject}`;
     const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
-    const updatedAtLine = formatUpdateDateTimeUTC8(taskRow.update_date);
-    const landing = `${PROJECT_TRACKER_LANDING_URL}/`;
+    const updatedAtLine = formatUpdateDateTimeYmdHm(taskRow.update_date);
+    const landing = 'https://projecttracker.hku-ia.ai/';
     const safeLandingHref = escapeHtml(landing);
     const safeTaskUrlAttr = escapeHtml(taskUrl);
     const safeTitle = escapeHtml(taskName);
@@ -1559,18 +1559,23 @@ async function handleNotifyTaskUpdated(req, res) {
         (s.name || '').trim() ||
         to;
       const safeDisplayName = escapeHtml(displayNameForHi);
-      const html = `<p style="margin:0;font-size:14px;line-height:1.6;">Hi ${safeDisplayName},<br>
-The task has been updated.<br>
-<a href="${safeTaskUrlAttr}" style="font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br>
-Updated by: ${safeUpdaterName}<br>
-Updated at: ${safeUpdatedAt}<br>
-<a href="${safeLandingHref}">Project Tracker</a></p>`;
+      const html = `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;line-height:1.5;color:#000000;">Hi ${safeDisplayName},<br><br>
+The task has been updated.<br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+Updated by: ${safeUpdaterName}<br><br>
+Updated at: ${safeUpdatedAt}<br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;color:#1565C0;">Project Tracker</a></div>`;
       const text = `Hi ${displayNameForHi},
+
 The task has been updated.
+
 ${taskName}
 ${taskUrl}
+
 Updated by: ${updaterNameForBody}
+
 Updated at: ${updatedAtLine}
+
 Project Tracker
 ${landing}`;
       const r = await sendMailgun({
