@@ -811,6 +811,39 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         return;
       }
 
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token != null) {
+          final notifyErr = await BackendApi().notifyTaskUpdated(
+            idToken: token,
+            taskId: task.id,
+          );
+          if (notifyErr != null && mounted) {
+            final short = notifyErr.length > 120
+                ? '${notifyErr.substring(0, 120)}…'
+                : notifyErr;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Task saved; update email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Update email failed: $e'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
+      }
+      if (!mounted) return;
+
       final commentBody = _commentController.text.trim();
       if (commentBody.isNotEmpty) {
         final cResult = await SupabaseService.insertSingularCommentRow(

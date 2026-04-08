@@ -394,4 +394,32 @@ class BackendApi {
       return e.toString();
     }
   }
+
+  /// Emails assignees and creator after a task row is updated (Update button). Requires Mailgun.
+  Future<String?> notifyTaskUpdated({
+    required String idToken,
+    required String taskId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/task-updated'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'taskId': taskId}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
 }

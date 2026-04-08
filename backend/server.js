@@ -668,6 +668,14 @@ function buildTaskCommentNotificationBodies(description, taskUrl) {
   return { html, text };
 }
 
+/** Formats task.update_date (timestamptz) as YYYY-MM-DD in Asia/Hong_Kong. */
+function formatUpdateDateYYYYMMDD(raw) {
+  if (raw == null || raw === '') return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Hong_Kong' });
+}
+
 /** Formats task.due_date as YYYY-MM-DD for emails (avoids timezone shift on date-only strings). */
 function formatTaskDueDateYYYYMMDD(raw) {
   if (raw == null || raw === '') return '—';
@@ -1409,6 +1417,165 @@ async function handleNotifyTaskComment(req, res) {
   }
 }
 
+/**
+ * POST { taskId } — last updater only (session email = staff.email for task.update_by).
+ * Emails each assignee (assignee_01..10) plus create_by, deduped; one Mailgun message per recipient.
+ */
+async function handleNotifyTaskUpdated(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const taskId = (body.taskId || '').trim();
+    if (!taskId) {
+      sendJson(req, res, 400, { error: 'taskId required' });
+      return;
+    }
+    const { data: taskRow, error: tErr } = await supabase
+      .from('task')
+      .select('*')
+      .eq('id', taskId)
+      .maybeSingle();
+    if (tErr || !taskRow) {
+      sendJson(req, res, 404, { error: 'Task not found' });
+      return;
+    }
+    const updaterId = (taskRow.update_by || '').toString().trim();
+    if (!updaterId) {
+      sendJson(req, res, 400, { error: 'Task has no update_by' });
+      return;
+    }
+    const { data: updaterStaff, error: uErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', updaterId)
+      .maybeSingle();
+    if (uErr || !updaterStaff) {
+      sendJson(req, res, 400, { error: 'Updater staff not found' });
+      return;
+    }
+    const updaterEmail = (updaterStaff.email || '').trim().toLowerCase();
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    if (!updaterEmail || updaterEmail !== sessionEmail) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the user who updated the task (staff email must match signed-in user) can send update emails',
+      });
+      return;
+    }
+    const updaterNameForBody =
+      (updaterStaff.name || '').trim() || updaterEmail;
+    const taskName = (taskRow.task_name || '').toString().trim() || '(no title)';
+    const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
+    const subject = `Task updated - ${taskTitleForSubject}`;
+    const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
+    const updateYmd = formatUpdateDateYYYYMMDD(taskRow.update_date);
+    const landing = `${PROJECT_TRACKER_LANDING_URL}/`;
+    const safeLandingHref = escapeHtml(landing);
+    const safeTaskUrlAttr = escapeHtml(taskUrl);
+    const safeTitle = escapeHtml(taskName);
+    const safeUpdaterName = escapeHtml(updaterNameForBody);
+    const safeUpdateYmd = escapeHtml(updateYmd);
+
+    /** @type {Map<string, string>} normalized staff id -> canonical id string */
+    const recipientByNorm = new Map();
+    for (const id of collectTaskAssigneeStaffIds(taskRow)) {
+      const raw = String(id).trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (!recipientByNorm.has(key)) recipientByNorm.set(key, raw);
+    }
+    const creatorId = (taskRow.create_by || '').toString().trim();
+    if (creatorId) {
+      const key = creatorId.toLowerCase();
+      if (!recipientByNorm.has(key)) recipientByNorm.set(key, creatorId);
+    }
+
+    const results = [];
+    const replyTo = updaterEmail;
+
+    for (const staffUuid of recipientByNorm.values()) {
+      const { data: s } = await supabase
+        .from('staff')
+        .select('email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      const to = (s?.email || '').trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const recipientGreeting =
+        (s.display_name || '').trim() ||
+        (s.name || '').trim() ||
+        to;
+      const safeHi = escapeHtml(recipientGreeting);
+      const html = `<p>Hi ${safeHi},</p>
+<p><br></p>
+<p>The task has been updated.</p>
+<p><br></p>
+<p><a href="${safeTaskUrlAttr}" style="font-weight:bold;text-decoration:underline;">${safeTitle}</a></p>
+<p><br></p>
+<p>Updated by: ${safeUpdaterName}</p>
+<p>Update time: ${safeUpdateYmd}</p>
+<p><br></p>
+<p><a href="${safeLandingHref}">Project Tracker</a></p>`;
+      const text = `Hi ${recipientGreeting},
+
+The task has been updated.
+
+${taskName}
+${taskUrl}
+
+Updated by: ${updaterNameForBody}
+Update time: ${updateYmd}
+
+Project Tracker
+${landing}`;
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      taskId,
+      recipients: results.length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifyTaskUpdated:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     applyCors(req, res, 204);
@@ -1469,6 +1636,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/api/notify/task-comment' && req.method === 'POST') {
     await handleNotifyTaskComment(req, res);
+    return;
+  }
+  if (path === '/api/notify/task-updated' && req.method === 'POST') {
+    await handleNotifyTaskUpdated(req, res);
     return;
   }
   if (path === '/api/cron/urgent-task-reminders' && req.method === 'POST') {
