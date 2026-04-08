@@ -90,6 +90,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   bool _loadingTableComments = false;
   String? _myStaffUuid;
   bool _myStaffUuidRequested = false;
+  /// `task.create_by` (usually `staff.id` uuid); used with [_myStaffUuid] for delete rules.
+  String? _taskCreateByStaffUuid;
+  bool _staffDirectorFlag = false;
 
   static const int _maxAssignees = 10;
   static const Color _selGreen = Color(0xFF1B5E20);
@@ -101,8 +104,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     _myStaffUuidRequested = true;
     final lk = context.read<AppState>().userStaffAppId?.trim();
     if (lk == null || lk.isEmpty) return;
-    SupabaseService.staffRowIdForAssigneeKey(lk).then((id) {
-      if (mounted) setState(() => _myStaffUuid = id);
+    SupabaseService.staffRowIdForAssigneeKey(lk).then((id) async {
+      if (!mounted) return;
+      setState(() => _myStaffUuid = id);
+      if (id == null || id.isEmpty) return;
+      final dir = await SupabaseService.fetchStaffDirectorByStaffUuid(id);
+      if (mounted) setState(() => _staffDirectorFlag = dir);
     });
   }
 
@@ -155,6 +162,29 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     return mine == cb;
   }
 
+  static bool _uuidEquals(String? a, String? b) {
+    final x = a?.trim().toLowerCase() ?? '';
+    final y = b?.trim().toLowerCase() ?? '';
+    if (x.isEmpty || y.isEmpty) return false;
+    return x == y;
+  }
+
+  /// Task soft-delete and comment soft-delete: creator or `staff.director`.
+  bool _canMarkTaskDeleted(AppState state) {
+    if (_staffDirectorFlag) return true;
+    final mine = state.userStaffAppId?.trim();
+    final t = state.taskById(widget.taskId);
+    final cbKey = t?.createByAssigneeKey?.trim();
+    if (mine != null &&
+        mine.isNotEmpty &&
+        cbKey != null &&
+        cbKey.isNotEmpty &&
+        mine == cbKey) {
+      return true;
+    }
+    return _uuidEquals(_myStaffUuid, _taskCreateByStaffUuid);
+  }
+
   Future<void> _editSingularComment(SingularCommentRowDisplay c) async {
     final state = context.read<AppState>();
     final controller = TextEditingController(text: c.description);
@@ -200,6 +230,17 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   Future<void> _confirmDeleteSingularComment(SingularCommentRowDisplay c) async {
     final state = context.read<AppState>();
+    if (!_canMarkTaskDeleted(state)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Only the task creator or a director can delete comments.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -260,13 +301,13 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     );
   }
 
-  List<Widget> _singularCommentTiles(BuildContext context) {
+  List<Widget> _singularCommentTiles(BuildContext context, AppState state) {
     final active =
         _tableComments.where((c) => !c.isDeleted).toList(growable: false);
     final deleted =
         _tableComments.where((c) => c.isDeleted).toList(growable: false);
     final tiles = <Widget>[
-      ...active.map((c) => _buildSingularCommentTile(context, c)),
+      ...active.map((c) => _buildSingularCommentTile(context, state, c)),
     ];
     if (deleted.isEmpty) return tiles;
     if (active.isNotEmpty) {
@@ -285,15 +326,20 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         ),
       );
     }
-    tiles.addAll(deleted.map((c) => _buildSingularCommentTile(context, c)));
+    tiles.addAll(deleted.map((c) => _buildSingularCommentTile(context, state, c)));
     return tiles;
   }
 
-  Widget _buildSingularCommentTile(BuildContext context, SingularCommentRowDisplay c) {
+  Widget _buildSingularCommentTile(
+    BuildContext context,
+    AppState state,
+    SingularCommentRowDisplay c,
+  ) {
     final theme = Theme.of(context);
     final isDeleted = c.isDeleted;
     final grey = Colors.grey.shade600;
-    final showActions = !isDeleted && _isOwnSingularComment(c) && !_saving;
+    final showEdit = !isDeleted && _isOwnSingularComment(c) && !_saving;
+    final showDelete = !isDeleted && _canMarkTaskDeleted(state) && !_saving;
     final subtitleChildren = <Widget>[
       Text(
         '${c.displayStaffName} · ${_formatCommentPostedTs(c.createTimestampUtc)}',
@@ -330,20 +376,22 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           mainAxisSize: MainAxisSize.min,
           children: subtitleChildren,
         ),
-        trailing: showActions
+        trailing: (showEdit || showDelete)
             ? Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    tooltip: 'Edit',
-                    icon: const Icon(Icons.edit_outlined, size: 22),
-                    onPressed: () => _editSingularComment(c),
-                  ),
-                  IconButton(
-                    tooltip: 'Delete',
-                    icon: const Icon(Icons.delete_outline, size: 22),
-                    onPressed: () => _confirmDeleteSingularComment(c),
-                  ),
+                  if (showEdit)
+                    IconButton(
+                      tooltip: 'Edit',
+                      icon: const Icon(Icons.edit_outlined, size: 22),
+                      onPressed: () => _editSingularComment(c),
+                    ),
+                  if (showDelete)
+                    IconButton(
+                      tooltip: 'Delete',
+                      icon: const Icon(Icons.delete_outline, size: 22),
+                      onPressed: () => _confirmDeleteSingularComment(c),
+                    ),
                 ],
               )
             : null,
@@ -396,27 +444,43 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     required String label,
     required bool selected,
     required VoidCallback onTap,
+    bool enabled = true,
+    String? disabledMessage,
   }) {
     return Expanded(
-      child: Material(
-        color: selected ? _selGreen : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: Material(
+          color: selected ? _selGreen : Colors.white,
           borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _selGreen, width: 1.5),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 16,
-                color: selected ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w600,
+          child: InkWell(
+            onTap: enabled
+                ? onTap
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          disabledMessage ??
+                              'You do not have permission for this action.',
+                        ),
+                      ),
+                    );
+                  },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _selGreen, width: 1.5),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: selected ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -604,6 +668,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         if (row != null) {
           _localPriority = _priorityFromRow(row['priority']);
           _localStatus = _normalizeLocalStatus(row['status']?.toString());
+          _taskCreateByStaffUuid = row['create_by']?.toString().trim();
         }
         _pickerLoading = false;
         _loadingStaff = false;
@@ -634,6 +699,17 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Start date cannot be after due date.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (_localStatus == 'Deleted' && !_canMarkTaskDeleted(state)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Only the task creator or a director can set status to Deleted.',
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1292,6 +1368,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                         _toggleButton(
                           label: 'Deleted',
                           selected: _localStatus == 'Deleted',
+                          enabled: _canMarkTaskDeleted(state) ||
+                              _localStatus == 'Deleted',
+                          disabledMessage:
+                              'Only the task creator or a director can set status to Deleted.',
                           onTap: () => setState(() => _localStatus = 'Deleted'),
                         ),
                       ],
@@ -1329,7 +1409,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else
-              ..._singularCommentTiles(context),
+              ..._singularCommentTiles(context, state),
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : () => _saveTaskFields(state, task),

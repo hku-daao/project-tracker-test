@@ -188,6 +188,27 @@ class SupabaseService {
     }
   }
 
+  /// `staff.director` — used for delete permissions. False if column missing or error.
+  static Future<bool> fetchStaffDirectorByStaffUuid(String staffUuid) async {
+    if (!_enabled) return false;
+    final id = staffUuid.trim();
+    if (id.isEmpty) return false;
+    try {
+      final r = await Supabase.instance.client
+          .from('staff')
+          .select('director')
+          .eq('id', id)
+          .maybeSingle();
+      if (r == null) return false;
+      final v = r['director'];
+      if (v is bool) return v;
+      if (v == null) return false;
+      return v == true || v == 1 || v == 'true';
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Updates one row in singular [`task`]. Pass only fields to change.
   static Future<String?> updateSingularTaskRow({
     required String taskId,
