@@ -167,6 +167,27 @@ async function fetchStaffRowForCreateBy(supabaseClient, createByRaw) {
   return { data: byApp.data || null, error: null };
 }
 
+/**
+ * Prefer `staff.email`; if empty, use any `app_users.email` linked to `staff.id` (Firebase users often only have the latter).
+ */
+async function resolveStaffEmailForNotifications(supabaseClient, staffRow) {
+  const direct = String(staffRow?.email || '').trim();
+  if (direct) return direct;
+  const sid = String(staffRow?.id || '').trim();
+  if (!sid) return '';
+  const { data: rows, error } = await supabaseClient
+    .from('app_users')
+    .select('email')
+    .eq('staff_id', sid)
+    .limit(5);
+  if (error) return '';
+  for (const r of rows || []) {
+    const e = String(r?.email || '').trim();
+    if (e) return e;
+  }
+  return '';
+}
+
 async function handleApiMe(req, res) {
   const session = await verifyFirebaseToken(req.headers.authorization);
   if (!session) {
@@ -1211,10 +1232,10 @@ async function runCreatorUrgentTaskReminderJob() {
     const taskName = String(taskRow.task_name || '').trim() || '(no title)';
     const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
     const dueYmd = formatTaskDueDateYYYYMMDD(taskRow.due_date);
-    const to = (staffRow.email || '').trim();
+    const to = await resolveStaffEmailForNotifications(supabase, staffRow);
     if (!to) {
       summary.errors.push(
-        `creator has no email (task ${taskId}, staff.id=${resolvedCreatorStaffId})`,
+        `creator has no email (task ${taskId}, staff.id=${resolvedCreatorStaffId}; set staff.email or link app_users.email)`,
       );
       continue;
     }
@@ -1450,10 +1471,10 @@ async function runCreatorDueTodayReminderJob() {
     const taskName = String(taskRow.task_name || '').trim() || '(no title)';
     const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
     const dueYmd = formatTaskDueDateYYYYMMDD(taskRow.due_date);
-    const to = (staffRow.email || '').trim();
+    const to = await resolveStaffEmailForNotifications(supabase, staffRow);
     if (!to) {
       summary.errors.push(
-        `creator has no email (task ${taskId}, staff.id=${resolvedCreatorStaffId})`,
+        `creator has no email (task ${taskId}, staff.id=${resolvedCreatorStaffId}; set staff.email or link app_users.email)`,
       );
       continue;
     }
