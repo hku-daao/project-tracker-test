@@ -733,7 +733,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                           Padding(
                             padding: const EdgeInsets.only(top: 16, bottom: 8),
                             child: Text(
-                              'Tasks',
+                              'Tasks (${filteredTasks.length})',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
