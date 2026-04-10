@@ -80,7 +80,8 @@ class SupabaseService {
   /// Status strings on singular [`task`] (e.g. Incomplete) vs legacy [`tasks`] (todo/in_progress/done).
   static TaskStatus _taskStatusFromSingularTaskDb(String? s) {
     final t = s?.trim().toLowerCase() ?? '';
-    if (t == 'done' || t == 'completed' || t == 'complete') return TaskStatus.done;
+    if (t == 'done' || t == 'completed' || t == 'complete')
+      return TaskStatus.done;
     if (t == 'in_progress' || t == 'in progress') return TaskStatus.inProgress;
     if (t == 'delete' || t == 'deleted') return TaskStatus.todo;
     return TaskStatus.todo;
@@ -142,16 +143,22 @@ class SupabaseService {
     if (!_enabled) return k;
     try {
       final supabase = Supabase.instance.client;
-      final byApp =
-          await supabase.from('staff').select('name').eq('app_id', k).maybeSingle();
+      final byApp = await supabase
+          .from('staff')
+          .select('name')
+          .eq('app_id', k)
+          .maybeSingle();
       if (byApp != null) {
         final n = byApp['name'] as String? ?? k;
         _staffNameCache[k] = n;
         return n;
       }
       if (_looksLikeUuid(k)) {
-        final byId =
-            await supabase.from('staff').select('name').eq('id', k).maybeSingle();
+        final byId = await supabase
+            .from('staff')
+            .select('name')
+            .eq('id', k)
+            .maybeSingle();
         if (byId != null) {
           final n = byId['name'] as String? ?? k;
           _staffNameCache[k] = n;
@@ -164,7 +171,8 @@ class SupabaseService {
 
   /// Batch resolve assignee keys to names for list subtitles.
   static Future<Map<String, String>> staffDisplayNamesForKeys(
-      List<String> keys) async {
+    List<String> keys,
+  ) async {
     final out = <String, String>{};
     for (final k in keys.toSet()) {
       if (k.isEmpty) continue;
@@ -176,16 +184,23 @@ class SupabaseService {
   /// Resolves [assigneeKey] (`staff.app_id` or `staff.id`) to the business team key
   /// (`team.team_id`, same as [StaffForAssignment.teamId]) for the PIC row.
   static Future<String?> fetchStaffTeamBusinessIdForAssigneeKey(
-      String? assigneeKey) async {
+    String? assigneeKey,
+  ) async {
     if (!_enabled) return null;
     final k = assigneeKey?.trim() ?? '';
     if (k.isEmpty) return null;
     try {
       final supabase = Supabase.instance.client;
-      Map<String, dynamic>? row =
-          await supabase.from('staff').select('team_id').eq('app_id', k).maybeSingle();
-      row ??=
-          await supabase.from('staff').select('team_id').eq('id', k).maybeSingle();
+      Map<String, dynamic>? row = await supabase
+          .from('staff')
+          .select('team_id')
+          .eq('app_id', k)
+          .maybeSingle();
+      row ??= await supabase
+          .from('staff')
+          .select('team_id')
+          .eq('id', k)
+          .maybeSingle();
       var tid = row?['team_id']?.toString().trim();
       if (tid == null || tid.isEmpty) return null;
       if (_looksLikeUuid(tid)) {
@@ -204,7 +219,9 @@ class SupabaseService {
     }
   }
 
-  static Future<Map<String, dynamic>?> fetchSingularTaskById(String taskId) async {
+  static Future<Map<String, dynamic>?> fetchSingularTaskById(
+    String taskId,
+  ) async {
     if (!_enabled) return null;
     try {
       final r = await Supabase.instance.client
@@ -252,7 +269,9 @@ class SupabaseService {
     bool clearStartDate = false,
     bool clearDueDate = false,
     String? status,
+    String? submission,
     String? updateByStaffLookupKey,
+
     /// Sets `task.pic` (staff id); omit to leave column unchanged.
     String? picStaffLookupKey,
   }) async {
@@ -280,6 +299,7 @@ class SupabaseService {
         map['due_date'] = HkTime.dateOnlyHkMidnightForDb(dueDate);
       }
       if (status != null) map['status'] = status;
+      if (submission != null) map['submission'] = submission;
       final lookup = updateByStaffLookupKey?.trim();
       if (lookup != null && lookup.isNotEmpty) {
         final staffId = await _staffRowIdForAssigneeKey(lookup);
@@ -297,6 +317,52 @@ class SupabaseService {
       }
       if (map.isEmpty) return null;
       await Supabase.instance.client.from('task').update(map).eq('id', taskId);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Reads `attachment.content` for the task (submission hyperlink), if any.
+  static Future<String?> fetchAttachmentContentForTask(String taskId) async {
+    if (!_enabled) return null;
+    final id = taskId.trim();
+    if (id.isEmpty) return null;
+    try {
+      final r = await Supabase.instance.client
+          .from('attachment')
+          .select('content')
+          .eq('task_id', id)
+          .maybeSingle();
+      if (r == null) return null;
+      final c = r['content']?.toString().trim();
+      return (c == null || c.isEmpty) ? null : c;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Upserts the single attachment row for [taskId]. Pass empty [content] to delete the row.
+  static Future<String?> upsertAttachmentContentForTask({
+    required String taskId,
+    required String content,
+  }) async {
+    if (!_enabled) return 'Supabase not configured';
+    final id = taskId.trim();
+    if (id.isEmpty) return 'Missing task id';
+    try {
+      final trimmed = content.trim();
+      await Supabase.instance.client
+          .from('attachment')
+          .delete()
+          .eq('task_id', id);
+      if (trimmed.isEmpty) {
+        return null;
+      }
+      await Supabase.instance.client.from('attachment').insert({
+        'task_id': id,
+        'content': trimmed,
+      });
       return null;
     } catch (e) {
       return e.toString();
@@ -353,12 +419,22 @@ class SupabaseService {
       isSingularTableRow: true,
       dbStatus: statusRaw.isEmpty ? null : statusRaw,
       updateByStaffName: _updateByDisplayName(row, staffUuidToName),
-      createByStaffName:
-          _createByDisplayName(row, staffUuidToName, staffUuidToAppId),
+      createByStaffName: _createByDisplayName(
+        row,
+        staffUuidToName,
+        staffUuidToAppId,
+      ),
       createByAssigneeKey: _createByAssigneeKey(row, staffUuidToAppId),
       pic: _picAssigneeKey(row, staffUuidToAppId),
       updateDate: _parseDateTimeNullable(row['update_date']),
+      submission: _submissionFromRow(row['submission']),
     );
+  }
+
+  static String? _submissionFromRow(dynamic v) {
+    final s = v?.toString().trim() ?? '';
+    if (s.isEmpty) return null;
+    return s;
   }
 
   static String _taskStatusToDb(TaskStatus s) {
@@ -392,13 +468,24 @@ class SupabaseService {
         .maybeSingle();
     if (byBiz != null) return byBiz['id'] as String?;
     if (_looksLikeUuid(k)) {
-      final byPk = await supabase.from('team').select('id').eq('id', k).maybeSingle();
+      final byPk = await supabase
+          .from('team')
+          .select('id')
+          .eq('id', k)
+          .maybeSingle();
       if (byPk != null) return byPk['id'] as String?;
     }
     return null;
   }
 
-  static Future<({Map<String, String> teamUuidToAppId, Map<String, String> staffUuidToAppId, Map<String, String> staffUuidToName})?> _loadMaps() async {
+  static Future<
+    ({
+      Map<String, String> teamUuidToAppId,
+      Map<String, String> staffUuidToAppId,
+      Map<String, String> staffUuidToName,
+    })?
+  >
+  _loadMaps() async {
     if (!_enabled) return null;
     final supabase = Supabase.instance.client;
     final teamsRes = await supabase.from('team').select('id, team_id');
@@ -421,12 +508,20 @@ class SupabaseService {
         staffUuidToAppId[id] = appId;
       }
     }
-    return (teamUuidToAppId: teamUuidToAppId, staffUuidToAppId: staffUuidToAppId, staffUuidToName: staffUuidToName);
+    return (
+      teamUuidToAppId: teamUuidToAppId,
+      staffUuidToAppId: staffUuidToAppId,
+      staffUuidToName: staffUuidToName,
+    );
   }
 
   static Future<String?> _staffUuidForAppId(String appId) async {
     final supabase = Supabase.instance.client;
-    final r = await supabase.from('staff').select('id').eq('app_id', appId).maybeSingle();
+    final r = await supabase
+        .from('staff')
+        .select('id')
+        .eq('app_id', appId)
+        .maybeSingle();
     return r?['id'] as String?;
   }
 
@@ -435,8 +530,10 @@ class SupabaseService {
     if (!_enabled) return null;
     try {
       final supabase = Supabase.instance.client;
-      final teamRes =
-          await supabase.from('team').select('team_id, team_name').order('team_name');
+      final teamRes = await supabase
+          .from('team')
+          .select('team_id, team_name')
+          .order('team_name');
       final teams = <TeamOptionRow>[];
       for (final r in (teamRes as List)) {
         final m = Map<String, dynamic>.from(r as Map);
@@ -445,8 +542,10 @@ class SupabaseService {
         final tn = m['team_name'] as String? ?? tid;
         teams.add(TeamOptionRow(teamId: tid, teamName: tn));
       }
-      final staffRes =
-          await supabase.from('staff').select('id, app_id, name, team_id').order('name');
+      final staffRes = await supabase
+          .from('staff')
+          .select('id, app_id, name, team_id')
+          .order('name');
       final staff = <StaffForAssignment>[];
       for (final r in (staffRes as List)) {
         final m = Map<String, dynamic>.from(r as Map);
@@ -456,13 +555,14 @@ class SupabaseService {
         if (assigneeId.isEmpty) continue;
         final name = m['name'] as String? ?? assigneeId;
         final rawTeam = m['team_id']?.toString();
-        final teamId =
-            rawTeam != null && rawTeam.isNotEmpty ? rawTeam : null;
-        staff.add(StaffForAssignment(
-          assigneeId: assigneeId,
-          name: name,
-          teamId: teamId,
-        ));
+        final teamId = rawTeam != null && rawTeam.isNotEmpty ? rawTeam : null;
+        staff.add(
+          StaffForAssignment(
+            assigneeId: assigneeId,
+            name: name,
+            teamId: teamId,
+          ),
+        );
       }
       return StaffAssigneePickerData(teams: teams, staff: staff);
     } catch (e) {
@@ -475,8 +575,10 @@ class SupabaseService {
     if (!_enabled) return [];
     try {
       final supabase = Supabase.instance.client;
-      final teamRes =
-          await supabase.from('team').select('team_id, team_name').order('team_name');
+      final teamRes = await supabase
+          .from('team')
+          .select('team_id, team_name')
+          .order('team_name');
       final staffRes = await supabase.from('staff').select('app_id, team_id');
       final byTeam = <String, List<String>>{};
       for (final raw in (staffRes as List)) {
@@ -493,12 +595,9 @@ class SupabaseService {
         if (tid.isEmpty) continue;
         final name = m['team_name'] as String? ?? tid;
         final members = List<String>.from(byTeam[tid] ?? [])..sort();
-        teams.add(Team(
-          id: tid,
-          name: name,
-          directorIds: const [],
-          officerIds: members,
-        ));
+        teams.add(
+          Team(id: tid, name: name, directorIds: const [], officerIds: members),
+        );
       }
       return teams;
     } catch (e, st) {
@@ -555,7 +654,8 @@ class SupabaseService {
 
   /// Rows in [subordinate] where [supervisor_id] is the supervisor's `staff.app_id`.
   static Future<List<String>> fetchSubordinateAppIdsForSupervisor(
-      String supervisorAppId) async {
+    String supervisorAppId,
+  ) async {
     if (!_enabled) return [];
     final s = supervisorAppId.trim();
     if (s.isEmpty) return [];
@@ -585,8 +685,10 @@ class SupabaseService {
       final staffUuidToName = maps.staffUuidToName;
       final supabase = Supabase.instance.client;
 
-      final initRes =
-          await supabase.from('initiatives').select().order('created_at', ascending: false);
+      final initRes = await supabase
+          .from('initiatives')
+          .select()
+          .order('created_at', ascending: false);
       final initRows = initRes as List;
       if (initRows.isEmpty) {
         return const InitiativesLoadResult(
@@ -615,17 +717,19 @@ class SupabaseService {
         final id = row['id'] as String;
         final teamUuid = row['team_id'] as String;
         final teamAppId = teamUuidToAppId[teamUuid] ?? 'unknown_team';
-        initiatives.add(Initiative(
-          id: id,
-          teamId: teamAppId,
-          directorIds: List<String>.from(dirsByInit[id] ?? []),
-          name: row['name'] as String? ?? '',
-          description: row['description'] as String? ?? '',
-          priority: (row['priority'] as num?)?.toInt() ?? 1,
-          startDate: _parseDate(row['start_date']),
-          endDate: _parseDate(row['end_date']),
-          createdAt: _parseDateTime(row['created_at']),
-        ));
+        initiatives.add(
+          Initiative(
+            id: id,
+            teamId: teamAppId,
+            directorIds: List<String>.from(dirsByInit[id] ?? []),
+            name: row['name'] as String? ?? '',
+            description: row['description'] as String? ?? '',
+            priority: (row['priority'] as num?)?.toInt() ?? 1,
+            startDate: _parseDate(row['start_date']),
+            endDate: _parseDate(row['end_date']),
+            createdAt: _parseDateTime(row['created_at']),
+          ),
+        );
       }
 
       final subRes = await supabase
@@ -634,12 +738,14 @@ class SupabaseService {
           .inFilter('initiative_id', initiativeIds);
       final subTasks = <SubTask>[];
       for (final row in (subRes as List)) {
-        subTasks.add(SubTask(
-          id: row['id'] as String,
-          initiativeId: row['initiative_id'] as String,
-          label: row['label'] as String? ?? '',
-          isCompleted: row['is_completed'] as bool? ?? false,
-        ));
+        subTasks.add(
+          SubTask(
+            id: row['id'] as String,
+            initiativeId: row['initiative_id'] as String,
+            label: row['label'] as String? ?? '',
+            isCompleted: row['is_completed'] as bool? ?? false,
+          ),
+        );
       }
 
       final commRes = await supabase
@@ -651,14 +757,16 @@ class SupabaseService {
       final comments = <TaskComment>[];
       for (final row in (commRes as List)) {
         final authorId = row['author_id'] as String;
-        comments.add(TaskComment(
-          id: row['id'] as String,
-          taskId: row['entity_id'] as String,
-          authorId: staffUuidToAppId[authorId] ?? authorId,
-          authorName: staffUuidToName[authorId] ?? authorId,
-          body: row['body'] as String? ?? '',
-          createdAt: _parseDateTime(row['created_at']),
-        ));
+        comments.add(
+          TaskComment(
+            id: row['id'] as String,
+            taskId: row['entity_id'] as String,
+            authorId: staffUuidToAppId[authorId] ?? authorId,
+            authorName: staffUuidToName[authorId] ?? authorId,
+            body: row['body'] as String? ?? '',
+            createdAt: _parseDateTime(row['created_at']),
+          ),
+        );
       }
 
       return InitiativesLoadResult(
@@ -689,8 +797,10 @@ class SupabaseService {
 
       final taskRows = <dynamic>[];
       try {
-        final taskRes =
-            await supabase.from('tasks').select().order('created_at', ascending: false);
+        final taskRes = await supabase
+            .from('tasks')
+            .select()
+            .order('created_at', ascending: false);
         taskRows.addAll(taskRes as List);
       } catch (_) {
         // Plural `tasks` missing, RLS, or unused — still load singular `task` below.
@@ -719,21 +829,22 @@ class SupabaseService {
         final row = Map<String, dynamic>.from(raw as Map);
         final id = row['id'] as String;
         final teamUuid = row['team_id'] as String?;
-        final teamAppId =
-            teamUuid == null ? null : teamUuidToAppId[teamUuid];
-        tasks.add(Task(
-          id: id,
-          teamId: teamAppId,
-          name: row['name'] as String? ?? '',
-          description: row['description'] as String? ?? '',
-          assigneeIds: List<String>.from(assignByTask[id] ?? []),
-          priority: (row['priority'] as num?)?.toInt() ?? 1,
-          startDate: _parseDate(row['start_date']),
-          endDate: _parseDate(row['end_date']),
-          createdAt: _parseDateTime(row['created_at']),
-          status: _taskStatusFromDb(row['status'] as String?),
-          progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
-        ));
+        final teamAppId = teamUuid == null ? null : teamUuidToAppId[teamUuid];
+        tasks.add(
+          Task(
+            id: id,
+            teamId: teamAppId,
+            name: row['name'] as String? ?? '',
+            description: row['description'] as String? ?? '',
+            assigneeIds: List<String>.from(assignByTask[id] ?? []),
+            priority: (row['priority'] as num?)?.toInt() ?? 1,
+            startDate: _parseDate(row['start_date']),
+            endDate: _parseDate(row['end_date']),
+            createdAt: _parseDateTime(row['created_at']),
+            status: _taskStatusFromDb(row['status'] as String?),
+            progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
+          ),
+        );
       }
 
       // Rows created by [insertTaskTableRow] live in singular [`task`], not [`tasks`].
@@ -741,12 +852,16 @@ class SupabaseService {
       try {
         dynamic singularRes;
         try {
-          singularRes =
-              await supabase.from('task').select().order('created_at', ascending: false);
+          singularRes = await supabase
+              .from('task')
+              .select()
+              .order('created_at', ascending: false);
         } catch (_) {
           try {
-            singularRes =
-                await supabase.from('task').select().order('create_date', ascending: false);
+            singularRes = await supabase
+                .from('task')
+                .select()
+                .order('create_date', ascending: false);
           } catch (_) {
             singularRes = await supabase.from('task').select();
           }
@@ -754,7 +869,11 @@ class SupabaseService {
         for (final raw in (singularRes as List)) {
           final row = Map<String, dynamic>.from(raw as Map);
           final t = _taskFromSingularTaskRow(
-              row, staffUuidToAppId, teamUuidToAppId, staffUuidToName);
+            row,
+            staffUuidToAppId,
+            teamUuidToAppId,
+            staffUuidToName,
+          );
           if (t != null) singularTasks.add(t);
         }
       } catch (_) {
@@ -780,14 +899,17 @@ class SupabaseService {
               .select()
               .inFilter('task_id', taskIds);
           for (final row in (mileRes as List)) {
-            milestones.add(Milestone(
-              id: row['id'] as String,
-              taskId: row['task_id'] as String,
-              label: row['label'] as String? ?? '',
-              progressPercent: (row['progress_percent'] as num?)?.toInt() ?? 0,
-              isCompleted: row['is_completed'] as bool? ?? false,
-              completedAt: _parseDate(row['completed_at']),
-            ));
+            milestones.add(
+              Milestone(
+                id: row['id'] as String,
+                taskId: row['task_id'] as String,
+                label: row['label'] as String? ?? '',
+                progressPercent:
+                    (row['progress_percent'] as num?)?.toInt() ?? 0,
+                isCompleted: row['is_completed'] as bool? ?? false,
+                completedAt: _parseDate(row['completed_at']),
+              ),
+            );
           }
         } catch (_) {
           // table may not exist yet
@@ -804,14 +926,16 @@ class SupabaseService {
             .order('created_at');
         for (final row in (commRes as List)) {
           final authorId = row['author_id'] as String;
-          comments.add(TaskComment(
-            id: row['id'] as String,
-            taskId: row['entity_id'] as String,
-            authorId: staffUuidToAppId[authorId] ?? authorId,
-            authorName: staffUuidToName[authorId] ?? authorId,
-            body: row['body'] as String? ?? '',
-            createdAt: _parseDateTime(row['created_at']),
-          ));
+          comments.add(
+            TaskComment(
+              id: row['id'] as String,
+              taskId: row['entity_id'] as String,
+              authorId: staffUuidToAppId[authorId] ?? authorId,
+              authorName: staffUuidToName[authorId] ?? authorId,
+              body: row['body'] as String? ?? '',
+              createdAt: _parseDateTime(row['created_at']),
+            ),
+          );
         }
       }
 
@@ -877,7 +1001,9 @@ class SupabaseService {
   }
 
   /// Maps assignee keys (`staff.app_id` or `staff.id` uuid) to `staff.id` for `task.assignee_xx`.
-  static Future<List<String?>> assigneeSlotsForTask(List<String> staffKeys) async {
+  static Future<List<String?>> assigneeSlotsForTask(
+    List<String> staffKeys,
+  ) async {
     if (!_enabled) return List<String?>.filled(10, null);
     final out = <String?>[];
     for (final key in staffKeys.take(10)) {
@@ -911,11 +1037,18 @@ class SupabaseService {
     final k = key.trim();
     if (k.isEmpty) return null;
     final supabase = Supabase.instance.client;
-    final byApp =
-        await supabase.from('staff').select('id').eq('app_id', k).maybeSingle();
+    final byApp = await supabase
+        .from('staff')
+        .select('id')
+        .eq('app_id', k)
+        .maybeSingle();
     if (byApp != null) return byApp['id'] as String?;
     if (_looksLikeUuid(k)) {
-      final byId = await supabase.from('staff').select('id').eq('id', k).maybeSingle();
+      final byId = await supabase
+          .from('staff')
+          .select('id')
+          .eq('id', k)
+          .maybeSingle();
       if (byId != null) return byId['id'] as String?;
     }
     return null;
@@ -938,12 +1071,14 @@ class SupabaseService {
         final m = Map<String, dynamic>.from(r as Map);
         final id = m['id']?.toString() ?? '';
         if (id.isEmpty) continue;
-        list.add(StaffListRow(
-          id: id,
-          name: (m['name'] as String?)?.trim().isNotEmpty == true
-              ? m['name'] as String
-              : id,
-        ));
+        list.add(
+          StaffListRow(
+            id: id,
+            name: (m['name'] as String?)?.trim().isNotEmpty == true
+                ? m['name'] as String
+                : id,
+          ),
+        );
       }
       return list;
     } catch (_) {
@@ -967,6 +1102,7 @@ class SupabaseService {
     String? description,
     String status = 'Incomplete',
     String? creatorStaffLookupKey,
+
     /// `staff.app_id` or uuid; stored as `task.pic` (staff id).
     String? picStaffLookupKey,
   }) async {
@@ -1085,7 +1221,10 @@ class SupabaseService {
           map['update_by'] = staffId;
         }
       }
-      await Supabase.instance.client.from('comment').update(map).eq('id', commentId);
+      await Supabase.instance.client
+          .from('comment')
+          .update(map)
+          .eq('id', commentId);
       return null;
     } catch (e) {
       return e.toString();
@@ -1110,7 +1249,10 @@ class SupabaseService {
           map['update_by'] = staffId;
         }
       }
-      await Supabase.instance.client.from('comment').update(map).eq('id', commentId);
+      await Supabase.instance.client
+          .from('comment')
+          .update(map)
+          .eq('id', commentId);
       return null;
     } catch (e) {
       return e.toString();
@@ -1120,7 +1262,8 @@ class SupabaseService {
   /// Loads `public."comment"` for [taskId]. Active rows first, then deleted; within each
   /// group, descending by `create_date` only (newest first). [update_date] is ignored for order.
   static Future<List<SingularCommentRowDisplay>> fetchSingularCommentsForTask(
-      String taskId) async {
+    String taskId,
+  ) async {
     if (!_enabled) return [];
     try {
       final res = await Supabase.instance.client
@@ -1145,18 +1288,19 @@ class SupabaseService {
         final id = r['id']?.toString() ?? '';
         if (id.isEmpty) continue;
         final cb = r['create_by']?.toString().trim();
-        final name =
-            (cb != null && cb.isNotEmpty) ? (names[cb] ?? cb) : '—';
+        final name = (cb != null && cb.isNotEmpty) ? (names[cb] ?? cb) : '—';
         final statusStr = r['status']?.toString() ?? '';
-        out.add(SingularCommentRowDisplay(
-          id: id,
-          description: r['description']?.toString() ?? '',
-          status: statusStr,
-          createByStaffId: cb,
-          displayStaffName: name,
-          createTimestampUtc: _parseDateTimeNullable(r['create_date']),
-          updateTimestampUtc: _parseDateTimeNullable(r['update_date']),
-        ));
+        out.add(
+          SingularCommentRowDisplay(
+            id: id,
+            description: r['description']?.toString() ?? '',
+            status: statusStr,
+            createByStaffId: cb,
+            displayStaffName: name,
+            createTimestampUtc: _parseDateTimeNullable(r['create_date']),
+            updateTimestampUtc: _parseDateTimeNullable(r['update_date']),
+          ),
+        );
       }
       out.sort((a, b) {
         if (a.isDeleted != b.isDeleted) {
@@ -1261,9 +1405,10 @@ class SupabaseService {
   }) async {
     if (!_enabled) return;
     try {
-      await Supabase.instance.client.from('sub_tasks').update({
-        'is_completed': isCompleted,
-      }).eq('id', subTaskId);
+      await Supabase.instance.client
+          .from('sub_tasks')
+          .update({'is_completed': isCompleted})
+          .eq('id', subTaskId);
     } catch (_) {}
   }
 
@@ -1291,11 +1436,16 @@ class SupabaseService {
   }) async {
     if (!_enabled) return;
     try {
-      await Supabase.instance.client.from('task_milestones').update({
-        'progress_percent': progressPercent,
-        'is_completed': progressPercent >= 100,
-        'completed_at': progressPercent >= 100 ? DateTime.now().toIso8601String() : null,
-      }).eq('id', milestoneId);
+      await Supabase.instance.client
+          .from('task_milestones')
+          .update({
+            'progress_percent': progressPercent,
+            'is_completed': progressPercent >= 100,
+            'completed_at': progressPercent >= 100
+                ? DateTime.now().toIso8601String()
+                : null,
+          })
+          .eq('id', milestoneId);
     } catch (_) {}
   }
 
@@ -1339,14 +1489,16 @@ class SupabaseService {
             assigneeAppIds.add(maps.staffUuidToAppId[s] ?? s);
           }
         }
-        list.add(DeletedTaskRecord(
-          taskId: row['task_id'] as String,
-          taskName: row['task_name'] as String? ?? '',
-          teamId: teamAppId,
-          assigneeIds: assigneeAppIds,
-          deletedAt: _parseDateTime(row['deleted_at']),
-          deletedByName: row['deleted_by'] as String? ?? '',
-        ));
+        list.add(
+          DeletedTaskRecord(
+            taskId: row['task_id'] as String,
+            taskName: row['task_name'] as String? ?? '',
+            teamId: teamAppId,
+            assigneeIds: assigneeAppIds,
+            deletedAt: _parseDateTime(row['deleted_at']),
+            deletedByName: row['deleted_by'] as String? ?? '',
+          ),
+        );
       }
       return list;
     } catch (_) {

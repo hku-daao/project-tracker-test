@@ -2,11 +2,7 @@ import 'comment.dart';
 import 'milestone.dart';
 
 /// Status of a task (low-level view: Not started, In progress, Completed).
-enum TaskStatus {
-  todo,
-  inProgress,
-  done,
-}
+enum TaskStatus { todo, inProgress, done }
 
 const Map<TaskStatus, String> taskStatusDisplayNames = {
   TaskStatus.todo: 'Not started',
@@ -17,6 +13,7 @@ const Map<TaskStatus, String> taskStatusDisplayNames = {
 /// Low-level task (Planner-style) assigned by Directors to Responsible Officers.
 class Task {
   final String id;
+
   /// Optional team ID for low-level view (filter officers by team).
   final String? teamId;
   final String name;
@@ -52,6 +49,9 @@ class Task {
   /// Last update time from singular `task.update_date`.
   final DateTime? updateDate;
 
+  /// PIC/creator workflow: `Submitted`, `Accepted`, `Returned`, or null.
+  final String? submission;
+
   const Task({
     required this.id,
     this.teamId,
@@ -73,6 +73,7 @@ class Task {
     this.createByAssigneeKey,
     this.pic,
     this.updateDate,
+    this.submission,
   });
 
   Task copyWith({
@@ -96,6 +97,7 @@ class Task {
     String? createByAssigneeKey,
     String? pic,
     DateTime? updateDate,
+    String? submission,
   }) {
     return Task(
       id: id ?? this.id,
@@ -118,6 +120,7 @@ class Task {
       createByAssigneeKey: createByAssigneeKey ?? this.createByAssigneeKey,
       pic: pic ?? this.pic,
       updateDate: updateDate ?? this.updateDate,
+      submission: submission ?? this.submission,
     );
   }
 

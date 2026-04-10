@@ -11,11 +11,7 @@ class HealthResult {
   final String? message;
   final String? timestamp;
 
-  const HealthResult({
-    required this.ok,
-    this.message,
-    this.timestamp,
-  });
+  const HealthResult({required this.ok, this.message, this.timestamp});
 }
 
 /// One row from backend /api/me assignableStaff (server-enforced visibility).
@@ -71,8 +67,7 @@ class UserProfileResult {
 
 /// Client for the Railway backend API.
 class BackendApi {
-  BackendApi({String? baseUrl})
-      : _baseUrl = baseUrl ?? ApiConfig.baseUrl;
+  BackendApi({String? baseUrl}) : _baseUrl = baseUrl ?? ApiConfig.baseUrl;
 
   final String _baseUrl;
 
@@ -83,15 +78,14 @@ class BackendApi {
   Future<HealthResult> checkHealth() async {
     try {
       final uri = Uri.parse('$_baseUrl${ApiConfig.healthPath}');
-      final response = await http.get(uri).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('Timeout after 15s'),
-      );
+      final response = await http
+          .get(uri)
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('Timeout after 15s'),
+          );
       if (response.statusCode != 200) {
-        return HealthResult(
-          ok: false,
-          message: 'HTTP ${response.statusCode}',
-        );
+        return HealthResult(ok: false, message: 'HTTP ${response.statusCode}');
       }
       try {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -121,18 +115,19 @@ class BackendApi {
   Future<UserProfileResult?> getMe(String idToken) async {
     try {
       final response = await http
-          .get(
-            url('/api/me'),
-            headers: {'Authorization': 'Bearer $idToken'},
-          )
+          .get(url('/api/me'), headers: {'Authorization': 'Bearer $idToken'})
           .timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
-        debugPrint('BackendApi.getMe: HTTP ${response.statusCode} - ${response.body}');
+        debugPrint(
+          'BackendApi.getMe: HTTP ${response.statusCode} - ${response.body}',
+        );
         return null;
       }
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       final result = UserProfileResult.fromJson(json);
-      debugPrint('BackendApi.getMe: role=${result.role}, staffAppId=${result.staffAppId}, assignableStaff=${result.assignableStaff.length}');
+      debugPrint(
+        'BackendApi.getMe: role=${result.role}, staffAppId=${result.staffAppId}, assignableStaff=${result.assignableStaff.length}',
+      );
       return result;
     } catch (e) {
       debugPrint('BackendApi.getMe: Error - $e');
@@ -163,13 +158,12 @@ class BackendApi {
   Future<List<Map<String, dynamic>>> getTeams(String idToken) async {
     try {
       final response = await http
-          .get(
-            url('/api/teams'),
-            headers: {'Authorization': 'Bearer $idToken'},
-          )
+          .get(url('/api/teams'), headers: {'Authorization': 'Bearer $idToken'})
           .timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
-        debugPrint('BackendApi.getTeams: HTTP ${response.statusCode} - ${response.body}');
+        debugPrint(
+          'BackendApi.getTeams: HTTP ${response.statusCode} - ${response.body}',
+        );
         return [];
       }
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -185,13 +179,12 @@ class BackendApi {
   Future<List<Map<String, dynamic>>> getStaff(String idToken) async {
     try {
       final response = await http
-          .get(
-            url('/api/staff'),
-            headers: {'Authorization': 'Bearer $idToken'},
-          )
+          .get(url('/api/staff'), headers: {'Authorization': 'Bearer $idToken'})
           .timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
-        debugPrint('BackendApi.getStaff: HTTP ${response.statusCode} - ${response.body}');
+        debugPrint(
+          'BackendApi.getStaff: HTTP ${response.statusCode} - ${response.body}',
+        );
         return [];
       }
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -404,6 +397,90 @@ class BackendApi {
       final response = await http
           .post(
             url('/api/notify/task-updated'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'taskId': taskId}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// PIC submission for review — To creator, Cc PIC.
+  Future<String?> notifyTaskSubmission({
+    required String idToken,
+    required String taskId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/task-submission'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'taskId': taskId}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Creator accepted — To PIC, Cc creator.
+  Future<String?> notifyTaskAccepted({
+    required String idToken,
+    required String taskId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/task-accepted'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'taskId': taskId}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Creator returned — To PIC, Cc creator.
+  Future<String?> notifyTaskReturned({
+    required String idToken,
+    required String taskId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/task-returned'),
             headers: {
               'Authorization': 'Bearer $idToken',
               'Content-Type': 'application/json',

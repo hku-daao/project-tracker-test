@@ -20,7 +20,11 @@ class TaskDetailScreen extends StatefulWidget {
   final String taskId;
   final String? commentAuthorAssigneeId;
 
-  const TaskDetailScreen({super.key, required this.taskId, this.commentAuthorAssigneeId});
+  const TaskDetailScreen({
+    super.key,
+    required this.taskId,
+    this.commentAuthorAssigneeId,
+  });
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
@@ -70,6 +74,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   final _commentController = TextEditingController();
+  final _submissionLinkController = TextEditingController();
 
   DateTime? _startDate;
   DateTime? _dueDate;
@@ -90,8 +95,16 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   bool _loadingTableComments = false;
   String? _myStaffUuid;
   bool _myStaffUuidRequested = false;
+
   /// `task.create_by` (usually `staff.id` uuid); used with [_myStaffUuid] for delete rules.
   String? _taskCreateByStaffUuid;
+  /// Raw `task.pic` from Supabase (`staff.id` uuid). Used so PIC checks work when [Task.pic] is `app_id`.
+  String? _singularTaskPicStaffUuid;
+  /// Resolved by comparing DB `task.pic` to [SupabaseService.staffRowIdForAssigneeKey] for the signed-in user.
+  /// Null means user context was not ready yet — [_isPic] is used as fallback.
+  bool? _resolvedIsPic;
+  AppState? _appStateRef;
+  bool _appListenerRegistered = false;
   bool _staffDirectorFlag = false;
 
   static const int _maxAssignees = 10;
@@ -100,17 +113,43 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final app = context.read<AppState>();
+    if (!_appListenerRegistered) {
+      _appListenerRegistered = true;
+      _appStateRef = app;
+      app.addListener(_onAppStateChangedForPic);
+    }
     if (_myStaffUuidRequested) return;
-    _myStaffUuidRequested = true;
     final lk = context.read<AppState>().userStaffAppId?.trim();
     if (lk == null || lk.isEmpty) return;
+    _myStaffUuidRequested = true;
     SupabaseService.staffRowIdForAssigneeKey(lk).then((id) async {
       if (!mounted) return;
       setState(() => _myStaffUuid = id);
+      final a = _appStateRef;
+      if (a != null) await _refreshResolvedPic(a);
       if (id == null || id.isEmpty) return;
       final dir = await SupabaseService.fetchStaffDirectorByStaffUuid(id);
       if (mounted) setState(() => _staffDirectorFlag = dir);
     });
+  }
+
+  void _onAppStateChangedForPic() {
+    final a = _appStateRef;
+    if (a == null || !mounted) return;
+    final lk = a.userStaffAppId?.trim();
+    if (lk != null && lk.isNotEmpty && !_myStaffUuidRequested) {
+      _myStaffUuidRequested = true;
+      SupabaseService.staffRowIdForAssigneeKey(lk).then((id) async {
+        if (!mounted) return;
+        setState(() => _myStaffUuid = id);
+        await _refreshResolvedPic(a);
+        if (id == null || id.isEmpty) return;
+        final dir = await SupabaseService.fetchStaffDirectorByStaffUuid(id);
+        if (mounted) setState(() => _staffDirectorFlag = dir);
+      });
+    }
+    _refreshResolvedPic(a);
   }
 
   @override
@@ -120,6 +159,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       if (!mounted) return;
       final state = context.read<AppState>();
       await _ensureLoaded(state);
+      if (mounted) await _refreshResolvedPic(state);
       if (mounted) await _loadTableComments();
     });
   }
@@ -130,8 +170,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       return;
     }
     setState(() => _loadingTableComments = true);
-    final list =
-        await SupabaseService.fetchSingularCommentsForTask(widget.taskId);
+    final list = await SupabaseService.fetchSingularCommentsForTask(
+      widget.taskId,
+    );
     if (!mounted) return;
     setState(() {
       _tableComments = list;
@@ -141,9 +182,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   String _formatCommentPostedTs(DateTime? stored) {
     if (stored == null) return '—';
-    return DateFormat.yMMMd()
-        .add_Hm()
-        .format(stored.add(const Duration(hours: 8)));
+    return DateFormat.yMMMd().add_Hm().format(
+      stored.add(const Duration(hours: 8)),
+    );
   }
 
   /// Display line: `Last updated: MMM dd, yyyy, HH:mm` (HK wall clock, +8h from stored UTC).
@@ -167,6 +208,103 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final y = b?.trim().toLowerCase() ?? '';
     if (x.isEmpty || y.isEmpty) return false;
     return x == y;
+  }
+
+  /// [Task.pic] is usually `staff.app_id`; if the staff map missed the row it stays the raw uuid.
+  /// [_singularTaskPicStaffUuid] is always the DB `task.pic` uuid when the row was loaded.
+  bool _isPic(AppState state, Task task) {
+    final mineApp = state.userStaffAppId?.trim();
+    final p = task.pic?.trim();
+    if (mineApp != null &&
+        mineApp.isNotEmpty &&
+        p != null &&
+        p.isNotEmpty &&
+        mineApp == p) {
+      return true;
+    }
+    final picUuid = _singularTaskPicStaffUuid?.trim();
+    final uuidCandidates = <String?>[
+      picUuid,
+      p,
+    ];
+    for (final u in uuidCandidates) {
+      if (u == null || u.isEmpty) continue;
+      final mineUuid = state.userStaffId?.trim();
+      if (mineUuid != null &&
+          mineUuid.isNotEmpty &&
+          _uuidEquals(mineUuid, u)) {
+        return true;
+      }
+      final asyncUuid = _myStaffUuid?.trim();
+      if (asyncUuid != null &&
+          asyncUuid.isNotEmpty &&
+          _uuidEquals(asyncUuid, u)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// True if the current user is the task PIC. [_resolvedIsPic] can be false
+  /// when UUID resolution lags; [_isPic] still matches app_id / staff uuid.
+  bool _isPicEffective(AppState state, Task task) {
+    if (_isPic(state, task)) return true;
+    return _resolvedIsPic == true;
+  }
+
+  /// Sets [_resolvedIsPic] by comparing DB `task.pic` uuid to the signed-in staff uuid.
+  Future<void> _refreshResolvedPic(AppState state) async {
+    if (!SupabaseConfig.isConfigured || !_loadedForm) return;
+    final picRaw = _singularTaskPicStaffUuid?.trim();
+    if (picRaw == null || picRaw.isEmpty) {
+      if (mounted && _resolvedIsPic != false) {
+        setState(() => _resolvedIsPic = false);
+      }
+      return;
+    }
+    final lk = state.userStaffAppId?.trim();
+    final sid = state.userStaffId?.trim();
+    bool? next;
+    if (lk != null && lk.isNotEmpty) {
+      final myUuid = await SupabaseService.staffRowIdForAssigneeKey(lk);
+      next = myUuid != null && _uuidEquals(myUuid, picRaw);
+    } else if (sid != null && sid.isNotEmpty) {
+      next = _uuidEquals(sid, picRaw);
+    } else {
+      final asyncUuid = _myStaffUuid?.trim();
+      if (asyncUuid != null && asyncUuid.isNotEmpty) {
+        next = _uuidEquals(asyncUuid, picRaw);
+      } else {
+        next = null;
+      }
+    }
+    if (!mounted) return;
+    if (_resolvedIsPic != next) {
+      setState(() => _resolvedIsPic = next);
+    }
+  }
+
+  bool _isCreator(AppState state, Task task) {
+    final mine = state.userStaffAppId?.trim();
+    final cb = task.createByAssigneeKey?.trim();
+    if (mine != null &&
+        mine.isNotEmpty &&
+        cb != null &&
+        cb.isNotEmpty &&
+        mine == cb) {
+      return true;
+    }
+    return _uuidEquals(_myStaffUuid, _taskCreateByStaffUuid);
+  }
+
+  /// PIC may submit until status is [Submitted]; [Returned] allows resubmit.
+  static bool _canPicSubmit(Task task) {
+    final s = task.submission?.trim() ?? '';
+    if (s.isEmpty) return true;
+    final lower = s.toLowerCase();
+    if (lower == 'returned') return true;
+    if (lower == 'submitted' || lower == 'accepted') return false;
+    return true;
   }
 
   /// Task soft-delete and comment soft-delete: creator or `staff.director`.
@@ -228,7 +366,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     await _loadTableComments();
   }
 
-  Future<void> _confirmDeleteSingularComment(SingularCommentRowDisplay c) async {
+  Future<void> _confirmDeleteSingularComment(
+    SingularCommentRowDisplay c,
+  ) async {
     final state = context.read<AppState>();
     if (!_canMarkTaskDeleted(state)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -280,9 +420,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
       child: Row(
         children: [
-          Expanded(
-            child: Divider(height: 1, color: theme.dividerColor),
-          ),
+          Expanded(child: Divider(height: 1, color: theme.dividerColor)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
@@ -293,19 +431,19 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
               ),
             ),
           ),
-          Expanded(
-            child: Divider(height: 1, color: theme.dividerColor),
-          ),
+          Expanded(child: Divider(height: 1, color: theme.dividerColor)),
         ],
       ),
     );
   }
 
   List<Widget> _singularCommentTiles(BuildContext context, AppState state) {
-    final active =
-        _tableComments.where((c) => !c.isDeleted).toList(growable: false);
-    final deleted =
-        _tableComments.where((c) => c.isDeleted).toList(growable: false);
+    final active = _tableComments
+        .where((c) => !c.isDeleted)
+        .toList(growable: false);
+    final deleted = _tableComments
+        .where((c) => c.isDeleted)
+        .toList(growable: false);
     final tiles = <Widget>[
       ...active.map((c) => _buildSingularCommentTile(context, state, c)),
     ];
@@ -319,14 +457,16 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           child: Text(
             'Deleted comments',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
     }
-    tiles.addAll(deleted.map((c) => _buildSingularCommentTile(context, state, c)));
+    tiles.addAll(
+      deleted.map((c) => _buildSingularCommentTile(context, state, c)),
+    );
     return tiles;
   }
 
@@ -401,9 +541,11 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   @override
   void dispose() {
+    _appStateRef?.removeListener(_onAppStateChangedForPic);
     _nameController.dispose();
     _descController.dispose();
     _commentController.dispose();
+    _submissionLinkController.dispose();
     super.dispose();
   }
 
@@ -427,10 +569,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     if (l == 'incomplete') return 'Incomplete';
     if (l == 'delete' || l == 'deleted') return 'Deleted';
     return 'Incomplete';
-  }
-
-  TaskStatus _mapLocalStatusToEnum(String s) {
-    return s == 'Completed' ? TaskStatus.done : TaskStatus.todo;
   }
 
   int _priorityFromRow(dynamic p) {
@@ -510,7 +648,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   List<Assignee> _assigneesForSelectedTeams() {
     if (_selectedTeamIds.isEmpty) return [];
-    return context.read<AppState>().getAssigneesForTeams(_selectedTeamIds.toList());
+    return context.read<AppState>().getAssigneesForTeams(
+      _selectedTeamIds.toList(),
+    );
   }
 
   void _syncPicAfterAssigneesChange() {
@@ -540,8 +680,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   Widget _buildPicSection(BuildContext context, AppState state) {
     final ids = _selectedAssigneeIds.toList()
-      ..sort((a, b) =>
-          _labelForAssigneeId(a, state).compareTo(_labelForAssigneeId(b, state)));
+      ..sort(
+        (a, b) => _labelForAssigneeId(
+          a,
+          state,
+        ).compareTo(_labelForAssigneeId(b, state)),
+      );
     if (ids.length < 2) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -569,9 +713,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
               )
               .toList(),
           onChanged: _saving ? null : (v) => setState(() => _picAssigneeId = v),
-          validator: (v) => v == null || v.isEmpty
-              ? 'Choose a PIC from the assignees'
-              : null,
+          validator: (v) =>
+              v == null || v.isEmpty ? 'Choose a PIC from the assignees' : null,
         ),
       ],
     );
@@ -610,6 +753,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     try {
       final data = await SupabaseService.fetchStaffAssigneePickerData();
       final row = await SupabaseService.fetchSingularTaskById(widget.taskId);
+      final attachmentUrl = await SupabaseService.fetchAttachmentContentForTask(
+        widget.taskId,
+      );
       final selectedAppIds = <String>{};
       if (row != null) {
         for (var i = 1; i <= 10; i++) {
@@ -617,8 +763,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           final raw = row[key];
           if (raw != null && raw.toString().trim().isNotEmpty) {
             final uuid = raw.toString().trim();
-            final appKey =
-                await SupabaseService.assigneeListKeyFromStaffUuid(uuid);
+            final appKey = await SupabaseService.assigneeListKeyFromStaffUuid(
+              uuid,
+            );
             selectedAppIds.add(appKey);
           }
         }
@@ -647,6 +794,26 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       }
 
       if (!mounted) return;
+
+      final picRawForResolved = row?['pic']?.toString().trim();
+      bool? resolvedIsPic;
+      if (picRawForResolved != null && picRawForResolved.isNotEmpty) {
+        final lk = state.userStaffAppId?.trim();
+        final sid = state.userStaffId?.trim();
+        if (lk != null && lk.isNotEmpty) {
+          final myUuid = await SupabaseService.staffRowIdForAssigneeKey(lk);
+          resolvedIsPic =
+              myUuid != null && _uuidEquals(myUuid, picRawForResolved);
+        } else if (sid != null && sid.isNotEmpty) {
+          resolvedIsPic = _uuidEquals(sid, picRawForResolved);
+        } else {
+          resolvedIsPic = null;
+        }
+      } else {
+        resolvedIsPic = false;
+      }
+
+      if (!mounted) return;
       setState(() {
         _selectedAssigneeIds
           ..clear()
@@ -669,7 +836,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           _localPriority = _priorityFromRow(row['priority']);
           _localStatus = _normalizeLocalStatus(row['status']?.toString());
           _taskCreateByStaffUuid = row['create_by']?.toString().trim();
+          _singularTaskPicStaffUuid = row['pic']?.toString().trim();
+        } else {
+          _singularTaskPicStaffUuid = null;
         }
+        _resolvedIsPic = resolvedIsPic;
+        _submissionLinkController.text = attachmentUrl ?? '';
         _pickerLoading = false;
         _loadingStaff = false;
         _loadedForm = true;
@@ -699,17 +871,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Start date cannot be after due date.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    if (_localStatus == 'Deleted' && !_canMarkTaskDeleted(state)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Only the task creator or a director can set status to Deleted.',
-          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -746,7 +907,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       if (self == null || self.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Select team(s) and assignees, or configure Supabase.'),
+            content: Text(
+              'Select team(s) and assignees, or configure Supabase.',
+            ),
           ),
         );
         return;
@@ -781,14 +944,18 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
     setState(() => _saving = true);
     try {
-      final sorted = [...directorIds]..sort((a, b) =>
-          _labelForAssigneeId(a, state).compareTo(_labelForAssigneeId(b, state)));
+      final sorted = [...directorIds]
+        ..sort(
+          (a, b) => _labelForAssigneeId(
+            a,
+            state,
+          ).compareTo(_labelForAssigneeId(b, state)),
+        );
       final take = sorted.take(_maxAssignees).toList();
       final slots = await SupabaseService.assigneeSlotsForTask(take);
       final assigneeIdsForState = List<String>.from(take);
 
       final priorityLabel = priorityToDisplayName(_localPriority);
-      final statusForDb = _localStatus;
 
       final err = await SupabaseService.updateSingularTaskRow(
         taskId: task.id,
@@ -800,7 +967,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         dueDate: _dueDate,
         clearStartDate: _startDate == null,
         clearDueDate: _dueDate == null,
-        status: statusForDb,
         updateByStaffLookupKey: state.userStaffAppId,
         picStaffLookupKey: picKey,
       );
@@ -809,6 +975,20 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       if (err != null) {
         showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
         return;
+      }
+
+      if (_isPicEffective(state, task)) {
+        final errAttach = await SupabaseService.upsertAttachmentContentForTask(
+          taskId: task.id,
+          content: _submissionLinkController.text,
+        );
+        if (errAttach != null && mounted) {
+          showCopyableSnackBar(
+            context,
+            'Task updated, but attachment was not saved: $errAttach',
+            backgroundColor: Colors.orange,
+          );
+        }
       }
 
       try {
@@ -865,8 +1045,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           final newCommentId = cResult.commentId?.trim();
           if (newCommentId != null && newCommentId.isNotEmpty) {
             try {
-              final token =
-                  await FirebaseAuth.instance.currentUser?.getIdToken();
+              final token = await FirebaseAuth.instance.currentUser
+                  ?.getIdToken();
               if (token != null) {
                 final notifyErr = await BackendApi().notifyTaskCommentAdded(
                   idToken: token,
@@ -912,7 +1092,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       final lk = state.userStaffAppId?.trim();
       String? updaterName;
       if (lk != null && lk.isNotEmpty) {
-        updaterName = state.assigneeById(lk)?.name ??
+        updaterName =
+            state.assigneeById(lk)?.name ??
             await SupabaseService.staffDisplayNameForKey(lk);
       }
       if (!mounted) return;
@@ -925,15 +1106,295 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           priority: _localPriority,
           startDate: _startDate,
           endDate: _dueDate,
-          dbStatus: statusForDb,
-          status: _mapLocalStatusToEnum(statusForDb),
+          dbStatus: task.dbStatus,
+          status: task.status,
+          submission: task.submission,
           updateByStaffName: updaterName,
           updateDate: DateTime.now(),
           pic: picKey,
         ),
       );
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Task updated'), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text('Task updated'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _submitForReview(AppState state, Task task) async {
+    final link = _submissionLinkController.text.trim();
+    final subComment = _commentController.text.trim();
+    if (link.isEmpty && subComment.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add a hyperlink in Attachment and/or a comment above before submitting.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (!SupabaseConfig.isConfigured) {
+      showCopyableSnackBar(context, 'Supabase not configured.');
+      return;
+    }
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final errAttach = await SupabaseService.upsertAttachmentContentForTask(
+        taskId: task.id,
+        content: link,
+      );
+      if (errAttach != null) {
+        if (mounted) {
+          showCopyableSnackBar(
+            context,
+            errAttach,
+            backgroundColor: Colors.orange,
+          );
+        }
+        return;
+      }
+      if (subComment.isNotEmpty) {
+        final c = await SupabaseService.insertSingularCommentRow(
+          taskId: task.id,
+          description: subComment,
+          creatorStaffLookupKey: state.userStaffAppId,
+        );
+        if (c.error != null) {
+          if (mounted) {
+            showCopyableSnackBar(
+              context,
+              c.error!,
+              backgroundColor: Colors.orange,
+            );
+          }
+          return;
+        }
+        await _loadTableComments();
+      }
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        submission: 'Submitted',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null) {
+        if (mounted) {
+          showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+        }
+        return;
+      }
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token != null) {
+          final ne = await BackendApi().notifyTaskSubmission(
+            idToken: token,
+            taskId: task.id,
+          );
+          if (ne != null && mounted) {
+            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Submitted; email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          }
+        }
+      } catch (_) {}
+      if (!mounted) return;
+      if (subComment.isNotEmpty) {
+        setState(() {
+          _commentController.clear();
+        });
+      }
+      state.replaceTask(
+        task.copyWith(submission: 'Submitted', updateDate: DateTime.now()),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Submission sent.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _acceptSubmission(AppState state, Task task) async {
+    if (!SupabaseConfig.isConfigured) {
+      showCopyableSnackBar(context, 'Supabase not configured.');
+      return;
+    }
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        status: 'Completed',
+        submission: 'Accepted',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null) {
+        if (mounted) {
+          showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+        }
+        return;
+      }
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token != null) {
+          final ne = await BackendApi().notifyTaskAccepted(
+            idToken: token,
+            taskId: task.id,
+          );
+          if (ne != null && mounted) {
+            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Accept email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          }
+        }
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() => _localStatus = 'Completed');
+      state.replaceTask(
+        task.copyWith(
+          dbStatus: 'Completed',
+          status: TaskStatus.done,
+          submission: 'Accepted',
+          updateDate: DateTime.now(),
+        ),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task accepted.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _returnSubmission(AppState state, Task task) async {
+    if (!SupabaseConfig.isConfigured) {
+      showCopyableSnackBar(context, 'Supabase not configured.');
+      return;
+    }
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        status: 'Incomplete',
+        submission: 'Returned',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null) {
+        if (mounted) {
+          showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+        }
+        return;
+      }
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token != null) {
+          final ne = await BackendApi().notifyTaskReturned(
+            idToken: token,
+            taskId: task.id,
+          );
+          if (ne != null && mounted) {
+            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Return email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 8),
+              ),
+            );
+          }
+        }
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() => _localStatus = 'Incomplete');
+      state.replaceTask(
+        task.copyWith(
+          dbStatus: 'Incomplete',
+          status: TaskStatus.todo,
+          submission: 'Returned',
+          updateDate: DateTime.now(),
+        ),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task returned to PIC.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _confirmMarkSingularTaskDeleted(
+    AppState state,
+    Task task,
+  ) async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark task as deleted?'),
+        content: Text('“${task.name}” will be marked as deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    if (!SupabaseConfig.isConfigured) {
+      showCopyableSnackBar(context, 'Supabase not configured.');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        status: 'Deleted',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (!mounted) return;
+      if (err != null) {
+        showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+        return;
+      }
+      setState(() => _localStatus = 'Deleted');
+      state.replaceTask(
+        task.copyWith(dbStatus: 'Deleted', status: TaskStatus.todo),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task marked as deleted.'),
+          backgroundColor: Colors.green,
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -994,12 +1455,15 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final useServer = state.assignableStaffFromServer.isNotEmpty;
     List<AssignableStaffEntry> serverAssigneesFiltered = [];
     if (useServer) {
-      var base =
-          List<AssignableStaffEntry>.from(state.assignableStaffFromServer);
+      var base = List<AssignableStaffEntry>.from(
+        state.assignableStaffFromServer,
+      );
       if (_selectedTeamIds.isNotEmpty) {
         base = base
-            .where((e) =>
-                e.teamAppId != null && _selectedTeamIds.contains(e.teamAppId))
+            .where(
+              (e) =>
+                  e.teamAppId != null && _selectedTeamIds.contains(e.teamAppId),
+            )
             .toList();
       }
       serverAssigneesFiltered = base;
@@ -1026,445 +1490,558 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                 child: Form(
                   key: _formKey,
                   child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: _nameController,
-                      readOnly: _saving,
-                      decoration: const InputDecoration(
-                        labelText: 'Task name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _descController,
-                      readOnly: _saving,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        border: OutlineInputBorder(),
-                        alignLabelWithHint: true,
-                      ),
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 16),
-                    if (!SupabaseConfig.isConfigured) ...[
-                      Text(
-                        'Assignees',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        task.assigneeIds.isEmpty
-                            ? '—'
-                            : task.assigneeIds
-                                .map((id) => state.assigneeById(id)?.name ?? id)
-                                .join(', '),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                    ] else ...[
-                      if (_pickerLoading) ...[
-                        const LinearProgressIndicator(),
-                        const SizedBox(height: 8),
-                      ],
-                      if (_pickerError != null && !_pickerLoading)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            _pickerError!,
-                            style: TextStyle(
-                              color: Colors.orange.shade800,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      if (useSupabasePicker)
-                        StaffAssigneePickerPanel(
-                          teams: pickerTeamsForRole,
-                          staff: pickerStaffForRole,
-                          selectedIds: _selectedAssigneeIds,
-                          onSelectionChanged: (s) => setState(() {
-                            _selectedAssigneeIds
-                              ..clear()
-                              ..addAll(s);
-                            _syncPicAfterAssigneesChange();
-                          }),
-                        )
-                      else if (useServer) ...[
-                        const Text(
-                          'Team (multiple)',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 8),
-                        Builder(
-                          builder: (context) {
-                            final teams = state.teams;
-                            if (teams.isEmpty) {
-                              return Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Text(
-                                  'No teams found in database.',
-                                  style: TextStyle(
-                                    color: Colors.orange.shade700,
-                                    fontSize: 12,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextField(
+                                controller: _nameController,
+                                readOnly: _saving,
+                                decoration: const InputDecoration(
+                                  labelText: 'Task name',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _descController,
+                                readOnly: _saving,
+                                decoration: const InputDecoration(
+                                  labelText: 'Description',
+                                  border: OutlineInputBorder(),
+                                  alignLabelWithHint: true,
+                                ),
+                                maxLines: 4,
+                              ),
+                              const SizedBox(height: 16),
+                              if (!SupabaseConfig.isConfigured) ...[
+                                Text(
+                                  'Assignees',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  task.assigneeIds.isEmpty
+                                      ? '—'
+                                      : task.assigneeIds
+                                            .map(
+                                              (id) =>
+                                                  state
+                                                      .assigneeById(id)
+                                                      ?.name ??
+                                                  id,
+                                            )
+                                            .join(', '),
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                                const SizedBox(height: 16),
+                              ] else ...[
+                                if (_pickerLoading) ...[
+                                  const LinearProgressIndicator(),
+                                  const SizedBox(height: 8),
+                                ],
+                                if (_pickerError != null && !_pickerLoading)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      _pickerError!,
+                                      style: TextStyle(
+                                        color: Colors.orange.shade800,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                if (useSupabasePicker)
+                                  StaffAssigneePickerPanel(
+                                    teams: pickerTeamsForRole,
+                                    staff: pickerStaffForRole,
+                                    selectedIds: _selectedAssigneeIds,
+                                    onSelectionChanged: (s) => setState(() {
+                                      _selectedAssigneeIds
+                                        ..clear()
+                                        ..addAll(s);
+                                      _syncPicAfterAssigneesChange();
+                                    }),
+                                  )
+                                else if (useServer) ...[
+                                  const Text(
+                                    'Team (multiple)',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Builder(
+                                    builder: (context) {
+                                      final teams = state.teams;
+                                      if (teams.isEmpty) {
+                                        return Padding(
+                                          padding: const EdgeInsets.all(8),
+                                          child: Text(
+                                            'No teams found in database.',
+                                            style: TextStyle(
+                                              color: Colors.orange.shade700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: teams.map((Team t) {
+                                          final selected = _selectedTeamIds
+                                              .contains(t.id);
+                                          return FilterChip(
+                                            label: Text(t.name),
+                                            selected: selected,
+                                            onSelected: _saving
+                                                ? null
+                                                : (v) {
+                                                    setState(() {
+                                                      if (v) {
+                                                        _selectedTeamIds.add(
+                                                          t.id,
+                                                        );
+                                                      } else {
+                                                        _selectedTeamIds.remove(
+                                                          t.id,
+                                                        );
+                                                        _selectedAssigneeIds.removeWhere((
+                                                          id,
+                                                        ) {
+                                                          final assignee =
+                                                              _serverAssignable.firstWhere(
+                                                                (e) =>
+                                                                    e.staffAppId ==
+                                                                    id,
+                                                                orElse: () =>
+                                                                    const AssignableStaffEntry(
+                                                                      staffAppId:
+                                                                          '',
+                                                                      staffName:
+                                                                          '',
+                                                                      teamAppId:
+                                                                          null,
+                                                                      teamName:
+                                                                          null,
+                                                                    ),
+                                                              );
+                                                          return assignee
+                                                                      .teamAppId ==
+                                                                  t.id &&
+                                                              !_selectedTeamIds.any((
+                                                                tid,
+                                                              ) {
+                                                                final other = _serverAssignable.firstWhere(
+                                                                  (e) =>
+                                                                      e.staffAppId ==
+                                                                      id,
+                                                                  orElse: () => const AssignableStaffEntry(
+                                                                    staffAppId:
+                                                                        '',
+                                                                    staffName:
+                                                                        '',
+                                                                    teamAppId:
+                                                                        null,
+                                                                    teamName:
+                                                                        null,
+                                                                  ),
+                                                                );
+                                                                return other
+                                                                        .teamAppId ==
+                                                                    tid;
+                                                              });
+                                                        });
+                                                      }
+                                                      _syncPicAfterAssigneesChange();
+                                                    });
+                                                  },
+                                          );
+                                        }).toList(),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                              ],
+                              if (SupabaseConfig.isConfigured &&
+                                  !useSupabasePicker) ...[
+                                Text(
+                                  useServer
+                                      ? 'Assignees (multiple)'
+                                      : 'Directors & Responsible Officers (multiple)',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                              );
-                            }
-                            return Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: teams.map((Team t) {
-                                final selected = _selectedTeamIds.contains(t.id);
-                                return FilterChip(
-                                  label: Text(t.name),
-                                  selected: selected,
-                                  onSelected: _saving
-                                      ? null
-                                      : (v) {
-                                          setState(() {
-                                            if (v) {
-                                              _selectedTeamIds.add(t.id);
-                                            } else {
-                                              _selectedTeamIds.remove(t.id);
-                                              _selectedAssigneeIds
-                                                  .removeWhere((id) {
-                                                final assignee = _serverAssignable
-                                                    .firstWhere(
-                                                  (e) => e.staffAppId == id,
-                                                  orElse: () =>
-                                                      const AssignableStaffEntry(
-                                                    staffAppId: '',
-                                                    staffName: '',
-                                                    teamAppId: null,
-                                                    teamName: null,
-                                                  ),
-                                                );
-                                                return assignee.teamAppId ==
-                                                        t.id &&
-                                                    !_selectedTeamIds.any(
-                                                        (tid) {
-                                                  final other =
-                                                      _serverAssignable
-                                                          .firstWhere(
-                                                    (e) => e.staffAppId == id,
-                                                    orElse: () =>
-                                                        const AssignableStaffEntry(
-                                                      staffAppId: '',
-                                                      staffName: '',
-                                                      teamAppId: null,
-                                                      teamName: null,
-                                                    ),
-                                                  );
-                                                  return other.teamAppId ==
-                                                      tid;
-                                                });
-                                              });
-                                            }
-                                            _syncPicAfterAssigneesChange();
-                                          });
-                                        },
-                                );
-                              }).toList(),
-                            );
-                          },
+                                const SizedBox(height: 8),
+                                if (useServer) ...[
+                                  if (serverAssigneesFiltered.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'No assignable staff found for the selected team(s).',
+                                        style: TextStyle(
+                                          color: Colors.orange.shade700,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: serverAssigneesFiltered.map((
+                                        e,
+                                      ) {
+                                        final selected = _selectedAssigneeIds
+                                            .contains(e.staffAppId);
+                                        return FilterChip(
+                                          label: Text(e.staffName),
+                                          selected: selected,
+                                          onSelected: _saving
+                                              ? null
+                                              : (v) {
+                                                  setState(() {
+                                                    if (v) {
+                                                      _selectedAssigneeIds.add(
+                                                        e.staffAppId,
+                                                      );
+                                                      if (e.teamAppId != null) {
+                                                        _selectedTeamIds.add(
+                                                          e.teamAppId!,
+                                                        );
+                                                      }
+                                                    } else {
+                                                      _selectedAssigneeIds
+                                                          .remove(e.staffAppId);
+                                                    }
+                                                    _syncPicAfterAssigneesChange();
+                                                  });
+                                                },
+                                        );
+                                      }).toList(),
+                                    ),
+                                ] else ...[
+                                  if (_selectedTeamIds.isEmpty)
+                                    const Text(
+                                      'Select team(s) first',
+                                      style: TextStyle(color: Colors.grey),
+                                    )
+                                  else
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: assignees.map((a) {
+                                        final selected = _selectedAssigneeIds
+                                            .contains(a.id);
+                                        final isDirector = state.isDirector(
+                                          a.id,
+                                        );
+                                        return FilterChip(
+                                          label: Text(a.name),
+                                          selected: selected,
+                                          backgroundColor: isDirector
+                                              ? Colors.lightBlue.shade100
+                                              : Colors.purple.shade100,
+                                          onSelected: _saving
+                                              ? null
+                                              : (v) {
+                                                  setState(() {
+                                                    if (v) {
+                                                      _selectedAssigneeIds.add(
+                                                        a.id,
+                                                      );
+                                                    } else {
+                                                      _selectedAssigneeIds
+                                                          .remove(a.id);
+                                                    }
+                                                    _syncPicAfterAssigneesChange();
+                                                  });
+                                                },
+                                        );
+                                      }).toList(),
+                                    ),
+                                ],
+                              ],
+                              if (SupabaseConfig.isConfigured &&
+                                  _selectedAssigneeIds.length > 1) ...[
+                                const SizedBox(height: 16),
+                                _buildPicSection(context, state),
+                              ],
+                              if (_loadingStaff && SupabaseConfig.isConfigured)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Priority',
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _toggleButton(
+                                    label: 'Standard',
+                                    selected: _localPriority == 1,
+                                    onTap: () =>
+                                        setState(() => _localPriority = 1),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _toggleButton(
+                                    label: 'URGENT',
+                                    selected: _localPriority == 2,
+                                    onTap: () =>
+                                        setState(() => _localPriority = 2),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _startDate == null
+                                          ? 'Start date: not set'
+                                          : 'Start: ${DateFormat.yMMMd().format(_startDate!)}',
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: _saving ? null : _pickStartDate,
+                                    icon: const Icon(Icons.calendar_today),
+                                    label: const Text('Pick'),
+                                  ),
+                                  if (_startDate != null)
+                                    TextButton(
+                                      onPressed: _saving
+                                          ? null
+                                          : () => setState(
+                                              () => _startDate = null,
+                                            ),
+                                      child: const Text('Clear'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _dueDate == null
+                                          ? 'Due date: not set'
+                                          : 'Due: ${DateFormat.yMMMd().format(_dueDate!)}',
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: _saving ? null : _pickDueDate,
+                                    icon: const Icon(Icons.event),
+                                    label: const Text('Pick'),
+                                  ),
+                                  if (_dueDate != null)
+                                    TextButton(
+                                      onPressed: _saving
+                                          ? null
+                                          : () =>
+                                                setState(() => _dueDate = null),
+                                      child: const Text('Clear'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Last updated by: ${task.updateByStaffName ?? '—'}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _lastUpdatedLine(task.updateDate),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                      ],
-                    ],
-                    if (SupabaseConfig.isConfigured && !useSupabasePicker) ...[
+                      ),
+                      const SizedBox(height: 16),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Status',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Task status: $_localStatus',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Submission: ${task.submission?.trim().isNotEmpty == true ? task.submission!.trim() : '—'}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _submissionLinkController,
+                                readOnly:
+                                    _saving ||
+                                    !_isPicEffective(state, task),
+                                decoration: const InputDecoration(
+                                  labelText: 'Attachment (hyperlink)',
+                                  hintText: 'https://…',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       Text(
-                        useServer
-                            ? 'Assignees (multiple)'
-                            : 'Directors & Responsible Officers (multiple)',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        'Comments',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      if (useServer) ...[
-                        if (serverAssigneesFiltered.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Text(
-                              'No assignable staff found for the selected team(s).',
-                              style: TextStyle(
-                                color: Colors.orange.shade700,
-                                fontSize: 12,
-                              ),
-                            ),
-                          )
-                        else
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children:
-                                serverAssigneesFiltered.map((e) {
-                              final selected = _selectedAssigneeIds
-                                  .contains(e.staffAppId);
-                              return FilterChip(
-                                label: Text(e.staffName),
-                                selected: selected,
-                                onSelected: _saving
-                                    ? null
-                                    : (v) {
-                                        setState(() {
-                                          if (v) {
-                                            _selectedAssigneeIds
-                                                .add(e.staffAppId);
-                                            if (e.teamAppId != null) {
-                                              _selectedTeamIds.add(e.teamAppId!);
-                                            }
-                                          } else {
-                                            _selectedAssigneeIds
-                                                .remove(e.staffAppId);
-                                          }
-                                          _syncPicAfterAssigneesChange();
-                                        });
-                                      },
-                              );
-                            }).toList(),
-                          ),
-                      ] else ...[
-                        if (_selectedTeamIds.isEmpty)
-                          const Text(
-                            'Select team(s) first',
-                            style: TextStyle(color: Colors.grey),
-                          )
-                        else
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: assignees.map((a) {
-                              final selected =
-                                  _selectedAssigneeIds.contains(a.id);
-                              final isDirector = state.isDirector(a.id);
-                              return FilterChip(
-                                label: Text(a.name),
-                                selected: selected,
-                                backgroundColor: isDirector
-                                    ? Colors.lightBlue.shade100
-                                    : Colors.purple.shade100,
-                                onSelected: _saving
-                                    ? null
-                                    : (v) {
-                                        setState(() {
-                                          if (v) {
-                                            _selectedAssigneeIds.add(a.id);
-                                          } else {
-                                            _selectedAssigneeIds.remove(a.id);
-                                          }
-                                          _syncPicAfterAssigneesChange();
-                                        });
-                                      },
-                              );
-                            }).toList(),
-                          ),
-                      ],
-                    ],
-                    if (SupabaseConfig.isConfigured &&
-                        _selectedAssigneeIds.length > 1) ...[
-                      const SizedBox(height: 16),
-                      _buildPicSection(context, state),
-                    ],
-                    if (_loadingStaff && SupabaseConfig.isConfigured)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: CircularProgressIndicator(),
+                      TextField(
+                        controller: _commentController,
+                        readOnly: _saving,
+                        textAlignVertical: TextAlignVertical.top,
+                        minLines: 3,
+                        maxLines: 6,
+                        decoration: InputDecoration(
+                          hintText: 'Comments',
+                          hintStyle: TextStyle(color: Colors.grey.shade600),
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.all(12),
+                          isDense: true,
                         ),
                       ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Priority',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _toggleButton(
-                          label: 'Standard',
-                          selected: _localPriority == 1,
-                          onTap: () => setState(() => _localPriority = 1),
+                      const SizedBox(height: 12),
+                      if (_loadingTableComments)
+                        const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else
+                        ..._singularCommentTiles(context, state),
+                      const SizedBox(height: 24),
+                      FilledButton(
+                        onPressed: _saving
+                            ? null
+                            : () => _saveTaskFields(state, task),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
-                        const SizedBox(width: 12),
-                        _toggleButton(
-                          label: 'URGENT',
-                          selected: _localPriority == 2,
-                          onTap: () => setState(() => _localPriority = 2),
+                        child: Text(_saving ? 'Saving…' : 'Update'),
+                      ),
+                      if (_isPicEffective(state, task) &&
+                          _canPicSubmit(task)) ...[
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _saving
+                              ? null
+                              : () => _submitForReview(state, task),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.secondaryContainer,
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.onSecondaryContainer,
+                          ),
+                          child: const Text('Submit'),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _startDate == null
-                                ? 'Start date: not set'
-                                : 'Start: ${DateFormat.yMMMd().format(_startDate!)}',
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: _saving ? null : _pickStartDate,
-                          icon: const Icon(Icons.calendar_today),
-                          label: const Text('Pick'),
-                        ),
-                        if (_startDate != null)
-                          TextButton(
-                            onPressed: _saving
-                                ? null
-                                : () => setState(() => _startDate = null),
-                            child: const Text('Clear'),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _dueDate == null
-                                ? 'Due date: not set'
-                                : 'Due: ${DateFormat.yMMMd().format(_dueDate!)}',
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: _saving ? null : _pickDueDate,
-                          icon: const Icon(Icons.event),
-                          label: const Text('Pick'),
-                        ),
-                        if (_dueDate != null)
-                          TextButton(
-                            onPressed: _saving
-                                ? null
-                                : () => setState(() => _dueDate = null),
-                            child: const Text('Clear'),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Last updated by: ${task.updateByStaffName ?? '—'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _lastUpdatedLine(task.updateDate),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Status',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _toggleButton(
-                          label: 'Completed',
-                          selected: _localStatus == 'Completed',
-                          onTap: () => setState(() => _localStatus = 'Completed'),
-                        ),
-                        const SizedBox(width: 8),
-                        _toggleButton(
-                          label: 'Incomplete',
-                          selected: _localStatus == 'Incomplete',
-                          onTap: () => setState(() => _localStatus = 'Incomplete'),
-                        ),
-                        const SizedBox(width: 8),
-                        _toggleButton(
-                          label: 'Deleted',
-                          selected: _localStatus == 'Deleted',
-                          enabled: _canMarkTaskDeleted(state) ||
-                              _localStatus == 'Deleted',
-                          disabledMessage:
-                              'Only the task creator or a director can set status to Deleted.',
-                          onTap: () => setState(() => _localStatus = 'Deleted'),
+                      if (_isCreator(state, task) &&
+                          (task.submission?.trim() == 'Submitted')) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _acceptSubmission(state, task),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  backgroundColor: Colors.green.shade700,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Accept'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _returnSubmission(state, task),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  backgroundColor: Colors.orange.shade800,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Return'),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Comments',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                      const SizedBox(height: 24),
+                      if (_canMarkTaskDeleted(state))
+                        OutlinedButton.icon(
+                          onPressed: _saving
+                              ? null
+                              : () => _confirmMarkSingularTaskDeleted(
+                                  state,
+                                  task,
+                                ),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Delete'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            foregroundColor: Colors.red.shade800,
+                          ),
+                        ),
+                    ],
                   ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _commentController,
-              readOnly: _saving,
-              textAlignVertical: TextAlignVertical.top,
-              minLines: 3,
-              maxLines: 6,
-              decoration: InputDecoration(
-                hintText: 'Comments',
-                hintStyle: TextStyle(color: Colors.grey.shade600),
-                border: const OutlineInputBorder(),
-                contentPadding: const EdgeInsets.all(12),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_loadingTableComments)
-              const Padding(
-                padding: EdgeInsets.all(8),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else
-              ..._singularCommentTiles(context, state),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _saving ? null : () => _saveTaskFields(state, task),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: Text(_saving ? 'Saving…' : 'Update'),
-            ),
-                  ],
                 ),
               ),
             ),
-          ),
           ),
           if (_saving)
             Positioned.fill(
               child: IgnorePointer(
                 child: Material(
                   color: Colors.black.withOpacity(0.12),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),
@@ -1534,16 +2111,22 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
                       runSpacing: 4,
                       children: [
                         _Chip(label: priorityToDisplayName(task.priority)),
-                        if (task.teamId == null) _Chip(label: '${task.progressPercent}%'),
+                        if (task.teamId == null)
+                          _Chip(label: '${task.progressPercent}%'),
                         _Chip(
-                          label: taskStatusDisplayNames[task.status] ?? 'Unknown',
+                          label:
+                              taskStatusDisplayNames[task.status] ?? 'Unknown',
                           color: _statusColor(task.status),
                         ),
                         if (task.startDate != null)
-                          _Chip(label: 'Start ${DateFormat.yMMMd().format(task.startDate!)}'),
+                          _Chip(
+                            label:
+                                'Start ${DateFormat.yMMMd().format(task.startDate!)}',
+                          ),
                         if (task.endDate != null)
                           _Chip(
-                            label: 'End ${DateFormat.yMMMd().format(task.endDate!)}',
+                            label:
+                                'End ${DateFormat.yMMMd().format(task.endDate!)}',
                             color: task.isOverdue ? Colors.red.shade100 : null,
                           ),
                         if (task.assigneeIds.isNotEmpty)
@@ -1558,7 +2141,10 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Status',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -1584,7 +2170,10 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
             ],
             if (task.teamId == null) ...[
               const SizedBox(height: 16),
-              const Text('Progress & milestones', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Progress & milestones',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               LinearProgressIndicator(
                 value: task.progressPercent / 100,
@@ -1604,21 +2193,23 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
               ),
               if (task.milestones.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                ...task.milestones.map((m) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: LinearProgressIndicator(
-                              value: m.progressPercent / 100,
-                              backgroundColor: Colors.grey.shade300,
-                            ),
+                ...task.milestones.map(
+                  (m) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: LinearProgressIndicator(
+                            value: m.progressPercent / 100,
+                            backgroundColor: Colors.grey.shade300,
                           ),
-                          const SizedBox(width: 8),
-                          Text('${m.label} ${m.progressPercent}%'),
-                        ],
-                      ),
-                    )),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('${m.label} ${m.progressPercent}%'),
+                      ],
+                    ),
+                  ),
+                ),
               ],
               ElevatedButton.icon(
                 onPressed: () => _showAddMilestone(context, state),
@@ -1627,7 +2218,10 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
               ),
             ],
             const SizedBox(height: 24),
-            const Text('Comments / progress updates', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Comments / progress updates',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             TextField(
               controller: _commentController,
@@ -1644,7 +2238,9 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
             ),
             const SizedBox(height: 16),
             ...task.comments.map((c) {
-              final canEdit = DateTime.now().difference(c.createdAt) < const Duration(hours: 1);
+              final canEdit =
+                  DateTime.now().difference(c.createdAt) <
+                  const Duration(hours: 1);
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
@@ -1659,12 +2255,14 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _editCommentLegacy(context, state, c),
+                              onPressed: () =>
+                                  _editCommentLegacy(context, state, c),
                               tooltip: 'Edit',
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline),
-                              onPressed: () => _deleteCommentLegacy(context, state, c),
+                              onPressed: () =>
+                                  _deleteCommentLegacy(context, state, c),
                               tooltip: 'Delete',
                             ),
                           ],
@@ -1681,14 +2279,16 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
 
   void _confirmDeleteTask(BuildContext context, AppState state, Task task) {
     final deletedByName = task.assigneeIds.isNotEmpty
-        ? (state.assigneeById(task.assigneeIds.first)?.name ?? 'Responsible Officer')
+        ? (state.assigneeById(task.assigneeIds.first)?.name ??
+              'Responsible Officer')
         : 'Director';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete task'),
         content: Text(
-            'Delete "${task.name}"? It will be moved to the deleted tasks audit.'),
+          'Delete "${task.name}"? It will be moved to the deleted tasks audit.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -1696,13 +2296,15 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             onPressed: () {
               state.deleteTask(task.id, deletedByName);
               Navigator.pop(ctx);
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Task deleted')));
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('Task deleted')));
             },
             child: const Text('Delete'),
           ),
@@ -1725,7 +2327,9 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
       body: body,
     );
     _commentController.clear();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comment added')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Comment added')));
   }
 
   void _showAddMilestone(BuildContext context, AppState state) {
@@ -1768,7 +2372,9 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
                   progressPercent: percent,
                 );
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Milestone added')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Milestone added')),
+                );
               },
               child: const Text('Add'),
             ),
@@ -1807,7 +2413,11 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
     );
   }
 
-  void _deleteCommentLegacy(BuildContext context, AppState state, TaskComment c) {
+  void _deleteCommentLegacy(
+    BuildContext context,
+    AppState state,
+    TaskComment c,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1853,9 +2463,6 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      label: Text(label),
-      backgroundColor: color,
-    );
+    return Chip(label: Text(label), backgroundColor: color);
   }
 }

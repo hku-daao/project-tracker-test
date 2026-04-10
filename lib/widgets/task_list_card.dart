@@ -124,6 +124,11 @@ class TaskListCard extends StatelessWidget {
     return taskStatusDisplayNames[t.status] ?? '';
   }
 
+  static bool _isSubmissionSubmitted(Task t) {
+    final s = t.submission?.trim().toLowerCase() ?? '';
+    return s == 'submitted';
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
@@ -156,7 +161,39 @@ class TaskListCard extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12),
           color: cardTint,
           child: ListTile(
-            title: Text(t.name),
+            title: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    t.name,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (_isSubmissionSubmitted(t)) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Submitted',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
