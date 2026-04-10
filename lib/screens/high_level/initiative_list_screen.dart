@@ -1,3 +1,5 @@
+import 'dart:math' show min;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -22,11 +24,18 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Selected `Team.id` values. Empty = all teams (default).
   final Set<String> _selectedTeamIds = {};
-  String? _selectedAssigneeId;
+
+  /// When exactly one team is selected: subset of that team's member ids to filter by.
+  /// Empty = all members (default).
+  final Set<String> _selectedAssigneeIds = {};
+
   /// Scope: `all` | `assigned` | `created` (chips: All, Assigned to me, My created tasks).
   String _filterType = 'all';
+
   /// Subset of `incomplete` | `completed` | `deleted`. Empty = all statuses (label "All status").
   final Set<String> _selectedTaskStatuses = {};
+  final TextEditingController _taskSearchController = TextEditingController();
+  final MenuController _filterMenuController = MenuController();
   bool _remindersExpanded = false;
 
   static const _statusIncomplete = 'incomplete';
@@ -76,11 +85,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       child: ChoiceChip(
         showCheckmark: false,
         avatar: leading,
-        label: Text(
-          label,
-          maxLines: 1,
-          softWrap: false,
-        ),
+        label: Text(label, maxLines: 1, softWrap: false),
         selected: selected,
         onSelected: (_) => setState(() => _filterType = value),
         selectedColor: selectedBg,
@@ -119,18 +124,76 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         .join(', ');
   }
 
-  /// True when team/status filters (or optional assignee) are not at default (all).
+  /// True when team/status filters, assignee, or search are not at default (all).
   bool get _hasTeamOrStatusFilterSelections =>
       _selectedTeamIds.isNotEmpty ||
       _selectedTaskStatuses.isNotEmpty ||
-      _selectedAssigneeId != null;
+      _selectedAssigneeIds.isNotEmpty ||
+      _taskSearchController.text.trim().isNotEmpty;
 
   void _clearTeamAndStatusFilters() {
     setState(() {
       _selectedTeamIds.clear();
       _selectedTaskStatuses.clear();
-      _selectedAssigneeId = null;
+      _selectedAssigneeIds.clear();
+      _taskSearchController.clear();
     });
+  }
+
+  /// One-line summary inside the closed "Filter" control.
+  String _filterMenuSummaryLine(AppState state) {
+    final parts = <String>[];
+    if (_selectedTeamIds.isEmpty) {
+      parts.add('All teams');
+    } else {
+      parts.add(_teamFilterDisplayText(state));
+    }
+    if (_selectedTeamIds.length == 1) {
+      if (_selectedAssigneeIds.isEmpty) {
+        parts.add('All members');
+      } else {
+        final names =
+            _selectedAssigneeIds
+                .map((id) => state.assigneeById(id)?.name ?? id)
+                .toList()
+              ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        parts.add(names.join(', '));
+      }
+    }
+    if (_selectedTaskStatuses.isEmpty) {
+      parts.add('All status');
+    } else {
+      parts.add(_statusFilterDisplayText());
+    }
+    return parts.join(' · ');
+  }
+
+  List<Task> _applyTaskNameSearch(List<Task> tasks) {
+    final q = _taskSearchController.text.trim().toLowerCase();
+    if (q.isEmpty) return tasks;
+    return tasks.where((t) => t.name.toLowerCase().contains(q)).toList();
+  }
+
+  List<Initiative> _applyInitiativeNameSearch(List<Initiative> list) {
+    final q = _taskSearchController.text.trim().toLowerCase();
+    if (q.isEmpty) return list;
+    return list.where((i) => i.name.toLowerCase().contains(q)).toList();
+  }
+
+  String _emptyListMessage() {
+    if (_taskSearchController.text.trim().isNotEmpty) {
+      return 'No tasks match your search.';
+    }
+    if (_selectedTeamIds.isEmpty) {
+      return 'No tasks yet. Create one in the "Create task" tab.';
+    }
+    return 'No tasks for this filter.';
+  }
+
+  @override
+  void dispose() {
+    _taskSearchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -146,12 +209,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     var initiatives = state.initiativesForTeams(_selectedTeamIds);
     var tasks = state.tasksForTeams(_selectedTeamIds);
 
-    if (_selectedAssigneeId != null) {
+    if (_selectedAssigneeIds.isNotEmpty) {
       initiatives = initiatives
-          .where((i) => i.directorIds.contains(_selectedAssigneeId!))
+          .where((i) => i.directorIds.any(_selectedAssigneeIds.contains))
           .toList();
       tasks = tasks
-          .where((t) => t.assigneeIds.contains(_selectedAssigneeId!))
+          .where((t) => t.assigneeIds.any(_selectedAssigneeIds.contains))
           .toList();
     }
 
@@ -178,8 +241,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final tasksDeletedSingular = tasks.where(singularDeleted).toList();
     final mine = state.userStaffAppId?.trim();
     bool hasMine() => mine != null && mine.isNotEmpty;
-    bool isAssignedToMe(Task t) =>
-        hasMine() && t.assigneeIds.contains(mine!);
+    bool isAssignedToMe(Task t) => hasMine() && t.assigneeIds.contains(mine!);
     bool isCreatedByMe(Task t) => state.taskIsCreatedByCurrentUser(t);
 
     final filterKey = _filterType == 'my' ? 'all' : _filterType;
@@ -239,8 +301,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
     if (filterKey == 'all') {
       filteredInitiatives = initiatives;
-      filteredTasks =
-          filterTasksWithScopeAndStatus(tasksNonDeleted, nonDeletedMatchesTaskStatus);
+      filteredTasks = filterTasksWithScopeAndStatus(
+        tasksNonDeleted,
+        nonDeletedMatchesTaskStatus,
+      );
       filteredDeletedTasks = shouldShowDeletedSection()
           ? filterTasksWithScopeAndStatus(
               tasksDeletedSingular,
@@ -249,8 +313,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           : [];
     } else if (filterKey == 'assigned') {
       filteredInitiatives = [];
-      filteredTasks =
-          filterTasksWithScopeAndStatus(tasksNonDeleted, nonDeletedMatchesTaskStatus);
+      filteredTasks = filterTasksWithScopeAndStatus(
+        tasksNonDeleted,
+        nonDeletedMatchesTaskStatus,
+      );
       filteredDeletedTasks = shouldShowDeletedSection()
           ? filterTasksWithScopeAndStatus(
               tasksDeletedSingular,
@@ -259,8 +325,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           : [];
     } else if (filterKey == 'created') {
       filteredInitiatives = [];
-      filteredTasks =
-          filterTasksWithScopeAndStatus(tasksNonDeleted, nonDeletedMatchesTaskStatus);
+      filteredTasks = filterTasksWithScopeAndStatus(
+        tasksNonDeleted,
+        nonDeletedMatchesTaskStatus,
+      );
       filteredDeletedTasks = shouldShowDeletedSection()
           ? filterTasksWithScopeAndStatus(
               tasksDeletedSingular,
@@ -268,7 +336,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             )
           : [];
     }
-    
+
+    filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
+    filteredTasks = _applyTaskNameSearch(filteredTasks);
+    filteredDeletedTasks = _applyTaskNameSearch(filteredDeletedTasks);
+
     final reminders = state.getPendingRemindersForTeams(_selectedTeamIds);
 
     return Column(
@@ -281,198 +353,311 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               title: const Text('Reminders (would send to Directors)'),
               initiallyExpanded: _remindersExpanded,
               onExpansionChanged: (v) => setState(() => _remindersExpanded = v),
-              children: reminders.map((r) => ListTile(
-                title: Text(r.itemName),
-                subtitle: Text(
-                  '${r.reminderType} → ${r.recipientNames.join(", ")}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              )).toList(),
+              children: reminders
+                  .map(
+                    (r) => ListTile(
+                      title: Text(r.itemName),
+                      subtitle: Text(
+                        '${r.reminderType} → ${r.recipientNames.join(", ")}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _filterFieldMaxWidth),
-                child: MenuAnchor(
-                  menuChildren: [
-                    for (final team in teamsSorted)
-                      CheckboxMenuButton(
-                        closeOnActivate: false,
-                        value: _selectedTeamIds.contains(team.id),
-                        onChanged: (bool? v) {
-                          if (v == null) return;
-                          setState(() {
-                            if (v) {
-                              _selectedTeamIds.add(team.id);
-                            } else {
-                              _selectedTeamIds.remove(team.id);
-                            }
-                            if (_selectedTeamIds.length != 1) {
-                              _selectedAssigneeId = null;
-                            }
-                          });
-                        },
-                        child: Text(team.name),
-                      ),
-                  ],
-                  builder: (context, controller, child) {
-                    return InkWell(
-                      onTap: () {
-                        if (controller.isOpen) {
-                          controller.close();
-                        } else {
-                          controller.open();
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(4),
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Filter by team',
-                          border: OutlineInputBorder(),
-                          suffixIcon: Icon(Icons.arrow_drop_down),
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 16,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final menuMaxHeight = MediaQuery.sizeOf(context).height * 0.65;
+
+              /// Matches [ListView] column: `Center` + `maxWidth: 700` + horizontal padding 16.
+              final screenW = constraints.maxWidth + 32;
+              final listColumnLeftInset = (screenW - min(700.0, screenW)) / 2;
+              final searchMaxWidth = min(
+                560.0,
+                (constraints.maxWidth - listColumnLeftInset).clamp(
+                  0.0,
+                  double.infinity,
+                ),
+              );
+              final wideFilterWidth = min(
+                280.0,
+                constraints.maxWidth * 0.38,
+              ).clamp(120.0, _filterFieldMaxWidth);
+
+              final filterMenu = MenuAnchor(
+                controller: _filterMenuController,
+                menuChildren: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: SizedBox(
+                      width: 320,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: menuMaxHeight),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+                                child: Text(
+                                  'Team',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              for (final team in teamsSorted)
+                                CheckboxMenuButton(
+                                  closeOnActivate: false,
+                                  value: _selectedTeamIds.contains(team.id),
+                                  onChanged: (bool? v) {
+                                    if (v == null) return;
+                                    setState(() {
+                                      if (v) {
+                                        _selectedTeamIds.add(team.id);
+                                      } else {
+                                        _selectedTeamIds.remove(team.id);
+                                      }
+                                      if (_selectedTeamIds.length != 1) {
+                                        _selectedAssigneeIds.clear();
+                                      }
+                                    });
+                                  },
+                                  child: Text(team.name),
+                                ),
+                              if (_selectedTeamIds.length == 1) ...[
+                                const Divider(height: 24),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    4,
+                                    0,
+                                    4,
+                                    8,
+                                  ),
+                                  child: Text(
+                                    'Team member',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                                CheckboxMenuButton(
+                                  closeOnActivate: false,
+                                  value: _selectedAssigneeIds.isEmpty,
+                                  onChanged: (bool? v) {
+                                    if (v == null || !v) return;
+                                    setState(_selectedAssigneeIds.clear);
+                                  },
+                                  child: const Text('All team members'),
+                                ),
+                                for (final assignee in _getTeamMembers(
+                                  state,
+                                  _selectedTeamIds.first,
+                                ))
+                                  CheckboxMenuButton(
+                                    closeOnActivate: false,
+                                    value: _selectedAssigneeIds.contains(
+                                      assignee.id,
+                                    ),
+                                    onChanged: (bool? v) {
+                                      if (v == null) return;
+                                      setState(() {
+                                        if (v) {
+                                          _selectedAssigneeIds.add(assignee.id);
+                                        } else {
+                                          _selectedAssigneeIds.remove(
+                                            assignee.id,
+                                          );
+                                        }
+                                      });
+                                    },
+                                    child: Text(assignee.name),
+                                  ),
+                              ],
+                              const Divider(height: 24),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                child: Text(
+                                  'Status',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedTaskStatuses.contains(
+                                  _statusIncomplete,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedTaskStatuses.add(
+                                        _statusIncomplete,
+                                      );
+                                    } else {
+                                      _selectedTaskStatuses.remove(
+                                        _statusIncomplete,
+                                      );
+                                    }
+                                  });
+                                },
+                                child: const Text('Incomplete'),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedTaskStatuses.contains(
+                                  _statusCompleted,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedTaskStatuses.add(
+                                        _statusCompleted,
+                                      );
+                                    } else {
+                                      _selectedTaskStatuses.remove(
+                                        _statusCompleted,
+                                      );
+                                    }
+                                  });
+                                },
+                                child: const Text('Completed'),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedTaskStatuses.contains(
+                                  _statusDeleted,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedTaskStatuses.add(_statusDeleted);
+                                    } else {
+                                      _selectedTaskStatuses.remove(
+                                        _statusDeleted,
+                                      );
+                                    }
+                                  });
+                                },
+                                child: const Text('Deleted'),
+                              ),
+                              const Divider(height: 16),
+                              MenuItemButton(
+                                closeOnActivate: false,
+                                onPressed: _clearTeamAndStatusFilters,
+                                leadingIcon: const Icon(
+                                  Icons.clear_all,
+                                  size: 20,
+                                ),
+                                child: const Text('Clear all'),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Text(
-                          _teamFilterDisplayText(state),
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
                       ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-          if (_selectedTeamIds.length == 1)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: _filterFieldMaxWidth),
-                  child: DropdownButtonFormField<String?>(
-                    key: ValueKey<Object?>(
-                      'assignee_${_selectedTeamIds.first}_$_selectedAssigneeId',
-                    ),
-                    initialValue: _selectedAssigneeId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Filter by team member (optional)',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('All team members'),
-                      ),
-                      ..._getTeamMembers(state, _selectedTeamIds.first).map(
-                        (Assignee assignee) => DropdownMenuItem<String?>(
-                          value: assignee.id,
-                          child: Text(assignee.name),
-                        ),
-                      ),
-                    ],
-                    onChanged: (v) => setState(() => _selectedAssigneeId = v),
-                  ),
-                ),
-              ),
-            ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _filterFieldMaxWidth),
-              child: MenuAnchor(
-              menuChildren: [
-                CheckboxMenuButton(
-                  closeOnActivate: false,
-                  value: _selectedTaskStatuses.contains(_statusIncomplete),
-                  onChanged: (bool? v) {
-                    if (v == null) return;
-                    setState(() {
-                      if (v) {
-                        _selectedTaskStatuses.add(_statusIncomplete);
-                      } else {
-                        _selectedTaskStatuses.remove(_statusIncomplete);
-                      }
-                    });
-                  },
-                  child: const Text('Incomplete'),
-                ),
-                CheckboxMenuButton(
-                  closeOnActivate: false,
-                  value: _selectedTaskStatuses.contains(_statusCompleted),
-                  onChanged: (bool? v) {
-                    if (v == null) return;
-                    setState(() {
-                      if (v) {
-                        _selectedTaskStatuses.add(_statusCompleted);
-                      } else {
-                        _selectedTaskStatuses.remove(_statusCompleted);
-                      }
-                    });
-                  },
-                  child: const Text('Completed'),
-                ),
-                CheckboxMenuButton(
-                  closeOnActivate: false,
-                  value: _selectedTaskStatuses.contains(_statusDeleted),
-                  onChanged: (bool? v) {
-                    if (v == null) return;
-                    setState(() {
-                      if (v) {
-                        _selectedTaskStatuses.add(_statusDeleted);
-                      } else {
-                        _selectedTaskStatuses.remove(_statusDeleted);
-                      }
-                    });
-                  },
-                  child: const Text('Deleted'),
-                ),
-              ],
-              builder: (context, controller, child) {
-                return InkWell(
-                  onTap: () {
-                    if (controller.isOpen) {
-                      controller.close();
-                    } else {
-                      controller.open();
-                    }
-                  },
-                  borderRadius: BorderRadius.circular(4),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Filter by Status',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.arrow_drop_down),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 16,
-                      ),
-                    ),
-                    child: Text(
-                      _statusFilterDisplayText(),
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ),
-                );
-              },
-            ),
-            ),
+                ],
+                builder: (context, controller, child) {
+                  return InkWell(
+                    onTap: () {
+                      if (controller.isOpen) {
+                        controller.close();
+                      } else {
+                        controller.open();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Filters',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.arrow_drop_down),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
+                      ),
+                      child: Text(
+                        _filterMenuSummaryLine(state),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  );
+                },
+              );
+
+              final searchField = TextField(
+                controller: _taskSearchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Search tasks',
+                  hintText: 'Search by task name',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _taskSearchController.text.isNotEmpty
+                      ? IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _taskSearchController.clear();
+                            });
+                          },
+                        )
+                      : null,
+                ),
+              );
+
+              final filterWidth = constraints.maxWidth < 600
+                  ? min(_filterFieldMaxWidth, constraints.maxWidth)
+                  : wideFilterWidth;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: filterWidth),
+                      child: filterMenu,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: EdgeInsets.only(left: listColumnLeftInset),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: searchMaxWidth),
+                        child: searchField,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
         if (_hasTeamOrStatusFilterSelections)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Center(
+            child: Align(
+              alignment: Alignment.centerLeft,
               child: TextButton(
                 onPressed: _clearTeamAndStatusFilters,
                 child: const Text('Clear all'),
@@ -481,49 +666,49 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildTaskFilterChip(
-                  value: 'all',
-                  label: 'All',
-                  selected: filterKey == 'all',
-                  selectedBg: null,
-                  selectedLabelColor: null,
-                  leading: null,
-                ),
-                _buildTaskFilterChip(
-                  value: 'assigned',
-                  label: 'Assigned to me',
-                  selected: filterKey == 'assigned',
-                  selectedBg: const Color(0xFF0D47A1),
-                  selectedLabelColor: Colors.white,
-                  leading: _assignedToMeFilterIcon(filterKey == 'assigned'),
-                ),
-                _buildTaskFilterChip(
-                  value: 'created',
-                  label: 'My created tasks',
-                  selected: filterKey == 'created',
-                  selectedBg: Colors.lightBlue.shade200,
-                  selectedLabelColor: Colors.black87,
-                  leading: _myCreatedTasksFilterIcon(filterKey == 'created'),
-                ),
-              ],
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _buildTaskFilterChip(
+                    value: 'all',
+                    label: 'All',
+                    selected: filterKey == 'all',
+                    selectedBg: null,
+                    selectedLabelColor: null,
+                    leading: null,
+                  ),
+                  _buildTaskFilterChip(
+                    value: 'assigned',
+                    label: 'Assigned to me',
+                    selected: filterKey == 'assigned',
+                    selectedBg: const Color(0xFF0D47A1),
+                    selectedLabelColor: Colors.white,
+                    leading: _assignedToMeFilterIcon(filterKey == 'assigned'),
+                  ),
+                  _buildTaskFilterChip(
+                    value: 'created',
+                    label: 'My created tasks',
+                    selected: filterKey == 'created',
+                    selectedBg: Colors.lightBlue.shade200,
+                    selectedLabelColor: Colors.black87,
+                    leading: _myCreatedTasksFilterIcon(filterKey == 'created'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
         Expanded(
-          child: filteredInitiatives.isEmpty && filteredTasks.isEmpty && filteredDeletedTasks.isEmpty
-              ? Center(
-                  child: Text(
-                    _selectedTeamIds.isEmpty
-                        ? 'No tasks yet. Create one in the "Create task" tab.'
-                        : 'No tasks for this filter.',
-                  ),
-                )
+          child:
+              filteredInitiatives.isEmpty &&
+                  filteredTasks.isEmpty &&
+                  filteredDeletedTasks.isEmpty
+              ? Center(child: Text(_emptyListMessage()))
               : Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 700),
@@ -535,21 +720,22 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                             padding: const EdgeInsets.only(top: 8, bottom: 8),
                             child: Text(
                               'Initiatives',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ),
-                          ...filteredInitiatives.map((init) => _buildInitiativeCard(context, state, init)),
+                          ...filteredInitiatives.map(
+                            (init) =>
+                                _buildInitiativeCard(context, state, init),
+                          ),
                         ],
                         if (filteredTasks.isNotEmpty) ...[
                           Padding(
                             padding: const EdgeInsets.only(top: 16, bottom: 8),
                             child: Text(
                               'Tasks',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ),
                           const Padding(
@@ -563,7 +749,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                             padding: const EdgeInsets.only(top: 24, bottom: 8),
                             child: Text(
                               'Deleted tasks',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.grey,
                                   ),
@@ -574,7 +761,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                               padding: EdgeInsets.only(bottom: 12),
                               child: PicTeamColorLegend(),
                             ),
-                          ...filteredDeletedTasks.map((t) => TaskListCard(task: t)),
+                          ...filteredDeletedTasks.map(
+                            (t) => TaskListCard(task: t),
+                          ),
                         ],
                       ],
                     ),
@@ -601,11 +790,17 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   static Color _progressColor(int percent) {
     if (percent >= 100) return Colors.green;
-    if (percent >= 50) return Color.lerp(Colors.yellow, Colors.green, (percent - 50) / 50)!;
+    if (percent >= 50) {
+      return Color.lerp(Colors.yellow, Colors.green, (percent - 50) / 50)!;
+    }
     return Color.lerp(Colors.red, Colors.yellow, percent / 50)!;
   }
 
-  Widget _buildInitiativeCard(BuildContext context, AppState state, Initiative init) {
+  Widget _buildInitiativeCard(
+    BuildContext context,
+    AppState state,
+    Initiative init,
+  ) {
     final progress = state.initiativeProgressPercent(init.id);
     final progressColor = _progressColor(progress);
     return Card(
@@ -660,5 +855,4 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       ),
     );
   }
-
 }
