@@ -831,7 +831,7 @@ async function resetUrgentReminderForPastDueTasks(supabaseClient, todayYmd, summ
   const { data: rows, error } = await supabaseClient
     .from('task')
     .select(
-      'id, due_date, urgent_reminder_sent, urgent_reminder_last_sent_on, due_today_reminder_sent_on',
+      'id, due_date, urgent_reminder_sent, urgent_reminder_last_sent_on, due_today_reminder_sent_on, creator_due_today_reminder_sent_on',
     )
     .not('due_date', 'is', null);
   if (error) {
@@ -844,7 +844,9 @@ async function resetUrgentReminderForPastDueTasks(supabaseClient, todayYmd, summ
     const hasLast = row.urgent_reminder_last_sent_on != null && row.urgent_reminder_last_sent_on !== '';
     const hasDueToday =
       row.due_today_reminder_sent_on != null && row.due_today_reminder_sent_on !== '';
-    if (!sent && !hasLast && !hasDueToday) continue;
+    const hasCreatorDue =
+      row.creator_due_today_reminder_sent_on != null && row.creator_due_today_reminder_sent_on !== '';
+    if (!sent && !hasLast && !hasDueToday && !hasCreatorDue) continue;
     const id = String(row.id || '').trim();
     if (!id) continue;
     const { error: uErr } = await supabaseClient
@@ -853,6 +855,7 @@ async function resetUrgentReminderForPastDueTasks(supabaseClient, todayYmd, summ
         urgent_reminder_sent: false,
         urgent_reminder_last_sent_on: null,
         due_today_reminder_sent_on: null,
+        creator_due_today_reminder_sent_on: null,
       })
       .eq('id', id);
     if (uErr) {
@@ -904,6 +907,33 @@ function buildDueTodayTaskReminderEmail(displayName, taskName, taskUrl, dueYmd) 
   const text = `Hi ${displayName}. You have a task due.
 
 You have a task due today
+
+${taskName}
+${taskUrl}
+
+Due Date: ${dueYmd}
+
+Project Tracker
+${landing}`;
+  return { html, text };
+}
+
+/**
+ * Due-today reminder for task creator only. Subject/body format fixed for product spec.
+ * Task name: bold + underlined link to app task URL; Project Tracker links to landing site.
+ */
+function buildCreatorDueTodayTaskReminderEmail(displayName, taskName, taskUrl, dueYmd) {
+  const safeName = escapeHtml(displayName);
+  const safeTitle = escapeHtml(taskName);
+  const safeUrl = escapeHtml(taskUrl);
+  const safeDue = escapeHtml(dueYmd);
+  const landing = `${PROJECT_TRACKER_LANDING_URL}/`;
+  const safeLanding = escapeHtml(landing);
+  const html = `<p>Hi ${safeName}. There is a task due.</p>
+<p><b><u><a href="${safeUrl}" style="color:#1565C0;">${safeTitle}</a></u></b></p>
+<p>Due Date: ${safeDue}</p>
+<p><a href="${safeLanding}" style="color:#1565C0;">Project Tracker</a></p>`;
+  const text = `Hi ${displayName}. There is a task due.
 
 ${taskName}
 ${taskUrl}
@@ -1144,6 +1174,125 @@ async function runDueTodayTaskReminderJob() {
   return summary;
 }
 
+/**
+ * HK calendar due date = today: one email per task to task.create_by (staff).
+ * Independent of assignee [due_today_reminder_sent_on]; uses [creator_due_today_reminder_sent_on].
+ * Skips when status is completed/deleted (same as other due-today jobs).
+ */
+async function runCreatorDueTodayReminderJob() {
+  const todayYmd = hkTodayYyyyMmDd();
+  const summary = {
+    todayHk: todayYmd,
+    scanned: 0,
+    eligible: 0,
+    emailsAttempted: 0,
+    emailsOk: 0,
+    tasksUpdatedAfterSend: 0,
+    errors: [],
+  };
+  if (!supabase) {
+    summary.errors.push('Supabase not configured');
+    return summary;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    summary.errors.push('Mailgun not configured');
+    return summary;
+  }
+
+  const { data: tasks, error: qErr } = await supabase
+    .from('task')
+    .select('*')
+    .not('due_date', 'is', null);
+
+  if (qErr) {
+    summary.errors.push(qErr.message || String(qErr));
+    return summary;
+  }
+
+  const list = tasks || [];
+  summary.scanned = list.length;
+
+  for (const taskRow of list) {
+    if (taskStatusBlocksUrgentReminder(taskRow.status)) continue;
+    if (!isCalendarDueToday(todayYmd, taskRow.due_date)) continue;
+
+    const lastCreator = taskRow.creator_due_today_reminder_sent_on;
+    const lastCreatorStr =
+      lastCreator == null || lastCreator === ''
+        ? null
+        : String(lastCreator).trim().slice(0, 10);
+    if (lastCreatorStr === todayYmd) {
+      continue;
+    }
+
+    const creatorId = (taskRow.create_by || '').toString().trim();
+    if (!creatorId) {
+      continue;
+    }
+
+    summary.eligible += 1;
+    const taskId = String(taskRow.id || '').trim();
+    const taskName = String(taskRow.task_name || '').trim() || '(no title)';
+    const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
+    const dueYmd = formatTaskDueDateYYYYMMDD(taskRow.due_date);
+
+    const { data: staffRow, error: staffErr } = await supabase
+      .from('staff')
+      .select('email, name, display_name')
+      .eq('id', creatorId)
+      .maybeSingle();
+    if (staffErr) {
+      summary.errors.push(`creator staff ${taskId}: ${staffErr.message}`);
+      continue;
+    }
+    if (!staffRow) {
+      summary.errors.push(`creator staff not found for task ${taskId} (create_by=${creatorId})`);
+      continue;
+    }
+    const to = (staffRow.email || '').trim();
+    if (!to) {
+      summary.errors.push(`creator has no email (task ${taskId}, staff ${creatorId})`);
+      continue;
+    }
+    const displayName =
+      (staffRow.display_name || '').trim() ||
+      (staffRow.name || '').trim() ||
+      to;
+
+    const { html, text } = buildCreatorDueTodayTaskReminderEmail(
+      displayName,
+      taskName,
+      taskUrl,
+      dueYmd,
+    );
+    const r = await sendMailgun({
+      to,
+      subject: mailSubjectSingleLine('A task due today'),
+      text,
+      html,
+      from: MAILGUN_NOTIFICATION_FROM,
+    });
+    summary.emailsAttempted += 1;
+    if (r.ok) summary.emailsOk += 1;
+    else {
+      summary.errors.push(`Mailgun creator due-today ${taskId}: ${r.error || 'failed'}`);
+      continue;
+    }
+
+    const { error: uErr } = await supabase
+      .from('task')
+      .update({ creator_due_today_reminder_sent_on: todayYmd })
+      .eq('id', taskId);
+    if (uErr) {
+      summary.errors.push(`creator due-today update ${taskId}: ${uErr.message}`);
+    } else {
+      summary.tasksUpdatedAfterSend += 1;
+    }
+  }
+
+  return summary;
+}
+
 /** Returns true if the request was rejected (response already sent). */
 function cronUnauthorized(req, res) {
   if (!CRON_SECRET) {
@@ -1172,7 +1321,8 @@ async function handleCronUrgentTaskReminders(req, res) {
   try {
     const urgent = await runUrgentTaskReminderJob();
     const dueToday = await runDueTodayTaskReminderJob();
-    sendJson(req, res, 200, { ok: true, urgent, dueToday });
+    const creatorDueToday = await runCreatorDueTodayReminderJob();
+    sendJson(req, res, 200, { ok: true, urgent, dueToday, creatorDueToday });
   } catch (e) {
     console.error('handleCronUrgentTaskReminders:', e);
     sendJson(req, res, 500, { error: e.message || String(e) });
@@ -1188,7 +1338,8 @@ async function handleCronDueTodayOnly(req, res) {
   if (cronUnauthorized(req, res)) return;
   try {
     const dueToday = await runDueTodayTaskReminderJob();
-    sendJson(req, res, 200, { ok: true, dueToday });
+    const creatorDueToday = await runCreatorDueTodayReminderJob();
+    sendJson(req, res, 200, { ok: true, dueToday, creatorDueToday });
   } catch (e) {
     console.error('handleCronDueTodayOnly:', e);
     sendJson(req, res, 500, { error: e.message || String(e) });
@@ -1706,12 +1857,13 @@ server.listen(PORT, () => {
       () => {
         runUrgentTaskReminderJob()
           .then(() => runDueTodayTaskReminderJob())
+          .then(() => runCreatorDueTodayReminderJob())
           .catch((e) => console.error('daily task-reminder cron:', e));
       },
       { timezone: 'Asia/Hong_Kong' },
     );
     console.log(
-      'Task reminders: urgent (80%) + due-today daily at 09:00 Asia/Hong_Kong (DISABLE_INTERNAL_URGENT_CRON=true to turn off)',
+      'Task reminders: urgent (80%) + due-today (assignees + creators) daily at 09:00 Asia/Hong_Kong (DISABLE_INTERNAL_URGENT_CRON=true to turn off)',
     );
   }
 });
