@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_state.dart';
@@ -31,6 +32,18 @@ void main() async {
   runApp(MyApp(initError: initError));
 }
 
+/// Noto Sans TC covers Latin + Traditional Chinese so Flutter Web does not warn
+/// about missing Noto fallbacks for CJK text.
+ThemeData _appTheme() {
+  final base = ThemeData(
+    colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+    useMaterial3: true,
+  );
+  return base.copyWith(
+    textTheme: GoogleFonts.notoSansTcTextTheme(base.textTheme),
+  );
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key, this.initError});
 
@@ -42,6 +55,7 @@ class MyApp extends StatelessWidget {
       return MaterialApp(
         title: 'Project Tracker',
         debugShowCheckedModeBanner: false,
+        theme: _appTheme(),
         home: Scaffold(
           body: SafeArea(
             child: Padding(
@@ -70,10 +84,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Project Tracker',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-          useMaterial3: true,
-        ),
+        theme: _appTheme(),
         home: kIsWeb ? const AuthGate() : const AppBootstrap(),
       ),
     );
