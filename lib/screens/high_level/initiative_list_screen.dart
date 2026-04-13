@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' show min;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +10,7 @@ import '../../models/initiative.dart';
 import '../../models/task.dart';
 import '../../models/assignee.dart';
 import '../../priority.dart';
+import '../../services/landing_task_filters_storage.dart';
 import '../../widgets/task_list_card.dart';
 import 'initiative_detail_screen.dart';
 
@@ -37,6 +40,18 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   final TextEditingController _taskSearchController = TextEditingController();
   final MenuController _filterMenuController = MenuController();
   bool _remindersExpanded = false;
+
+  /// Per-user prefs: do not persist until first load finished (avoids clobbering saved teams).
+  bool _landingFiltersPrefsReady = false;
+
+  /// When saved team ids exist but [AppState.teams] is still empty, apply the rest first; then this.
+  LandingTaskFilters? _deferredPrefsForTeams;
+
+  AppState? _appStateListenerRef;
+  Timer? _searchPersistDebounce;
+
+  /// Skip debounced persist while restoring from disk (search [TextEditingController] updates).
+  bool _suppressFilterPersist = false;
 
   static const _statusIncomplete = 'incomplete';
   static const _statusCompleted = 'completed';
@@ -87,7 +102,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         avatar: leading,
         label: Text(label, maxLines: 1, softWrap: false),
         selected: selected,
-        onSelected: (_) => setState(() => _filterType = value),
+        onSelected: (_) {
+          setState(() => _filterType = value);
+          _persistLandingFilters();
+        },
         selectedColor: selectedBg,
         labelStyle: TextStyle(
           color: onLabel,
@@ -138,6 +156,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       _selectedAssigneeIds.clear();
       _taskSearchController.clear();
     });
+    _persistLandingFilters();
   }
 
   /// One-line summary inside the closed "Filter" control.
@@ -191,7 +210,131 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _taskSearchController.addListener(_onSearchTextChangedForPersist);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _appStateListenerRef = context.read<AppState>();
+      _appStateListenerRef!.addListener(_onAppStateForDeferredTeamRestore);
+      _loadLandingFilters();
+    });
+  }
+
+  void _onSearchTextChangedForPersist() {
+    if (!_landingFiltersPrefsReady || _suppressFilterPersist) return;
+    _searchPersistDebounce?.cancel();
+    _searchPersistDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (mounted) _persistLandingFilters();
+    });
+  }
+
+  void _onAppStateForDeferredTeamRestore() {
+    if (_deferredPrefsForTeams == null) return;
+    final state = context.read<AppState>();
+    if (state.teams.isEmpty) return;
+    final data = _deferredPrefsForTeams!;
+    _deferredPrefsForTeams = null;
+    if (!mounted) return;
+    setState(() => _applyTeamsAndAssigneesFromSaved(data, state));
+    _landingFiltersPrefsReady = true;
+  }
+
+  Future<void> _loadLandingFilters() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      _landingFiltersPrefsReady = true;
+      return;
+    }
+    final data = await LandingTaskFiltersStorage.load(uid);
+    if (!mounted) return;
+    final state = context.read<AppState>();
+    if (data == null) {
+      _landingFiltersPrefsReady = true;
+      return;
+    }
+    final needsDefer = data.teamIds.isNotEmpty && state.teams.isEmpty;
+    if (needsDefer) {
+      _deferredPrefsForTeams = data;
+      setState(() => _applySavedFiltersPartial(data, state));
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (!mounted || _landingFiltersPrefsReady) return;
+        if (_deferredPrefsForTeams != null &&
+            context.read<AppState>().teams.isEmpty) {
+          _deferredPrefsForTeams = null;
+          _landingFiltersPrefsReady = true;
+        }
+      });
+      return;
+    }
+    setState(() => _applySavedFiltersFull(data, state));
+    _landingFiltersPrefsReady = true;
+  }
+
+  void _applySavedFiltersPartial(LandingTaskFilters data, AppState state) {
+    var ft = data.filterType;
+    if (ft == 'my') ft = 'all';
+    if (ft != 'all' && ft != 'assigned' && ft != 'created') ft = 'all';
+    _filterType = ft;
+    _selectedTaskStatuses.clear();
+    for (final s in data.statuses) {
+      if (s == _statusIncomplete ||
+          s == _statusCompleted ||
+          s == _statusDeleted) {
+        _selectedTaskStatuses.add(s);
+      }
+    }
+    _suppressFilterPersist = true;
+    try {
+      _taskSearchController.text = data.search;
+    } finally {
+      _suppressFilterPersist = false;
+    }
+  }
+
+  void _applyTeamsAndAssigneesFromSaved(LandingTaskFilters data, AppState state) {
+    _selectedTeamIds.clear();
+    final validTeamIds = state.teams.map((t) => t.id).toSet();
+    for (final id in data.teamIds) {
+      if (validTeamIds.contains(id)) _selectedTeamIds.add(id);
+    }
+    _selectedAssigneeIds.clear();
+    if (_selectedTeamIds.length == 1) {
+      final memberIds = _getTeamMembers(state, _selectedTeamIds.first)
+          .map((a) => a.id)
+          .toSet();
+      for (final id in data.assigneeIds) {
+        if (memberIds.contains(id)) _selectedAssigneeIds.add(id);
+      }
+    }
+  }
+
+  void _applySavedFiltersFull(LandingTaskFilters data, AppState state) {
+    _applySavedFiltersPartial(data, state);
+    _applyTeamsAndAssigneesFromSaved(data, state);
+  }
+
+  void _persistLandingFilters() {
+    if (!_landingFiltersPrefsReady || _suppressFilterPersist) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    LandingTaskFiltersStorage.save(
+      uid,
+      LandingTaskFilters(
+        filterType: _filterType,
+        teamIds: _selectedTeamIds.toList(),
+        assigneeIds: _selectedAssigneeIds.toList(),
+        statuses: _selectedTaskStatuses.toList(),
+        search: _taskSearchController.text,
+      ),
+    );
+  }
+
+  @override
   void dispose() {
+    _searchPersistDebounce?.cancel();
+    _taskSearchController.removeListener(_onSearchTextChangedForPersist);
+    _appStateListenerRef?.removeListener(_onAppStateForDeferredTeamRestore);
     _taskSearchController.dispose();
     super.dispose();
   }
@@ -200,7 +343,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   Widget build(BuildContext context) {
     if (_filterType == 'my') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _filterType = 'all');
+        if (mounted) {
+          setState(() => _filterType = 'all');
+          _persistLandingFilters();
+        }
       });
     }
     final state = context.watch<AppState>();
@@ -428,6 +574,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                         _selectedAssigneeIds.clear();
                                       }
                                     });
+                                    _persistLandingFilters();
                                   },
                                   child: Text(team.name),
                                 ),
@@ -454,6 +601,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                   onChanged: (bool? v) {
                                     if (v == null || !v) return;
                                     setState(_selectedAssigneeIds.clear);
+                                    _persistLandingFilters();
                                   },
                                   child: const Text('All team members'),
                                 ),
@@ -477,6 +625,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                           );
                                         }
                                       });
+                                      _persistLandingFilters();
                                     },
                                     child: Text(assignee.name),
                                   ),
@@ -508,6 +657,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                       );
                                     }
                                   });
+                                  _persistLandingFilters();
                                 },
                                 child: const Text('Incomplete'),
                               ),
@@ -529,6 +679,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                       );
                                     }
                                   });
+                                  _persistLandingFilters();
                                 },
                                 child: const Text('Completed'),
                               ),
@@ -548,6 +699,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                       );
                                     }
                                   });
+                                  _persistLandingFilters();
                                 },
                                 child: const Text('Deleted'),
                               ),

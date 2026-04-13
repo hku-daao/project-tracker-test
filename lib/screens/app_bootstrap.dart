@@ -128,7 +128,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
               const SizedBox(height: 20),
               Text(
                 SupabaseConfig.isConfigured
-                    ? 'Loading from Supabase…'
+                    ? 'Loading...'
                     : 'Starting…',
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
