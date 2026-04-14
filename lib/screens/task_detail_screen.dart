@@ -505,11 +505,11 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       color: isDeleted ? Colors.grey.shade100 : null,
       child: ListTile(
         isThreeLine: c.updateTimestampUtc != null,
-        title: Text(
+        title: SelectableText(
           c.description,
           style: isDeleted
               ? theme.textTheme.bodyLarge?.copyWith(color: grey)
-              : null,
+              : theme.textTheme.bodyLarge,
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2244,7 +2244,7 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  title: Text(c.body),
+                  title: SelectableText(c.body),
                   subtitle: Text(
                     '${c.authorName} · ${DateFormat.yMMMd().add_Hm().format(c.createdAt)}',
                     style: Theme.of(context).textTheme.bodySmall,
