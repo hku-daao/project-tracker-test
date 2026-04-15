@@ -459,6 +459,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
         tooltip: 'Sort by ${column.label}',
         onSelected: (v) {
           setState(() {
@@ -488,25 +489,35 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           ),
         ],
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: active
-                ? theme.colorScheme.secondaryContainer
-                : theme.colorScheme.surfaceContainerHighest,
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
+            border: Border.all(
+              color: active
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outlineVariant,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(column.label),
+              Text(
+                column.label,
+                maxLines: 1,
+                softWrap: false,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
               if (active) ...[
                 const SizedBox(width: 4),
                 Icon(
                   _taskSortAscending
                       ? Icons.arrow_upward
                       : Icons.arrow_downward,
-                  size: 16,
+                  size: 18,
                 ),
               ],
             ],
