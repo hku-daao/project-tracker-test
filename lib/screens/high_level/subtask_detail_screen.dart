@@ -423,6 +423,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           }
           final errA = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: st.id,
+            parentTaskId: st.taskId,
             rows: _subtaskAttachmentPayload(),
           );
           if (!mounted) return;
@@ -449,6 +450,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         try {
           final errA = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: st.id,
+            parentTaskId: st.taskId,
             rows: _subtaskAttachmentPayload(),
           );
           if (!mounted) return;
@@ -515,6 +517,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       }
       final errA = await SupabaseService.replaceSubtaskAttachments(
         subtaskId: st.id,
+        parentTaskId: st.taskId,
         rows: _subtaskAttachmentPayload(),
       );
       if (!mounted) return;
@@ -551,6 +554,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     try {
       final e = await SupabaseService.replaceSubtaskAttachments(
         subtaskId: st.id,
+        parentTaskId: st.taskId,
         rows: _subtaskAttachmentPayload(),
       );
       if (e != null && mounted) {

@@ -1914,15 +1914,32 @@ class SupabaseService {
   }
 
   /// Replaces all `subtask_attachment` rows (skips rows where both fields are empty).
+  ///
+  /// Pass [parentTaskId] when known (parent singular `task.id`) to avoid an extra query.
+  /// If omitted, `task_id` is loaded from `subtask.task_id`. Inserts include `task_id` when
+  /// the database column exists (required by FK `subtask_attachment_task_id_fkey` on some DBs).
   static Future<String?> replaceSubtaskAttachments({
     required String subtaskId,
     required List<({String? content, String? description})> rows,
+    String? parentTaskId,
   }) async {
     if (!_enabled) return 'Supabase not configured';
     final sid = subtaskId.trim();
     if (sid.isEmpty) return 'Missing sub-task id';
     try {
       final supabase = Supabase.instance.client;
+      var tid = parentTaskId?.trim() ?? '';
+      if (tid.isEmpty) {
+        final subRow = await supabase
+            .from('subtask')
+            .select('task_id')
+            .eq('id', sid)
+            .maybeSingle();
+        tid = subRow?['task_id']?.toString().trim() ?? '';
+      }
+      if (tid.isEmpty) {
+        return 'Sub-task has no parent task (task_id)';
+      }
       await supabase.from('subtask_attachment').delete().eq('subtask_id', sid);
       for (final r in rows) {
         final c = r.content?.trim() ?? '';
@@ -1930,6 +1947,7 @@ class SupabaseService {
         if (c.isEmpty && d.isEmpty) continue;
         final map = <String, dynamic>{
           'subtask_id': sid,
+          'task_id': tid,
           'content': c.isEmpty ? null : c,
           'description': d.isEmpty ? null : d,
         };
