@@ -2287,7 +2287,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                     s.pic!.trim())
                                 : '—';
                             final subTag =
-                                TaskListCard.buildSubmissionTag(s.submission);
+                                (s.submission?.trim().toLowerCase() ==
+                                        'pending')
+                                    ? null
+                                    : TaskListCard.buildSubmissionTag(
+                                        s.submission,
+                                      );
                             final metaLine =
                                 '${priorityToDisplayName(s.priority)} · ${s.status}'
                                 '${s.startDate != null ? ' · Start ${DateFormat('yyyy-MM-dd').format(s.startDate!)}' : ''}'

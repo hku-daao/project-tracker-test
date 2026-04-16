@@ -1061,6 +1061,221 @@ ${landing}`;
 }
 
 /**
+ * 80% window — sub-task creator only. Subject/body format fixed for product spec.
+ * Sub-task title: bold + underlined link to app sub-task URL; Project Tracker → landing.
+ */
+function buildCreatorUrgentSubtaskReminderEmail(displayName, subtaskName, subtaskUrl, dueYmd) {
+  const safeName = escapeHtml(displayName);
+  const safeTitle = escapeHtml(subtaskName);
+  const safeUrl = escapeHtml(subtaskUrl);
+  const safeDue = escapeHtml(dueYmd);
+  const landing = `${String(PROJECT_TRACKER_LANDING_URL || 'https://projecttracker.hku-ia.ai').replace(/\/$/, '')}/`;
+  const safeLanding = escapeHtml(landing);
+  const html = `Hi ${safeName}.<br><br>
+There is an <b>upcoming</b> sub-task due.<br><br>
+<b><u><a href="${safeUrl}" style="color:#1565C0;">${safeTitle}</a></u></b><br><br>
+Due Date: ${safeDue}<br><br>
+<a href="${safeLanding}" style="color:#1565C0;">Project Tracker</a>`;
+  const text = `Hi ${displayName}.
+
+There is an upcoming sub-task due.
+
+${subtaskName}
+${subtaskUrl}
+
+Due Date: ${dueYmd}
+
+Project Tracker
+${landing}`;
+  return { html, text };
+}
+
+function subtaskStatusBlocksUrgentReminder(statusRaw) {
+  const s = String(statusRaw || '')
+    .trim()
+    .toLowerCase();
+  return s === 'completed' || s === 'deleted';
+}
+
+/**
+ * After the due calendar date (HK), reset sub-task reminder columns.
+ */
+async function resetUrgentReminderForPastDueSubtasks(supabaseClient, todayYmd, summary) {
+  const { data: rows, error } = await supabaseClient
+    .from('subtask')
+    .select('id, due_date, urgent_reminder_sent, creator_urgent_reminder_last_sent_on')
+    .not('due_date', 'is', null);
+  if (error) {
+    summary.errors.push(`subtask past-due cleanup: ${error.message}`);
+    return;
+  }
+  for (const row of rows || []) {
+    if (!isCalendarPastDue(todayYmd, row.due_date)) continue;
+    const sent = row.urgent_reminder_sent === true;
+    const hasLast =
+      row.creator_urgent_reminder_last_sent_on != null &&
+      row.creator_urgent_reminder_last_sent_on !== '';
+    if (!sent && !hasLast) continue;
+    const id = String(row.id || '').trim();
+    if (!id) continue;
+    const { error: uErr } = await supabaseClient
+      .from('subtask')
+      .update({
+        urgent_reminder_sent: false,
+        creator_urgent_reminder_last_sent_on: null,
+      })
+      .eq('id', id);
+    if (uErr) {
+      summary.errors.push(`subtask past-due reset ${id}: ${uErr.message}`);
+    } else {
+      summary.subtasksResetPastDue += 1;
+    }
+  }
+}
+
+/**
+ * Same 80% window as task creator urgent: email subtask.create_by once per HK day while
+ * [isCalendarStrictlyBeforeDue] and [hasReachedEightyPercentWindow]. Uses
+ * [creator_urgent_reminder_last_sent_on] and [urgent_reminder_sent] (reset after past due).
+ * Skips if create_by === assignee_01. Not sent on the due calendar day (HK).
+ */
+async function runCreatorUrgentSubtaskReminderJob() {
+  const nowMs = Date.now();
+  const todayYmd = hkTodayYyyyMmDd();
+  const summary = {
+    todayHk: todayYmd,
+    scanned: 0,
+    eligible: 0,
+    emailsAttempted: 0,
+    emailsOk: 0,
+    subtasksUpdatedAfterSend: 0,
+    subtasksResetPastDue: 0,
+    errors: [],
+  };
+  if (!supabase) {
+    summary.errors.push('Supabase not configured');
+    return summary;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    summary.errors.push('Mailgun not configured');
+    return summary;
+  }
+
+  await resetUrgentReminderForPastDueSubtasks(supabase, todayYmd, summary);
+
+  const { data: subtasks, error: qErr } = await supabase
+    .from('subtask')
+    .select('*')
+    .not('start_date', 'is', null)
+    .not('due_date', 'is', null);
+
+  if (qErr) {
+    summary.errors.push(qErr.message || String(qErr));
+    return summary;
+  }
+
+  const list = subtasks || [];
+  summary.scanned = list.length;
+
+  for (const row of list) {
+    if (subtaskStatusBlocksUrgentReminder(row.status)) continue;
+    if (isCalendarDueToday(todayYmd, row.due_date)) continue;
+    if (!isCalendarStrictlyBeforeDue(todayYmd, row.due_date)) continue;
+    if (!hasReachedEightyPercentWindow(row.start_date, row.due_date, nowMs)) {
+      continue;
+    }
+
+    const lastCreator = row.creator_urgent_reminder_last_sent_on;
+    const lastCreatorStr =
+      lastCreator == null || lastCreator === ''
+        ? null
+        : String(lastCreator).trim().slice(0, 10);
+    if (lastCreatorStr === todayYmd) {
+      continue;
+    }
+
+    const subtaskId = String(row.id || '').trim();
+    const creatorId = (row.create_by || '').toString().trim();
+    if (!creatorId) {
+      continue;
+    }
+
+    const { data: staffRow, error: staffErr } = await fetchStaffRowForCreateBy(supabase, creatorId);
+    if (staffErr) {
+      summary.errors.push(`subtask creator urgent staff lookup ${subtaskId}: ${staffErr.message}`);
+      continue;
+    }
+    if (!staffRow) {
+      summary.errors.push(
+        `creator staff not found for subtask ${subtaskId} (create_by=${creatorId})`,
+      );
+      continue;
+    }
+    const resolvedCreatorStaffId = String(staffRow.id || '').trim();
+    const assignee01 = (row.assignee_01 || '').toString().trim();
+    if (
+      assignee01 &&
+      resolvedCreatorStaffId.toLowerCase() === assignee01.toLowerCase()
+    ) {
+      continue;
+    }
+
+    summary.eligible += 1;
+    const subtaskName = String(row.subtask_name || '').trim() || '(no title)';
+    const subtaskUrl = `${PUBLIC_WEB_APP_URL}/?subtask=${encodeURIComponent(subtaskId)}`;
+    const dueYmd = formatTaskDueDateYYYYMMDD(row.due_date);
+    const to = await resolveStaffEmailForNotifications(supabase, staffRow);
+    if (!to) {
+      summary.errors.push(
+        `subtask creator has no email (subtask ${subtaskId}, staff.id=${resolvedCreatorStaffId})`,
+      );
+      continue;
+    }
+    const displayName =
+      (staffRow.display_name || '').trim() ||
+      (staffRow.name || '').trim() ||
+      to;
+
+    const { html, text } = buildCreatorUrgentSubtaskReminderEmail(
+      displayName,
+      subtaskName,
+      subtaskUrl,
+      dueYmd,
+    );
+    const r = await sendMailgun({
+      to,
+      subject: mailSubjectSingleLine('An upcoming sub-task due'),
+      text,
+      html,
+      from: MAILGUN_NOTIFICATION_FROM,
+    });
+    summary.emailsAttempted += 1;
+    if (r.ok) summary.emailsOk += 1;
+    else {
+      summary.errors.push(
+        `Mailgun subtask creator urgent subtask=${subtaskId} to=${r.resolvedTo ?? to}: ${formatMailgunFailure(r)}`,
+      );
+      continue;
+    }
+
+    const { error: uErr } = await supabase
+      .from('subtask')
+      .update({
+        urgent_reminder_sent: true,
+        creator_urgent_reminder_last_sent_on: todayYmd,
+      })
+      .eq('id', subtaskId);
+    if (uErr) {
+      summary.errors.push(`subtask creator urgent update ${subtaskId}: ${uErr.message}`);
+    } else {
+      summary.subtasksUpdatedAfterSend += 1;
+    }
+  }
+
+  return summary;
+}
+
+/**
  * Daily urgent emails (09:00 Asia/Hong_Kong + manual POST): send each HK day while
  * 80%–due window applies; [urgent_reminder_last_sent_on] prevents duplicate sends same day.
  * Does not run on the due calendar day (that day uses due-today emails only).
@@ -1590,12 +1805,14 @@ async function handleCronUrgentTaskReminders(req, res) {
   try {
     const urgent = await runUrgentTaskReminderJob();
     const creatorUrgent = await runCreatorUrgentTaskReminderJob();
+    const creatorUrgentSubtask = await runCreatorUrgentSubtaskReminderJob();
     const dueToday = await runDueTodayTaskReminderJob();
     const creatorDueToday = await runCreatorDueTodayReminderJob();
     sendJson(req, res, 200, {
       ok: true,
       urgent,
       creatorUrgent,
+      creatorUrgentSubtask,
       dueToday,
       creatorDueToday,
     });
@@ -2775,6 +2992,7 @@ server.listen(PORT, () => {
       () => {
         runUrgentTaskReminderJob()
           .then(() => runCreatorUrgentTaskReminderJob())
+          .then(() => runCreatorUrgentSubtaskReminderJob())
           .then(() => runDueTodayTaskReminderJob())
           .then(() => runCreatorDueTodayReminderJob())
           .catch((e) => console.error('daily task-reminder cron:', e));
@@ -2782,7 +3000,7 @@ server.listen(PORT, () => {
       { timezone: 'Asia/Hong_Kong' },
     );
     console.log(
-      'Task reminders: urgent assignees + urgent creators (80%) + due-today (assignees + creators) daily at 09:00 Asia/Hong_Kong (DISABLE_INTERNAL_URGENT_CRON=true to turn off)',
+      'Task reminders: urgent assignees + urgent task creators + urgent sub-task creators (80%) + due-today (assignees + creators) daily at 09:00 Asia/Hong_Kong (DISABLE_INTERNAL_URGENT_CRON=true to turn off)',
     );
   }
 });
