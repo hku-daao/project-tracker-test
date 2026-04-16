@@ -111,6 +111,12 @@ class BackendApi {
     return Uri.parse('$_baseUrl$p');
   }
 
+  /// Returned by [notifySubtaskUpdated] when the server sends generic 404
+  /// `{ error: 'Not found' }` (no route matched). Redeploy the Railway backend
+  /// from this repo so `POST /api/notify/subtask-updated` is registered.
+  static const String notifySubtaskUpdatedBackendNotDeployed =
+      'NOTIFY_SUBTASK_UPDATED_BACKEND_NOT_DEPLOYED';
+
   /// Get current user profile and assignable staff (server-enforced). Requires Firebase ID token.
   Future<UserProfileResult?> getMe(String idToken) async {
     try {
@@ -437,6 +443,51 @@ class BackendApi {
         final j = jsonDecode(response.body) as Map<String, dynamic>;
         return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
       } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Emails sub-task assignees and creator after the sub-task row is updated (Update button). Requires Mailgun.
+  Future<String?> notifySubtaskUpdated({
+    required String idToken,
+    required String subtaskId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/subtask-updated'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'subtaskId': subtaskId}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = j['error']?.toString();
+        // Generic 404 { error: 'Not found' } = no matching route (server.js
+        // fallback). Confirmed on Railway when POST /api/notify/subtask-updated
+        // was never deployed; redeploy the `backend/` service from this repo.
+        if (response.statusCode == 404 && err == 'Not found') {
+          debugPrint(
+            'BackendApi.notifySubtaskUpdated: 404 Not found — redeploy Railway '
+            'backend so POST /api/notify/subtask-updated is registered.',
+          );
+          return notifySubtaskUpdatedBackendNotDeployed;
+        }
+        return err ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        if (response.statusCode == 404) {
+          debugPrint(
+            'BackendApi.notifySubtaskUpdated: 404 without JSON; redeploy backend.',
+          );
+          return notifySubtaskUpdatedBackendNotDeployed;
+        }
         return 'HTTP ${response.statusCode}';
       }
     } catch (e) {

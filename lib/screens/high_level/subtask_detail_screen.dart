@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -7,8 +8,10 @@ import '../../config/supabase_config.dart';
 import '../../models/singular_subtask.dart';
 import '../../models/task.dart';
 import '../../priority.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
+import '../../utils/hk_time.dart';
 
 class _SubtaskAttachmentEntry {
   _SubtaskAttachmentEntry({this.id, String? url, String? desc})
@@ -48,6 +51,10 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
   final _descController = TextEditingController();
   final List<_SubtaskAttachmentEntry> _subtaskAttachments = [];
   final _commentController = TextEditingController();
+  final _editCommentController = TextEditingController();
+
+  /// Non-null while inline-editing a [SubtaskCommentRowDisplay] by id.
+  String? _editingCommentId;
 
   List<SubtaskCommentRowDisplay> _comments = [];
   String? _resolvedPicStaffUuid;
@@ -73,6 +80,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     _descController.dispose();
     _clearSubtaskAttachments();
     _commentController.dispose();
+    _editCommentController.dispose();
     super.dispose();
   }
 
@@ -249,11 +257,28 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     return a != b;
   }
 
-  /// [stored] is `subtask.update_date`; display uses +8h (Hong Kong), format Mmm DD, YYYY HH:mm.
+  /// [stored] is `subtask.update_date`; display in Hong Kong (UTC+8).
   String _subtaskLastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    final shown = stored.add(const Duration(hours: 8));
-    return 'Last updated: ${DateFormat('MMM dd, yyyy HH:mm').format(shown)}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
+  }
+
+  /// Posted time for sub-task comments (matches [TaskDetailScreen._formatCommentPostedTs]).
+  String _formatSubtaskCommentPostedTs(DateTime? stored) {
+    if (stored == null) return '—';
+    return HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm');
+  }
+
+  /// `Last updated: …` line (matches [TaskDetailScreen._formatCommentLastUpdatedLine]).
+  String _formatSubtaskCommentLastUpdatedLine(DateTime? stored) {
+    if (stored == null) return 'Last updated: —';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
+  }
+
+  bool _isCommentAuthor(SubtaskCommentRowDisplay c) {
+    final id = c.createByStaffId?.trim();
+    if (id == null || id.isEmpty) return false;
+    return _uuidEq(_myStaffUuid, id);
   }
 
   Widget _priorityToggleButton({
@@ -405,6 +430,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             showCopyableSnackBar(context, errA, backgroundColor: Colors.orange);
             return;
           }
+          await _notifySubtaskUpdatedEmail(st.id);
+          if (!mounted) return;
           await _load();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -495,6 +522,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         showCopyableSnackBar(context, errA, backgroundColor: Colors.orange);
         return;
       }
+      await _notifySubtaskUpdatedEmail(st.id);
+      if (!mounted) return;
       await _load();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Saved'), backgroundColor: Colors.green),
@@ -608,12 +637,61 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     }
   }
 
+  void _startEditComment(SubtaskCommentRowDisplay c) {
+    setState(() {
+      _editingCommentId = c.id;
+      _editCommentController.text = c.description;
+    });
+  }
+
+  void _cancelCommentEdit() {
+    setState(() {
+      _editingCommentId = null;
+      _editCommentController.clear();
+    });
+  }
+
+  Future<void> _saveCommentEdit(
+    AppState state,
+    SingularSubtask st,
+    SubtaskCommentRowDisplay c,
+  ) async {
+    final text = _editCommentController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Comment cannot be empty.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (!_isCommentAuthor(c)) return;
+    setState(() => _saving = true);
+    try {
+      final err = await SupabaseService.updateSubtaskCommentRow(
+        commentId: c.id,
+        description: text,
+        updaterStaffLookupKey: state.userStaffAppId,
+      );
+      if (!mounted) return;
+      if (err != null) {
+        showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
+        return;
+      }
+      _cancelCommentEdit();
+      await _load();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _deleteComment(
     AppState state,
     SingularSubtask st,
     SubtaskCommentRowDisplay c,
   ) async {
-    if (!_isCreator(state, st) && !_director) return;
+    if (!_isCreator(state, st)) return;
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -641,6 +719,149 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       return;
     }
     await _load();
+  }
+
+  Future<void> _notifySubtaskUpdatedEmail(String subtaskId) async {
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) return;
+      final err = await BackendApi().notifySubtaskUpdated(
+        idToken: token,
+        subtaskId: subtaskId,
+      );
+      if (err != null && mounted) {
+        if (err == BackendApi.notifySubtaskUpdatedBackendNotDeployed) {
+          showCopyableSnackBar(
+            context,
+            'Sub-task was saved. Notification email was not sent: the live API '
+            'does not include POST /api/notify/subtask-updated yet. Redeploy the '
+            'Project Tracker backend on Railway from the current repository '
+            '(backend/server.js).',
+            backgroundColor: Colors.blueGrey.shade700,
+            duration: const Duration(seconds: 12),
+          );
+          return;
+        }
+        final short =
+            err.length > 120 ? '${err.substring(0, 120)}…' : err;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sub-task update email: $short'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildCommentTile(
+    BuildContext context,
+    AppState state,
+    SingularSubtask st,
+    SubtaskCommentRowDisplay c,
+  ) {
+    final subtaskCreator = _isCreator(state, st);
+    if (_editingCommentId == c.id) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _editCommentController,
+              maxLines: 5,
+              minLines: 2,
+              textAlignVertical: TextAlignVertical.top,
+              enabled: !_saving,
+              decoration: const InputDecoration(
+                labelText: 'Comment',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: _saving ? null : _cancelCommentEdit,
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: _saving
+                      ? null
+                      : () => _saveCommentEdit(state, st, c),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+    final isDeleted = c.isDeleted;
+    final grey = Colors.grey.shade600;
+    final showEdit = !isDeleted && _isCommentAuthor(c) && !_saving;
+    final showDelete = !isDeleted && subtaskCreator && !_saving;
+    final subtitleChildren = <Widget>[
+      Text(
+        '${c.displayStaffName} · ${_formatSubtaskCommentPostedTs(c.createTimestampUtc)}',
+        style: theme.textTheme.bodySmall,
+      ),
+    ];
+    if (c.updateTimestampUtc != null) {
+      subtitleChildren.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _formatSubtaskCommentLastUpdatedLine(c.updateTimestampUtc),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: isDeleted ? Colors.grey.shade100 : null,
+      child: ListTile(
+        isThreeLine: c.updateTimestampUtc != null,
+        title: SelectableText(
+          c.description,
+          style: isDeleted
+              ? theme.textTheme.bodyLarge?.copyWith(color: grey)
+              : theme.textTheme.bodyLarge,
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: subtitleChildren,
+        ),
+        trailing: (showEdit || showDelete)
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showEdit)
+                    IconButton(
+                      tooltip: 'Edit',
+                      icon: const Icon(Icons.edit_outlined, size: 22),
+                      onPressed: () => _startEditComment(c),
+                    ),
+                  if (showDelete)
+                    IconButton(
+                      tooltip: 'Delete',
+                      icon: const Icon(Icons.delete_outline, size: 22),
+                      onPressed: () => _deleteComment(state, st, c),
+                    ),
+                ],
+              )
+            : null,
+      ),
+    );
   }
 
   Future<void> _deleteSubtask(AppState state, SingularSubtask st) async {
@@ -785,27 +1006,60 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           ),
                         ],
                         const SizedBox(height: 16),
-                        TextField(
-                          controller: _nameController,
-                          readOnly: _saving || !creator,
-                          decoration: const InputDecoration(
-                            labelText: 'Sub-task name',
-                            border: OutlineInputBorder(),
+                        if (creator)
+                          TextField(
+                            controller: _nameController,
+                            readOnly: _saving,
+                            enableInteractiveSelection: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Sub-task name',
+                              border: OutlineInputBorder(),
+                            ),
+                          )
+                        else
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Sub-task name',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            child: SelectableText(
+                              _nameController.text.isEmpty
+                                  ? '—'
+                                  : _nameController.text,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
                           ),
-                        ),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: _descController,
-                          readOnly: _saving || !creator,
-                          textAlignVertical: TextAlignVertical.top,
-                          decoration: const InputDecoration(
-                            labelText: 'Description',
-                            alignLabelWithHint: true,
-                            border: OutlineInputBorder(),
+                        if (creator)
+                          TextField(
+                            controller: _descController,
+                            readOnly: _saving,
+                            enableInteractiveSelection: true,
+                            textAlignVertical: TextAlignVertical.top,
+                            decoration: const InputDecoration(
+                              labelText: 'Description',
+                              alignLabelWithHint: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            minLines: 4,
+                            maxLines: 8,
+                          )
+                        else
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Description',
+                              alignLabelWithHint: true,
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            child: SelectableText(
+                              _descController.text.isEmpty
+                                  ? '—'
+                                  : _descController.text,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
                           ),
-                          minLines: 4,
-                          maxLines: 8,
-                        ),
                         const SizedBox(height: 12),
                         if (creator) ...[
                           Text(
@@ -983,31 +1237,72 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              TextField(
-                                controller: e.urlController,
-                                readOnly: _saving || !canEdit,
-                                decoration: const InputDecoration(
-                                  labelText: 'Attachment (hyperlink)',
-                                  hintText: 'https://…',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
+                          child: canEdit
+                              ? Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    TextField(
+                                      controller: e.urlController,
+                                      readOnly: _saving,
+                                      enableInteractiveSelection: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Attachment (hyperlink)',
+                                        hintText: 'https://…',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      controller: e.descController,
+                                      readOnly: _saving,
+                                      enableInteractiveSelection: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Attachment description',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    InputDecorator(
+                                      decoration: const InputDecoration(
+                                        labelText: 'Attachment (hyperlink)',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                      child: SelectableText(
+                                        e.urlController.text.isEmpty
+                                            ? '—'
+                                            : e.urlController.text,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    InputDecorator(
+                                      decoration: const InputDecoration(
+                                        labelText: 'Attachment description',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                      child: SelectableText(
+                                        e.descController.text.isEmpty
+                                            ? '—'
+                                            : e.descController.text,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: e.descController,
-                                readOnly: _saving || !canEdit,
-                                decoration: const InputDecoration(
-                                  labelText: 'Attachment description',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
                         if (canEdit)
                           IconButton(
@@ -1031,6 +1326,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                 TextField(
                   controller: _commentController,
                   readOnly: _saving || !(assignee || creator),
+                  enableInteractiveSelection: true,
                   textAlignVertical: TextAlignVertical.top,
                   minLines: 2,
                   maxLines: 4,
@@ -1046,21 +1342,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                 ),
                 const SizedBox(height: 12),
                 ..._comments.map(
-                  (c) => ListTile(
-                    title: Text(c.description),
-                    subtitle: Text(
-                      '${c.displayStaffName} · ${c.createTimestampUtc ?? ""}',
-                    ),
-                    trailing:
-                        (creator || _director) && !c.isDeleted
-                        ? IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: _saving
-                                ? null
-                                : () => _deleteComment(state, st, c),
-                          )
-                        : null,
-                  ),
+                  (c) => _buildCommentTile(context, state, st, c),
                 ),
                 const SizedBox(height: 24),
                 FilledButton(

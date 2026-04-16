@@ -59,9 +59,13 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
   String? _picKey;
   bool _submitting = false;
 
+  /// Shown when the screen opens; matches [HkTime.timestampForDb] (UTC+8) used on save.
+  String _createDateUtc8Label = '';
+
   @override
   void initState() {
     super.initState();
+    _createDateUtc8Label = HkTime.formatNowAsHk('yyyy-MM-dd HH:mm');
     _anchorStartDate = HkTime.todayDateOnlyHk();
     _startDate = _anchorStartDate;
     _endDate = _defaultDueForPriority(_priority);
@@ -281,6 +285,14 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Text(
+                        'Create date (UTC+8): $_createDateUtc8Label',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Text(
                         'Parent: ${task.name}',
                         style: Theme.of(context).textTheme.titleSmall,

@@ -17,6 +17,7 @@ import '../priority.dart';
 import '../services/backend_api.dart';
 import '../services/supabase_service.dart';
 import '../utils/copyable_snackbar.dart';
+import '../utils/hk_time.dart';
 import '../widgets/staff_assignee_picker_panel.dart';
 import '../widgets/task_list_card.dart';
 
@@ -217,16 +218,13 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   String _formatCommentPostedTs(DateTime? stored) {
     if (stored == null) return '—';
-    return DateFormat.yMMMd().add_Hm().format(
-      stored.add(const Duration(hours: 8)),
-    );
+    return HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm');
   }
 
-  /// Display line: `Last updated: MMM dd, yyyy, HH:mm` (HK wall clock, +8h from stored UTC).
+  /// Display line: `Last updated: MMM dd, yyyy, HH:mm` (HK wall clock, UTC+8).
   String _formatCommentLastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    final shown = stored.add(const Duration(hours: 8));
-    return 'Last updated: ${DateFormat('MMM dd, yyyy, HH:mm').format(shown)}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
   }
 
   bool _isOwnSingularComment(SingularCommentRowDisplay c) {
@@ -665,11 +663,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     return null;
   }
 
-  /// [stored] is `task.update_date` from DB; display adds +8h (Hong Kong offset).
+  /// [stored] is `task.update_date` from DB; display in Hong Kong (UTC+8).
   String _lastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    final shown = stored.add(const Duration(hours: 8));
-    return 'Last updated: ${DateFormat.yMMMd().add_Hm().format(shown)}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm')}';
   }
 
   static int _dateOnlyCompare(DateTime a, DateTime b) {

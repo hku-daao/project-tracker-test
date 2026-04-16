@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 /// Hong Kong wall clock (UTC+8, no DST). Use for timestamps stored as HK local time with +08:00.
 class HkTime {
   HkTime._();
@@ -6,6 +8,19 @@ class HkTime {
   static DateTime get wallClockNow {
     return DateTime.now().toUtc().add(const Duration(hours: 8));
   }
+
+  /// Formats a stored DB instant (UTC) as Hong Kong civil date/time (UTC+8) for display.
+  /// Uses [stored].toUtc() before applying the +8 offset so parsing is correct for ISO strings.
+  static String formatInstantAsHk(DateTime? stored, String pattern) {
+    if (stored == null) return '—';
+    final hk = stored.toUtc().add(const Duration(hours: 8));
+    // Single-arg [DateFormat] avoids LocaleDataException on Web (no initializeDateFormatting).
+    return DateFormat(pattern).format(hk);
+  }
+
+  /// Current time formatted in Hong Kong (UTC+8).
+  static String formatNowAsHk(String pattern) =>
+      formatInstantAsHk(DateTime.now().toUtc(), pattern);
 
   /// ISO8601 string with explicit +08:00 offset for Postgres `timestamptz` / Supabase.
   static String timestampForDb() {

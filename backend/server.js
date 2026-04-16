@@ -2158,6 +2158,166 @@ ${landing}`;
   }
 }
 
+/**
+ * POST { subtaskId } — last updater only (session email = staff.email for subtask.update_by).
+ * Emails each assignee (assignee_01..10) plus create_by, deduped; one Mailgun message per recipient.
+ */
+async function handleNotifySubtaskUpdated(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const subtaskId = (body.subtaskId || '').trim();
+    if (!subtaskId) {
+      sendJson(req, res, 400, { error: 'subtaskId required' });
+      return;
+    }
+    const { data: row, error: sErr } = await supabase
+      .from('subtask')
+      .select('*')
+      .eq('id', subtaskId)
+      .maybeSingle();
+    if (sErr || !row) {
+      sendJson(req, res, 404, { error: 'Sub-task not found' });
+      return;
+    }
+    const updaterId = (row.update_by || '').toString().trim();
+    if (!updaterId) {
+      sendJson(req, res, 400, { error: 'Sub-task has no update_by' });
+      return;
+    }
+    const { data: updaterStaff, error: uErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', updaterId)
+      .maybeSingle();
+    if (uErr || !updaterStaff) {
+      sendJson(req, res, 400, { error: 'Updater staff not found' });
+      return;
+    }
+    const updaterEmail = (updaterStaff.email || '').trim().toLowerCase();
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    if (!updaterEmail || updaterEmail !== sessionEmail) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the user who updated the sub-task (staff email must match signed-in user) can send update emails',
+      });
+      return;
+    }
+    const updaterNameForBody =
+      (updaterStaff.name || '').trim() || updaterEmail;
+    const subtaskTitle =
+      (row.subtask_name || '').toString().trim() || '(no title)';
+    const taskTitleForSubject = mailSubjectSingleLine(subtaskTitle).replace(
+      /"/g,
+      '',
+    );
+    const subject = `Sub-task updated - ${taskTitleForSubject}`;
+    const subtaskUrl = `${PUBLIC_WEB_APP_URL}/?subtask=${encodeURIComponent(subtaskId)}`;
+    const updatedAtLine = formatUpdateDateTimeYmdHm(row.update_date);
+    const landing = 'https://projecttracker.hku-ia.ai/';
+    const safeLandingHref = escapeHtml(landing);
+    const safeSubtaskUrlAttr = escapeHtml(subtaskUrl);
+    const safeSubtaskNameForLink = escapeHtml(subtaskTitle);
+    const safeUpdaterName = escapeHtml(updaterNameForBody);
+    const safeUpdatedAt = escapeHtml(updatedAtLine);
+
+    /** @type {Map<string, string>} normalized staff id -> canonical id string */
+    const recipientByNorm = new Map();
+    for (const id of collectSubtaskAssigneeStaffIds(row)) {
+      const raw = String(id).trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (!recipientByNorm.has(key)) recipientByNorm.set(key, raw);
+    }
+    const creatorId = (row.create_by || '').toString().trim();
+    if (creatorId) {
+      const key = creatorId.toLowerCase();
+      if (!recipientByNorm.has(key)) recipientByNorm.set(key, creatorId);
+    }
+
+    const results = [];
+    const replyTo = updaterEmail;
+
+    for (const staffUuid of recipientByNorm.values()) {
+      const { data: s } = await supabase
+        .from('staff')
+        .select('email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      const to = (s?.email || '').trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const displayNameForHi =
+        (s.display_name || '').trim() ||
+        (s.name || '').trim() ||
+        to;
+      const safeDisplayName = escapeHtml(displayNameForHi);
+      const html = `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12pt;line-height:1.5;color:#000000;">Hi ${safeDisplayName},<br><br>
+The sub-task has been updated.<br><br>
+<a href="${safeSubtaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12pt;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeSubtaskNameForLink}</a><br><br>
+Updated by: ${safeUpdaterName}<br><br>
+Updated at: ${safeUpdatedAt}<br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12pt;color:#1565C0;">Project Tracker</a></div>`;
+      const text = `Hi ${displayNameForHi},
+
+The sub-task has been updated.
+
+${subtaskTitle}
+${subtaskUrl}
+
+Updated by: ${updaterNameForBody}
+
+Updated at: ${updatedAtLine}
+
+Project Tracker
+${landing}`;
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      subtaskId,
+      recipients: results.length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifySubtaskUpdated:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
 /** Display name: display_name, else name, else email. */
 function staffDisplayName(staffRow, fallbackEmail) {
   const dn = (staffRow?.display_name || '').trim();
@@ -2564,6 +2724,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/api/notify/task-updated' && req.method === 'POST') {
     await handleNotifyTaskUpdated(req, res);
+    return;
+  }
+  if (path === '/api/notify/subtask-updated' && req.method === 'POST') {
+    await handleNotifySubtaskUpdated(req, res);
     return;
   }
   if (path === '/api/notify/task-submission' && req.method === 'POST') {
