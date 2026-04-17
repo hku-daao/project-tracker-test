@@ -10,6 +10,7 @@ import '../../config/api_config.dart';
 import '../../config/environment_config.dart';
 import '../../config/supabase_config.dart';
 import '../../services/backend_api.dart';
+import '../../web_deep_link.dart';
 import 'high_level/initiative_list_screen.dart';
 import 'high_level/create_task_screen.dart';
 import 'admin/system_admin_screen.dart';
@@ -214,6 +215,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   context,
                                 );
                                 if (!context.mounted || !leave) return;
+                              }
+                              if (kIsWeb) {
+                                syncWebLocationForLanding();
                               }
                               await FirebaseAuth.instance.signOut();
                             },
