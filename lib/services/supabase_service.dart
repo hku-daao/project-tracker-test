@@ -1711,6 +1711,11 @@ class SupabaseService {
       id: id,
       taskId: taskId,
       createByStaffId: cb?.isNotEmpty == true ? cb : null,
+      createByStaffName: _createByDisplayName(
+        row,
+        staffUuidToName,
+        staffUuidToAppId,
+      ),
       subtaskName: row['subtask_name'] as String? ?? '',
       description: row['description'] as String? ?? '',
       priority: _priorityFromFlexible(row['priority']),

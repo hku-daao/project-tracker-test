@@ -716,11 +716,25 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   }
 
   bool _needsChangeDueReason() {
+    if (allSubtasksComplyWithDueSpanPolicy(_subtasks)) {
+      return false;
+    }
     return dueDateExceedsPolicyForPriority(
       _startDate,
       _dueDate,
       _localPriority,
     );
+  }
+
+  /// Display for `task.create_by` (resolved name when available).
+  String _taskCreatorDisplayLine(Task task, AppState state) {
+    final n = task.createByStaffName?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    final k = task.createByAssigneeKey?.trim();
+    if (k != null && k.isNotEmpty) {
+      return state.assigneeById(k)?.name ?? k;
+    }
+    return '—';
   }
 
   String _normalizeLocalStatus(String? db) {
@@ -1816,6 +1830,18 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  Text(
+                                    'Task creator: ${_taskCreatorDisplayLine(task, state)}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 8),
                                   TextField(
                                     controller: _nameController,
                                     readOnly: _saving ||
@@ -2433,6 +2459,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                     : TaskListCard.buildSubmissionTag(
                                         s.submission,
                                       );
+                            final showOverPreset =
+                                (s.changeDueReason ?? '').trim().isNotEmpty;
                             final metaLine =
                                 '${priorityToDisplayName(s.priority)} · ${s.status}'
                                 '${s.startDate != null ? ' · Start ${DateFormat('yyyy-MM-dd').format(s.startDate!)}' : ''}'
@@ -2440,19 +2468,35 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(
-                                title: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                title: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        s.subtaskName,
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            s.subtaskName,
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (subTag != null) ...[
+                                          const SizedBox(width: 8),
+                                          subTag,
+                                        ],
+                                      ],
                                     ),
-                                    if (subTag != null) ...[
-                                      const SizedBox(width: 8),
-                                      subTag,
+                                    if (showOverPreset) ...[
+                                      const SizedBox(height: 6),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TaskListCard
+                                            .buildOverPresetTimelineTag(),
+                                      ),
                                     ],
                                   ],
                                 ),

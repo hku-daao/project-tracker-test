@@ -254,6 +254,15 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     );
   }
 
+  /// Display for `subtask.create_by` (resolved name when available).
+  String _subtaskCreatorLabel(SingularSubtask st) {
+    final n = st.createByStaffName?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    final id = st.createByStaffId?.trim();
+    if (id != null && id.isNotEmpty) return id;
+    return '—';
+  }
+
   bool _uuidEq(String? a, String? b) {
     final x = a?.trim().toLowerCase() ?? '';
     final y = b?.trim().toLowerCase() ?? '';
@@ -1112,6 +1121,11 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
+                          'Sub-task creator: ${_subtaskCreatorLabel(st)}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
                           'Sub-task assignee(s): ${st.assigneeNamesDisplayLine(
                             (id) => state.assigneeById(id)?.name ?? id,
                           )}',
@@ -1543,17 +1557,6 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                         },
                   child: Text(_saving ? 'Saving…' : 'Update'),
                 ),
-                if (canDel) ...[
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _saving ? null : () => _deleteSubtask(state, st),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
                 if (pic && _canPicSubmit(st)) ...[
                   const SizedBox(height: 12),
                   FilledButton(
@@ -1596,6 +1599,17 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ],
+                if (canDel) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _saving ? null : () => _deleteSubtask(state, st),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),

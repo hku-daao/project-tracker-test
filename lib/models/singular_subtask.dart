@@ -6,6 +6,7 @@ class SingularSubtask {
     required this.id,
     required this.taskId,
     this.createByStaffId,
+    this.createByStaffName,
     required this.subtaskName,
     required this.description,
     required this.priority,
@@ -26,6 +27,9 @@ class SingularSubtask {
 
   /// `staff.id` uuid
   final String? createByStaffId;
+
+  /// Resolved from `subtask.create_by` → `staff.name` (same as [Task.createByStaffName]).
+  final String? createByStaffName;
   final String subtaskName;
   final String description;
 
@@ -69,6 +73,7 @@ class SingularSubtask {
     String? id,
     String? taskId,
     String? createByStaffId,
+    String? createByStaffName,
     String? subtaskName,
     String? description,
     int? priority,
@@ -87,6 +92,7 @@ class SingularSubtask {
       id: id ?? this.id,
       taskId: taskId ?? this.taskId,
       createByStaffId: createByStaffId ?? this.createByStaffId,
+      createByStaffName: createByStaffName ?? this.createByStaffName,
       subtaskName: subtaskName ?? this.subtaskName,
       description: description ?? this.description,
       priority: priority ?? this.priority,

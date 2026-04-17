@@ -181,6 +181,27 @@ class TaskListCard extends StatelessWidget {
     return _submissionBadge(raw, Colors.grey.shade600);
   }
 
+  static const Color _kOverPresetTimelineColor = Color(0xFFFFCD05);
+
+  /// Tag when extend-timeline reason exists (list cards; no raw reason text).
+  static Widget buildOverPresetTimelineTag() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _kOverPresetTimelineColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'Over preset timeline',
+        style: TextStyle(
+          color: Color(0xFF1A1A1A),
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
@@ -213,27 +234,40 @@ class TaskListCard extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12),
           color: cardTint,
           child: ListTile(
-            title: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Text(
-                    t.name,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        t.name,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (_isSubmissionSubmitted(t)) ...[
+                      const SizedBox(width: 8),
+                      _submissionBadge('Submitted', Colors.red),
+                    ],
+                    if (_isSubmissionAccepted(t)) ...[
+                      const SizedBox(width: 8),
+                      _submissionBadge('Accepted', _kAcceptedTagColor),
+                    ],
+                    if (_isSubmissionReturned(t)) ...[
+                      const SizedBox(width: 8),
+                      _submissionBadge('Returned', _kReturnedTagColor),
+                    ],
+                  ],
                 ),
-                if (_isSubmissionSubmitted(t)) ...[
-                  const SizedBox(width: 8),
-                  _submissionBadge('Submitted', Colors.red),
-                ],
-                if (_isSubmissionAccepted(t)) ...[
-                  const SizedBox(width: 8),
-                  _submissionBadge('Accepted', _kAcceptedTagColor),
-                ],
-                if (_isSubmissionReturned(t)) ...[
-                  const SizedBox(width: 8),
-                  _submissionBadge('Returned', _kReturnedTagColor),
+                if ((t.changeDueReason ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: buildOverPresetTimelineTag(),
+                  ),
                 ],
               ],
             ),

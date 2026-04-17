@@ -45,16 +45,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
   final Map<String, String> _staffAssigneeToTeamId = {};
   bool _submitting = false;
 
-  /// Shown when the screen opens; matches [HkTime.timestampForDb] (UTC+8) used on save.
-  String _createDateUtc8Label = '';
-
   @override
   bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    _createDateUtc8Label = HkTime.formatNowAsHk('yyyy-MM-dd HH:mm');
     _anchorCreateDate = HkTime.todayDateOnlyHk();
     _startDate = _anchorCreateDate;
     _endDate = _defaultDueForPriority(_priority);
@@ -529,7 +525,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       _selectedAssigneeIds.clear();
       _picAssigneeId = null;
       _priority = 1;
-      _createDateUtc8Label = HkTime.formatNowAsHk('yyyy-MM-dd HH:mm');
       _anchorCreateDate = HkTime.todayDateOnlyHk();
       _startDate = _anchorCreateDate;
       _endDate = _defaultDueForPriority(_priority);
@@ -610,11 +605,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-            Text(
-              'Create date (UTC+8): $_createDateUtc8Label',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 8),
             if (SupabaseConfig.isConfigured) ...[
               if (_pickerLoading) ...[
                 const LinearProgressIndicator(),
