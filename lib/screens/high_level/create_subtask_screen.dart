@@ -270,7 +270,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sub-task created'),
+          content: Text('Sub-task is created'),
           backgroundColor: Colors.green,
         ),
       );

@@ -550,7 +550,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Task saved to Supabase.'),
+          content: Text('Task is created'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 4),
         ),

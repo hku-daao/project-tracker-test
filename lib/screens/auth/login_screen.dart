@@ -248,6 +248,33 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 32),
+                    Semantics(
+                      label:
+                          'Personal Information Collection Statement. Data entered or collected will only be used to organize, assign, update, and monitor departmental projects and tasks.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Personal Information Collection Statement (PICS)',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Data entered or collected through this service will only be used to organize, assign, update, and monitor departmental projects and tasks.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontSize: 10,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  height: 1.35,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

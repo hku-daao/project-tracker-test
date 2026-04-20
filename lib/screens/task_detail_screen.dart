@@ -115,6 +115,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   final _changeDueReasonController = TextEditingController();
   final List<_TaskAttachmentEntry> _taskAttachments = [];
 
+  /// Normalized attachment rows after load/reload — for “nothing changed” detection.
+  List<({String c, String d})> _taskAttachmentBaseline = [];
+
   DateTime? _startDate;
   DateTime? _dueDate;
   int _localPriority = 1;
@@ -657,6 +660,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           );
         }
       });
+      _captureTaskAttachmentBaseline();
     } catch (e, st) {
       debugPrint('reload task attachments: $e\n$st');
       if (mounted) {
@@ -693,6 +697,71 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           ),
         )
         .toList();
+  }
+
+  void _captureTaskAttachmentBaseline() {
+    _taskAttachmentBaseline = _taskAttachments
+        .map(
+          (e) => (
+            c: e.urlController.text.trim(),
+            d: e.descController.text.trim(),
+          ),
+        )
+        .toList();
+  }
+
+  bool _taskAttachmentsDirty() {
+    final cur = _taskAttachments
+        .map(
+          (e) => (
+            c: e.urlController.text.trim(),
+            d: e.descController.text.trim(),
+          ),
+        )
+        .toList();
+    if (cur.length != _taskAttachmentBaseline.length) return true;
+    for (var i = 0; i < cur.length; i++) {
+      if (cur[i].c != _taskAttachmentBaseline[i].c ||
+          cur[i].d != _taskAttachmentBaseline[i].d) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _dateOnlyEqual(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  static bool _assigneeSetsEqual(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    final sa = Set<String>.from(a);
+    final sb = Set<String>.from(b);
+    return sa.length == sb.length && sa.containsAll(sb);
+  }
+
+  /// True if task fields or attachments differ from [task] (excluding pending comment).
+  bool _taskCoreOrAttachmentsChanged(
+    Task task,
+    List<String> directorIdsSorted,
+    String picKey,
+  ) {
+    if (_nameController.text.trim() != task.name.trim()) return true;
+    if (_descController.text.trim() != task.description.trim()) return true;
+    if (_localPriority != task.priority) return true;
+    if (!_assigneeSetsEqual(directorIdsSorted, task.assigneeIds)) return true;
+    final pNew = picKey.trim();
+    final pOld = (task.pic ?? '').trim();
+    if (pNew != pOld) return true;
+    if (!_dateOnlyEqual(_startDate, task.startDate)) return true;
+    if (!_dateOnlyEqual(_dueDate, task.endDate)) return true;
+    final curR = _changeDueReasonController.text.trim();
+    final oldR = (task.changeDueReason ?? '').trim();
+    if (curR != oldR) return true;
+    if (_taskAttachmentsDirty()) return true;
+    return false;
   }
 
   String? _firstTaskAttachmentUrl() {
@@ -949,6 +1018,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           _loadingStaff = false;
           _loadedForm = true;
         });
+        _captureTaskAttachmentBaseline();
       }
       return;
     }
@@ -1072,6 +1142,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         _loadingStaff = false;
         _loadedForm = true;
       });
+      _captureTaskAttachmentBaseline();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1080,6 +1151,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         _loadingStaff = false;
         _loadedForm = true;
       });
+      _captureTaskAttachmentBaseline();
     }
   }
 
@@ -1176,7 +1248,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     if (_commentController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Enter a comment to post.'),
+          content: Text('Nothing is updated'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1308,15 +1380,26 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       picKey = _picAssigneeId!;
     }
 
+    final sortedForCompare = [...directorIds]
+      ..sort(
+        (a, b) => _labelForAssigneeId(
+          a,
+          state,
+        ).compareTo(_labelForAssigneeId(b, state)),
+      );
+    final takeForCompare = sortedForCompare.take(_maxAssignees).toList();
+    final pendingComment = _commentController.text.trim().isNotEmpty;
+    if (!pendingComment &&
+        !_taskCoreOrAttachmentsChanged(task, takeForCompare, picKey)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing is updated')),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     try {
-      final sorted = [...directorIds]
-        ..sort(
-          (a, b) => _labelForAssigneeId(
-            a,
-            state,
-          ).compareTo(_labelForAssigneeId(b, state)),
-        );
+      final sorted = sortedForCompare;
       final take = sorted.take(_maxAssignees).toList();
       final slots = await SupabaseService.assigneeSlotsForTask(take);
       final assigneeIdsForState = List<String>.from(take);
@@ -1445,6 +1528,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     if (!_isPicEffective(state, task) || _isCreator(state, task)) {
       return;
     }
+    if (!_taskAttachmentsDirty()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing is updated')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final errAttach = await SupabaseService.replaceAttachmentsForTask(
@@ -1463,7 +1552,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Attachments saved'),
+            content: Text('Saved'),
             backgroundColor: Colors.green,
           ),
         );
@@ -1718,8 +1807,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mark task as deleted?'),
-        content: Text('“${task.name}” will be marked as deleted.'),
+        title: const Text('Confirm to delete task'),
+        content: Text('“${task.name}” will be deleted.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),

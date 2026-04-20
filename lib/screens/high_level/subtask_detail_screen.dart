@@ -132,13 +132,68 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     return null;
   }
 
-  bool _subtaskAttachmentPayloadHasNonEmptyRow() {
-    for (final p in _subtaskAttachmentPayload()) {
-      if (p.content?.trim().isNotEmpty == true ||
-          p.description?.trim().isNotEmpty == true) {
+  /// Normalized rows after load — for “nothing changed” detection.
+  List<({String c, String d})> _subtaskAttachmentBaseline = [];
+
+  void _captureSubtaskAttachmentBaseline() {
+    _subtaskAttachmentBaseline = _subtaskAttachments
+        .map(
+          (e) => (
+            c: e.urlController.text.trim(),
+            d: e.descController.text.trim(),
+          ),
+        )
+        .toList();
+  }
+
+  bool _subtaskAttachmentsDirty() {
+    final cur = _subtaskAttachments
+        .map(
+          (e) => (
+            c: e.urlController.text.trim(),
+            d: e.descController.text.trim(),
+          ),
+        )
+        .toList();
+    if (cur.length != _subtaskAttachmentBaseline.length) return true;
+    for (var i = 0; i < cur.length; i++) {
+      if (cur[i].c != _subtaskAttachmentBaseline[i].c ||
+          cur[i].d != _subtaskAttachmentBaseline[i].d) {
         return true;
       }
     }
+    return false;
+  }
+
+  static bool _subtaskDateOnlyEqual(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Creator path: metadata or attachments differ from loaded [st].
+  bool _subtaskCreatorHasMetadataOrAttachmentChanges(
+    AppState state,
+    SingularSubtask st,
+    Task parent,
+  ) {
+    if (_nameController.text.trim() != st.subtaskName.trim()) return true;
+    if (_descController.text.trim() != st.description.trim()) return true;
+    if (_editPriority != st.priority) return true;
+    if (!_subtaskDateOnlyEqual(_editStart, st.startDate)) return true;
+    if (!_subtaskDateOnlyEqual(_editDue, st.dueDate)) return true;
+    final curR = _changeDueReasonController.text.trim();
+    final oldR = (st.changeDueReason ?? '').trim();
+    if (curR != oldR) return true;
+    final multi = parent.assigneeIds.length > 1;
+    final canPic = _canEditSubtaskPic(state, st, parent);
+    final picDirty = canPic && multi && _picEditIsDirty(parent);
+    if (picDirty) {
+      final k = _picEditKey?.trim() ?? '';
+      final existing = (st.pic ?? '').trim();
+      if (k != existing) return true;
+    }
+    if (_subtaskAttachmentsDirty()) return true;
     return false;
   }
 
@@ -244,6 +299,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         _changeDueReasonController.text = st.changeDueReason ?? '';
       }
     });
+    if (mounted && st != null) {
+      _captureSubtaskAttachmentBaseline();
+    }
   }
 
   bool _needsChangeDueReason() {
@@ -474,6 +532,12 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         return;
       }
       if (_isPic(state, st)) {
+        if (!_subtaskAttachmentsDirty()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nothing is updated')),
+          );
+          return;
+        }
         setState(() => _saving = true);
         try {
           final errA = await SupabaseService.replaceSubtaskAttachments(
@@ -498,6 +562,12 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         return;
       }
       if (_isAssignee(state, st) && !_isPic(state, st)) {
+        if (!_subtaskAttachmentsDirty()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nothing is updated')),
+          );
+          return;
+        }
         setState(() => _saving = true);
         try {
           final errA = await SupabaseService.replaceSubtaskAttachments(
@@ -512,7 +582,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           await _load(rebindAttachments: false);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Attachments saved'),
+              content: Text('Saved'),
               backgroundColor: Colors.green,
             ),
           );
@@ -522,8 +592,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         return;
       }
       if (canPic && multiTaskAssignees && !picDirty) {
-        if (_canEditSubtaskAttachments(state, st) &&
-            _subtaskAttachmentPayloadHasNonEmptyRow()) {
+        if (_canEditSubtaskAttachments(state, st) && _subtaskAttachmentsDirty()) {
           setState(() => _saving = true);
           try {
             final errA = await SupabaseService.replaceSubtaskAttachments(
@@ -539,7 +608,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Attachments saved'),
+                content: Text('Saved'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -550,11 +619,17 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No changes to save'),
+            content: Text('Nothing is updated'),
             backgroundColor: Colors.orange,
           ),
         );
       }
+      return;
+    }
+    if (!_subtaskCreatorHasMetadataOrAttachmentChanges(state, st, parent)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing is updated')),
+      );
       return;
     }
     final picKey =
@@ -1030,8 +1105,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete sub-task?'),
-        content: const Text('This sub-task will be marked as deleted.'),
+        title: const Text('Confirm to delete sub-task'),
+        content: Text('“${st.subtaskName}” will be deleted.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
