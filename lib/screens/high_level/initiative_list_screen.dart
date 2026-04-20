@@ -75,6 +75,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Subset of `incomplete` | `completed` | `deleted`. Empty = all statuses (label "All status").
   final Set<String> _selectedTaskStatuses = {};
+
+  /// Subset of [_submissionPending]…[_submissionReturned]. Empty = all (label "All submission").
+  final Set<String> _selectedSubmissionFilters = {};
   final TextEditingController _taskSearchController = TextEditingController();
   final MenuController _filterMenuController = MenuController();
   bool _remindersExpanded = false;
@@ -98,6 +101,21 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   static const _statusIncomplete = 'incomplete';
   static const _statusCompleted = 'completed';
   static const _statusDeleted = 'deleted';
+
+  static const _submissionPending = 'pending';
+  static const _submissionSubmitted = 'submitted';
+  static const _submissionAccepted = 'accepted';
+  static const _submissionReturned = 'returned';
+
+  /// Normalizes [Task.submission] to a landing filter key (defaults to pending when empty/unknown).
+  static String _submissionFilterKey(Task t) {
+    final raw = t.submission?.trim().toLowerCase() ?? '';
+    if (raw.isEmpty || raw == 'pending') return _submissionPending;
+    if (raw == 'submitted') return _submissionSubmitted;
+    if (raw == 'accepted') return _submissionAccepted;
+    if (raw == 'returned') return _submissionReturned;
+    return _submissionPending;
+  }
 
   /// On my plate as assignee — dark blue chip when selected.
   Widget _assignedToMeFilterIcon(bool selected) {
@@ -184,10 +202,31 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         .join(', ');
   }
 
+  String _submissionFilterDisplayText() {
+    if (_selectedSubmissionFilters.isEmpty) return 'All submission';
+    const labels = {
+      _submissionPending: 'Pending',
+      _submissionSubmitted: 'Submitted',
+      _submissionAccepted: 'Accepted',
+      _submissionReturned: 'Returned',
+    };
+    const order = [
+      _submissionPending,
+      _submissionSubmitted,
+      _submissionAccepted,
+      _submissionReturned,
+    ];
+    return order
+        .where(_selectedSubmissionFilters.contains)
+        .map((k) => labels[k]!)
+        .join(', ');
+  }
+
   /// True when team/status filters, assignee, or search are not at default (all).
   bool get _hasTeamOrStatusFilterSelections =>
       _selectedTeamIds.isNotEmpty ||
       _selectedTaskStatuses.isNotEmpty ||
+      _selectedSubmissionFilters.isNotEmpty ||
       _selectedAssigneeIds.isNotEmpty ||
       _taskSearchController.text.trim().isNotEmpty;
 
@@ -195,6 +234,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     setState(() {
       _selectedTeamIds.clear();
       _selectedTaskStatuses.clear();
+      _selectedSubmissionFilters.clear();
       _selectedAssigneeIds.clear();
       _taskSearchController.clear();
     });
@@ -226,13 +266,37 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     } else {
       parts.add(_statusFilterDisplayText());
     }
+    if (_selectedSubmissionFilters.isEmpty) {
+      parts.add('All submission');
+    } else {
+      parts.add(_submissionFilterDisplayText());
+    }
     return parts.join(' · ');
   }
 
-  List<Task> _applyTaskNameSearch(List<Task> tasks) {
-    final q = _taskSearchController.text.trim().toLowerCase();
-    if (q.isEmpty) return tasks;
-    return tasks.where((t) => t.name.toLowerCase().contains(q)).toList();
+  /// Each whitespace-separated keyword must appear in [Task.name] or [Task.description] (case-insensitive).
+  static bool _taskMatchesLandingSearch(Task t, String query) {
+    final tokens = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) return true;
+    final name = t.name.toLowerCase();
+    final desc = t.description.toLowerCase();
+    for (final token in tokens) {
+      if (!name.contains(token) && !desc.contains(token)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<Task> _applyTaskSearch(List<Task> tasks) {
+    final raw = _taskSearchController.text.trim();
+    if (raw.isEmpty) return tasks;
+    return tasks.where((t) => _taskMatchesLandingSearch(t, raw)).toList();
   }
 
   String _assigneeSortKey(Task t, AppState state) {
@@ -394,6 +458,15 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         _selectedTaskStatuses.add(s);
       }
     }
+    _selectedSubmissionFilters.clear();
+    for (final s in data.submissionFilters) {
+      if (s == _submissionPending ||
+          s == _submissionSubmitted ||
+          s == _submissionAccepted ||
+          s == _submissionReturned) {
+        _selectedSubmissionFilters.add(s);
+      }
+    }
     _suppressFilterPersist = true;
     try {
       _taskSearchController.text = data.search;
@@ -437,6 +510,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         teamIds: _selectedTeamIds.toList(),
         assigneeIds: _selectedAssigneeIds.toList(),
         statuses: _selectedTaskStatuses.toList(),
+        submissionFilters: _selectedSubmissionFilters.toList(),
         search: _taskSearchController.text,
         sortColumn: _taskSortColumn?.storageKey,
         sortAscending: _taskSortAscending,
@@ -580,27 +654,34 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
     final filterKey = _filterType == 'my' ? 'all' : _filterType;
 
+    bool taskMatchesSubmissionSelection(Task t) {
+      if (_selectedSubmissionFilters.isEmpty) return true;
+      return _selectedSubmissionFilters.contains(_submissionFilterKey(t));
+    }
+
     bool nonDeletedMatchesTaskStatus(Task t) {
-      if (_selectedTaskStatuses.isEmpty) return true;
+      if (_selectedTaskStatuses.isEmpty) {
+        return taskMatchesSubmissionSelection(t);
+      }
       if (singularDeleted(t)) return false;
       if (t.isSingularTableRow) {
         if (_selectedTaskStatuses.contains(_statusIncomplete) &&
             singularIncomplete(t)) {
-          return true;
+          return taskMatchesSubmissionSelection(t);
         }
         if (_selectedTaskStatuses.contains(_statusCompleted) &&
             singularCompleted(t)) {
-          return true;
+          return taskMatchesSubmissionSelection(t);
         }
         return false;
       }
       if (_selectedTaskStatuses.contains(_statusIncomplete) &&
           t.status != TaskStatus.done) {
-        return true;
+        return taskMatchesSubmissionSelection(t);
       }
       if (_selectedTaskStatuses.contains(_statusCompleted) &&
           t.status == TaskStatus.done) {
-        return true;
+        return taskMatchesSubmissionSelection(t);
       }
       return false;
     }
@@ -608,7 +689,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     bool deletedMatchesTaskStatus(Task t) {
       if (!singularDeleted(t)) return false;
       if (_selectedTaskStatuses.isEmpty) return false;
-      return _selectedTaskStatuses.contains(_statusDeleted);
+      if (!_selectedTaskStatuses.contains(_statusDeleted)) return false;
+      return taskMatchesSubmissionSelection(t);
     }
 
     bool shouldShowDeletedSection() {
@@ -672,9 +754,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     }
 
     filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
-    filteredTasks = _applyTaskNameSearch(filteredTasks);
+    filteredTasks = _applyTaskSearch(filteredTasks);
     filteredTasks = _sortTasks(filteredTasks, state);
-    filteredDeletedTasks = _applyTaskNameSearch(filteredDeletedTasks);
+    filteredDeletedTasks = _applyTaskSearch(filteredDeletedTasks);
     filteredDeletedTasks = _sortTasks(filteredDeletedTasks, state);
 
     final reminders = state.getPendingRemindersForTeams(_selectedTeamIds);
@@ -885,6 +967,103 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                 },
                                 child: const Text('Deleted'),
                               ),
+                              const Divider(height: 24),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                child: Text(
+                                  'Submission',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedSubmissionFilters.contains(
+                                  _submissionPending,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedSubmissionFilters.add(
+                                        _submissionPending,
+                                      );
+                                    } else {
+                                      _selectedSubmissionFilters.remove(
+                                        _submissionPending,
+                                      );
+                                    }
+                                  });
+                                  _persistLandingFilters();
+                                },
+                                child: const Text('Pending'),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedSubmissionFilters.contains(
+                                  _submissionSubmitted,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedSubmissionFilters.add(
+                                        _submissionSubmitted,
+                                      );
+                                    } else {
+                                      _selectedSubmissionFilters.remove(
+                                        _submissionSubmitted,
+                                      );
+                                    }
+                                  });
+                                  _persistLandingFilters();
+                                },
+                                child: const Text('Submitted'),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedSubmissionFilters.contains(
+                                  _submissionAccepted,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedSubmissionFilters.add(
+                                        _submissionAccepted,
+                                      );
+                                    } else {
+                                      _selectedSubmissionFilters.remove(
+                                        _submissionAccepted,
+                                      );
+                                    }
+                                  });
+                                  _persistLandingFilters();
+                                },
+                                child: const Text('Accepted'),
+                              ),
+                              CheckboxMenuButton(
+                                closeOnActivate: false,
+                                value: _selectedSubmissionFilters.contains(
+                                  _submissionReturned,
+                                ),
+                                onChanged: (bool? v) {
+                                  if (v == null) return;
+                                  setState(() {
+                                    if (v) {
+                                      _selectedSubmissionFilters.add(
+                                        _submissionReturned,
+                                      );
+                                    } else {
+                                      _selectedSubmissionFilters.remove(
+                                        _submissionReturned,
+                                      );
+                                    }
+                                  });
+                                  _persistLandingFilters();
+                                },
+                                child: const Text('Returned'),
+                              ),
                               const Divider(height: 16),
                               MenuItemButton(
                                 closeOnActivate: false,
@@ -939,7 +1118,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: 'Search tasks',
-                  hintText: 'Search by task name',
+                  hintText: 'Search by task name, description',
                   border: const OutlineInputBorder(),
                   isDense: true,
                   prefixIcon: const Icon(Icons.search),

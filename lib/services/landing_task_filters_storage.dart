@@ -9,6 +9,7 @@ class LandingTaskFilters {
     required this.teamIds,
     required this.assigneeIds,
     required this.statuses,
+    this.submissionFilters = const [],
     required this.search,
     this.sortColumn,
     this.sortAscending = true,
@@ -18,6 +19,9 @@ class LandingTaskFilters {
   final List<String> teamIds;
   final List<String> assigneeIds;
   final List<String> statuses;
+
+  /// `pending` | `submitted` | `accepted` | `returned` — empty = all submissions.
+  final List<String> submissionFilters;
   final String search;
 
   /// `creator` | `assignee` | `startDate` | `dueDate` | `status` | `submission`, or null.
@@ -29,6 +33,7 @@ class LandingTaskFilters {
         'teamIds': teamIds,
         'assigneeIds': assigneeIds,
         'statuses': statuses,
+        'submissionFilters': submissionFilters,
         'search': search,
         // Persist explicit null so clearing sort overwrites any previous column in storage.
         'sortColumn': sortColumn,
@@ -42,6 +47,9 @@ class LandingTaskFilters {
       teamIds: List<String>.from(j['teamIds'] as List? ?? const []),
       assigneeIds: List<String>.from(j['assigneeIds'] as List? ?? const []),
       statuses: List<String>.from(j['statuses'] as List? ?? const []),
+      submissionFilters: List<String>.from(
+        j['submissionFilters'] as List? ?? const [],
+      ),
       search: j['search'] as String? ?? '',
       sortColumn: j['sortColumn'] as String?,
       sortAscending: j['sortAscending'] as bool? ?? true,
