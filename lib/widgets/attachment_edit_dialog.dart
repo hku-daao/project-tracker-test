@@ -1,0 +1,108 @@
+import 'package:flutter/material.dart';
+
+typedef AttachmentPickUpload = Future<({String? url, String? label, String? error})> Function();
+
+/// Edit description and link; optional **Replace with file from device** uploads to Firebase Storage.
+Future<({String description, String url})?> showAttachmentEditDialog(
+  BuildContext context, {
+  required String initialDescription,
+  required String initialUrl,
+  required AttachmentPickUpload pickReplaceFromDevice,
+}) {
+  final descCtrl = TextEditingController(text: initialDescription);
+  final linkCtrl = TextEditingController(text: initialUrl);
+  return showDialog<({String description, String url})>(
+    context: context,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return AlertDialog(
+            title: const Text('Edit an attachment'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: descCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Attachment description',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: linkCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Attachment link',
+                      hintText: 'https://…',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    autocorrect: false,
+                    minLines: 1,
+                    maxLines: 4,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.upload_file_outlined, size: 20),
+                    label: const Text('Replace with file from device'),
+                    onPressed: () async {
+                      final r = await pickReplaceFromDevice();
+                      if (!ctx.mounted) return;
+                      if (r.error != null && r.error!.isNotEmpty) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text(r.error!),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+                      if (r.url == null) return;
+                      setLocal(() {
+                        linkCtrl.text = r.url!;
+                        if (descCtrl.text.trim().isEmpty &&
+                            (r.label ?? '').trim().isNotEmpty) {
+                          descCtrl.text = (r.label ?? '').trim();
+                        }
+                      });
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'File is uploaded. Press Save to apply, then Update on the page to persist.',
+                          ),
+                          duration: Duration(seconds: 4),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop((
+                    description: descCtrl.text.trim(),
+                    url: linkCtrl.text.trim(),
+                  ));
+                },
+                child: const Text('Save'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  ).whenComplete(() {
+    descCtrl.dispose();
+    linkCtrl.dispose();
+  });
+}

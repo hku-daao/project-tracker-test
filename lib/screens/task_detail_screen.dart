@@ -25,7 +25,8 @@ import '../utils/hk_time.dart';
 import '../utils/subtask_list_sort.dart';
 import '../web_deep_link.dart';
 import '../widgets/attachment_add_link_dialog.dart';
-import '../widgets/attachment_link_preview.dart';
+import '../widgets/attachment_edit_dialog.dart';
+import '../widgets/outlook_attachment_chip.dart';
 import '../widgets/singular_subtask_row_card.dart';
 import '../widgets/staff_assignee_picker_panel.dart';
 import '../widgets/subtask_meta_line.dart';
@@ -769,6 +770,22 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           desc: result.description,
         ),
       );
+    });
+  }
+
+  Future<void> _editTaskAttachment(int index) async {
+    final e = _taskAttachments[index];
+    final r = await showAttachmentEditDialog(
+      context,
+      initialDescription: e.descController.text,
+      initialUrl: e.urlController.text,
+      pickReplaceFromDevice: () =>
+          FirebaseAttachmentUploadService.pickUploadForTask(widget.taskId),
+    );
+    if (!mounted || r == null) return;
+    setState(() {
+      e.descController.text = r.description;
+      e.urlController.text = r.url;
     });
   }
 
@@ -2603,6 +2620,45 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                         final e = _taskAttachments[i];
                         final canEdit = _isCreator(state, task) ||
                             _isPicEffective(state, task);
+                        final hasLink =
+                            e.urlController.text.trim().isNotEmpty;
+                        final chipLabel = attachmentChipLabel(
+                          e.descController.text,
+                          e.urlController.text,
+                        );
+                        if (hasLink) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: OutlookAttachmentChip(
+                                      label: chipLabel,
+                                      url: e.urlController.text.trim(),
+                                    ),
+                                  ),
+                                ),
+                                if (canEdit) ...[
+                                  TextButton(
+                                    onPressed: _saving
+                                        ? null
+                                        : () => _editTaskAttachment(i),
+                                    child: const Text('Edit'),
+                                  ),
+                                  TextButton(
+                                    onPressed: _saving
+                                        ? null
+                                        : () => _removeTaskAttachmentRow(i),
+                                    child: const Text('Remove'),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        }
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Row(
@@ -2636,7 +2692,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                             decoration: InputDecoration(
                                               labelText: 'Attachment link',
                                               hintText: 'https://…',
-                                              border: const OutlineInputBorder(),
+                                              border:
+                                                  const OutlineInputBorder(),
                                               isDense: true,
                                               suffixIcon: IconButton(
                                                 icon: const Icon(
@@ -2645,8 +2702,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                                 ),
                                                 tooltip: 'Open link',
                                                 onPressed: () {
-                                                  final u =
-                                                      e.urlController.text.trim();
+                                                  final u = e
+                                                      .urlController.text
+                                                      .trim();
                                                   if (u.isEmpty) {
                                                     ScaffoldMessenger.of(
                                                       context,
@@ -2667,31 +2725,60 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                               ),
                                             ),
                                           )
-                                        else
+                                        else ...[
                                           InputDecorator(
                                             decoration: const InputDecoration(
-                                              labelText: 'Attachment link',
+                                              labelText:
+                                                  'Attachment description',
                                               border: OutlineInputBorder(),
                                               isDense: true,
                                             ),
-                                            child: AttachmentLinkPreview(
-                                              text: e.urlController.text,
+                                            child: Text(
+                                              e.descController.text
+                                                      .trim()
+                                                      .isEmpty
+                                                  ? '—'
+                                                  : e.descController.text,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium,
                                             ),
                                           ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'No attachment link yet.',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
                               if (canEdit)
-                                IconButton(
-                                  onPressed: _saving
-                                      ? null
-                                      : () => _removeTaskAttachmentRow(i),
-                                  icon: const Icon(
-                                    Icons.remove_circle_outline,
-                                  ),
-                                  tooltip: 'Remove',
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    TextButton(
+                                      onPressed: _saving
+                                          ? null
+                                          : () => _editTaskAttachment(i),
+                                      child: const Text('Edit'),
+                                    ),
+                                    TextButton(
+                                      onPressed: _saving
+                                          ? null
+                                          : () => _removeTaskAttachmentRow(i),
+                                      child: const Text('Remove'),
+                                    ),
+                                  ],
                                 ),
                             ],
                           ),

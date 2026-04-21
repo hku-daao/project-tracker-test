@@ -53,7 +53,7 @@ const List<PicTeamColorEntry> kPicTeamColorEntries = [
   PicTeamColorEntry(
     teamKey: 'admin_team',
     color: Color(0xFFFFE9E3),
-    legendLabel: 'Admin',
+    legendLabel: 'Administration',
   ),
 ];
 

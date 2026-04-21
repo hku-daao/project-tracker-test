@@ -18,7 +18,8 @@ import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
 import '../../web_deep_link.dart';
 import '../../widgets/attachment_add_link_dialog.dart';
-import '../../widgets/attachment_link_preview.dart';
+import '../../widgets/attachment_edit_dialog.dart';
+import '../../widgets/outlook_attachment_chip.dart';
 import '../task_detail_screen.dart';
 import '../../utils/home_navigation.dart';
 
@@ -186,6 +187,24 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           desc: result.description,
         ),
       );
+    });
+  }
+
+  Future<void> _editSubtaskAttachment(int index) async {
+    final e = _subtaskAttachments[index];
+    final r = await showAttachmentEditDialog(
+      context,
+      initialDescription: e.descController.text,
+      initialUrl: e.urlController.text,
+      pickReplaceFromDevice: () =>
+          FirebaseAttachmentUploadService.pickUploadForSubtask(
+            widget.subtaskId,
+          ),
+    );
+    if (!mounted || r == null) return;
+    setState(() {
+      e.descController.text = r.description;
+      e.urlController.text = r.url;
     });
   }
 
@@ -1677,6 +1696,44 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                 ...List.generate(_subtaskAttachments.length, (i) {
                   final e = _subtaskAttachments[i];
                   final canEdit = _canEditSubtaskAttachments(state, st);
+                  final hasLink = e.urlController.text.trim().isNotEmpty;
+                  final chipLabel = attachmentChipLabel(
+                    e.descController.text,
+                    e.urlController.text,
+                  );
+                  if (hasLink) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlookAttachmentChip(
+                                label: chipLabel,
+                                url: e.urlController.text.trim(),
+                              ),
+                            ),
+                          ),
+                          if (canEdit) ...[
+                            TextButton(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _editSubtaskAttachment(i),
+                              child: const Text('Edit'),
+                            ),
+                            TextButton(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _removeSubtaskAttachmentRow(i),
+                              child: const Text('Remove'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Row(
@@ -1758,15 +1815,16 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                                       ),
                                     )
                                   else
-                                    InputDecorator(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Attachment link',
-                                        border: OutlineInputBorder(),
-                                        isDense: true,
-                                      ),
-                                      child: AttachmentLinkPreview(
-                                        text: e.urlController.text,
-                                      ),
+                                    Text(
+                                      'No attachment link yet.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
                                     ),
                                 ],
                               ),
@@ -1774,12 +1832,22 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           ),
                         ),
                         if (canEdit)
-                          IconButton(
-                            onPressed: _saving
-                                ? null
-                                : () => _removeSubtaskAttachmentRow(i),
-                            icon: const Icon(Icons.remove_circle_outline),
-                            tooltip: 'Remove',
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextButton(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _editSubtaskAttachment(i),
+                                child: const Text('Edit'),
+                              ),
+                              TextButton(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _removeSubtaskAttachmentRow(i),
+                                child: const Text('Remove'),
+                              ),
+                            ],
                           ),
                       ],
                     ),
