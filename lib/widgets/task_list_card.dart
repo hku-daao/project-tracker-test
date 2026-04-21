@@ -10,8 +10,10 @@ import '../screens/high_level/subtask_detail_screen.dart';
 import '../screens/task_detail_screen.dart';
 import '../services/supabase_service.dart';
 import '../utils/hk_time.dart';
+import '../utils/subtask_list_sort.dart';
 import 'singular_subtask_row_card.dart';
 import 'subtask_meta_line.dart';
+import 'subtask_sort_column_chip.dart';
 
 /// PIC team colour definition (`staff.team_id` / `team.team_id` business keys).
 class PicTeamColorEntry {
@@ -104,32 +106,6 @@ class PicTeamColorLegend extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-enum _SubtaskListCardSortColumn {
-  assignee,
-  pic,
-  startDate,
-  dueDate,
-  status,
-  submission,
-}
-
-String _subtaskSortColumnLabel(_SubtaskListCardSortColumn c) {
-  switch (c) {
-    case _SubtaskListCardSortColumn.assignee:
-      return 'Assignee';
-    case _SubtaskListCardSortColumn.pic:
-      return 'PIC';
-    case _SubtaskListCardSortColumn.startDate:
-      return 'Start date';
-    case _SubtaskListCardSortColumn.dueDate:
-      return 'Due date';
-    case _SubtaskListCardSortColumn.status:
-      return 'Status';
-    case _SubtaskListCardSortColumn.submission:
-      return 'Submission';
   }
 }
 
@@ -306,7 +282,7 @@ class _TaskListCardState extends State<TaskListCard> {
   bool _subtasksExpanded = false;
 
   /// `null` = default order: [SingularSubtask.createDate] descending (newest first).
-  _SubtaskListCardSortColumn? _activeSubtaskSort;
+  SubtaskListSortColumn? _activeSubtaskSort;
   bool _subtaskSortAscending = true;
 
   @override
@@ -321,6 +297,8 @@ class _TaskListCardState extends State<TaskListCard> {
     if (oldWidget.task.id != widget.task.id) {
       _cardDataFuture = _loadCardData();
       _subtasksExpanded = false;
+      _activeSubtaskSort = null;
+      _subtaskSortAscending = true;
     }
   }
 
@@ -356,194 +334,21 @@ class _TaskListCardState extends State<TaskListCard> {
     return maxD;
   }
 
-  static String _subtaskAssigneeSortKey(
-    SingularSubtask s,
-    String Function(String id) res,
-  ) {
-    final names = s.assigneeIds.map((id) => res(id)).toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return names.join(', ');
-  }
-
-  static String _subtaskPicSortKey(
-    SingularSubtask s,
-    String Function(String id) res,
-  ) {
-    final p = s.pic?.trim();
-    if (p == null || p.isEmpty) return '';
-    return res(p);
-  }
-
-  static int _cmpStrForSort(String a, String b, bool ascending) {
-    final sa = a.trim().toLowerCase();
-    final sb = b.trim().toLowerCase();
-    if (sa.isEmpty && sb.isEmpty) return 0;
-    if (sa.isEmpty) return 1;
-    if (sb.isEmpty) return -1;
-    final c = sa.compareTo(sb);
-    return ascending ? c : -c;
-  }
-
-  static int _cmpDateNullable(
-    DateTime? a,
-    DateTime? b,
-    bool ascending, {
-    bool dateOnly = false,
-  }) {
-    DateTime? na = a;
-    DateTime? nb = b;
-    if (dateOnly && a != null) {
-      na = DateTime(a.year, a.month, a.day);
-    }
-    if (dateOnly && b != null) {
-      nb = DateTime(b.year, b.month, b.day);
-    }
-    if (na == null && nb == null) return 0;
-    if (na == null) return 1;
-    if (nb == null) return -1;
-    final c = na.compareTo(nb);
-    return ascending ? c : -c;
-  }
-
-  List<SingularSubtask> _sortedSubtasks(
-    List<SingularSubtask> raw,
-    String Function(String id) resolveName,
-  ) {
-    final out = List<SingularSubtask>.from(raw);
-    int tieBreak(SingularSubtask a, SingularSubtask b) {
-      final ad = a.createDate;
-      final bd = b.createDate;
-      if (ad == null && bd == null) {
-        return a.subtaskName.toLowerCase().compareTo(b.subtaskName.toLowerCase());
+  void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
+    setState(() {
+      if (v == 'clear') {
+        if (_activeSubtaskSort == column) {
+          _activeSubtaskSort = null;
+          _subtaskSortAscending = true;
+        }
+      } else if (v == 'asc') {
+        _activeSubtaskSort = column;
+        _subtaskSortAscending = true;
+      } else if (v == 'desc') {
+        _activeSubtaskSort = column;
+        _subtaskSortAscending = false;
       }
-      if (ad == null) return 1;
-      if (bd == null) return -1;
-      final c = bd.compareTo(ad);
-      if (c != 0) return c;
-      return a.subtaskName.toLowerCase().compareTo(b.subtaskName.toLowerCase());
-    }
-
-    if (_activeSubtaskSort == null) {
-      out.sort((a, b) => tieBreak(a, b));
-      return out;
-    }
-
-    final col = _activeSubtaskSort!;
-    final asc = _subtaskSortAscending;
-    out.sort((a, b) {
-      int c;
-      switch (col) {
-        case _SubtaskListCardSortColumn.assignee:
-          c = _cmpStrForSort(
-            _subtaskAssigneeSortKey(a, resolveName),
-            _subtaskAssigneeSortKey(b, resolveName),
-            asc,
-          );
-          break;
-        case _SubtaskListCardSortColumn.pic:
-          c = _cmpStrForSort(
-            _subtaskPicSortKey(a, resolveName),
-            _subtaskPicSortKey(b, resolveName),
-            asc,
-          );
-          break;
-        case _SubtaskListCardSortColumn.startDate:
-          c = _cmpDateNullable(a.startDate, b.startDate, asc, dateOnly: true);
-          break;
-        case _SubtaskListCardSortColumn.dueDate:
-          c = _cmpDateNullable(a.dueDate, b.dueDate, asc, dateOnly: true);
-          break;
-        case _SubtaskListCardSortColumn.status:
-          c = _cmpStrForSort(a.status, b.status, asc);
-          break;
-        case _SubtaskListCardSortColumn.submission:
-          c = _cmpStrForSort(
-            a.submission ?? '',
-            b.submission ?? '',
-            asc,
-          );
-          break;
-      }
-      if (c != 0) return c;
-      return tieBreak(a, b);
     });
-    return out;
-  }
-
-  Widget _buildSubtaskSortColumnControl(_SubtaskListCardSortColumn column) {
-    final active = _activeSubtaskSort == column;
-    final theme = Theme.of(context);
-    final chipLabelStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
-        .copyWith(
-      fontSize: kLandingListCardFontSize,
-      fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-    );
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        tooltip: 'Sort by ${_subtaskSortColumnLabel(column)}',
-        onSelected: (v) {
-          setState(() {
-            if (v == 'clear') {
-              if (_activeSubtaskSort == column) {
-                _activeSubtaskSort = null;
-                _subtaskSortAscending = true;
-              }
-            } else if (v == 'asc') {
-              _activeSubtaskSort = column;
-              _subtaskSortAscending = true;
-            } else if (v == 'desc') {
-              _activeSubtaskSort = column;
-              _subtaskSortAscending = false;
-            }
-          });
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(value: 'asc', child: Text('Ascending')),
-          const PopupMenuItem(value: 'desc', child: Text('Descending')),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'clear',
-            enabled: active,
-            child: const Text('Clear sort'),
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                _subtaskSortColumnLabel(column),
-                maxLines: 1,
-                softWrap: false,
-                style: chipLabelStyle,
-              ),
-              if (active) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  _subtaskSortAscending
-                      ? Icons.arrow_upward
-                      : Icons.arrow_downward,
-                  size: 18,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _reloadAfterSubtaskReturn() async {
@@ -739,8 +544,14 @@ class _TaskListCardState extends State<TaskListCard> {
                                 style: subtasksHeaderStyle,
                               ),
                             ),
-                            for (final col in _SubtaskListCardSortColumn.values)
-                              _buildSubtaskSortColumnControl(col),
+                            for (final col in SubtaskListSortColumn.values)
+                              SubtaskSortColumnChip(
+                                column: col,
+                                active: _activeSubtaskSort == col,
+                                ascending: _subtaskSortAscending,
+                                onMenuSelected: (v) =>
+                                    _onSubtaskSortMenu(col, v),
+                              ),
                           ],
                         ),
                       ),
@@ -751,7 +562,12 @@ class _TaskListCardState extends State<TaskListCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        for (final s in _sortedSubtasks(subtasks, resolveName))
+                        for (final s in SubtaskListSort.sort(
+                          subtasks,
+                          resolveName: resolveName,
+                          activeColumn: _activeSubtaskSort,
+                          ascending: _subtaskSortAscending,
+                        ))
                           SingularSubtaskRowCard(
                             subtask: s,
                             resolveName: resolveName,

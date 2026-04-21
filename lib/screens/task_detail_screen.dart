@@ -20,9 +20,12 @@ import '../services/supabase_service.dart';
 import '../utils/copyable_snackbar.dart';
 import '../utils/due_span_policy.dart';
 import '../utils/hk_time.dart';
+import '../utils/subtask_list_sort.dart';
 import '../web_deep_link.dart';
 import '../widgets/singular_subtask_row_card.dart';
 import '../widgets/staff_assignee_picker_panel.dart';
+import '../widgets/subtask_meta_line.dart';
+import '../widgets/subtask_sort_column_chip.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final String taskId;
@@ -137,6 +140,11 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   bool _loadingTableComments = false;
   List<SingularSubtask> _subtasks = [];
   bool _loadingSubtasks = false;
+
+  /// `null` = default: [SingularSubtask.createDate] descending (same as landing [TaskListCard]).
+  SubtaskListSortColumn? _subtaskSortColumn;
+  bool _subtaskSortAscending = true;
+
   String? _myStaffUuid;
   bool _myStaffUuidRequested = false;
 
@@ -206,6 +214,32 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       if (mounted) await _refreshResolvedPic(state);
       if (mounted) await _loadTableComments();
       if (mounted) await _loadSubtasks();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant SingularTaskDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.taskId != widget.taskId) {
+      _subtaskSortColumn = null;
+      _subtaskSortAscending = true;
+    }
+  }
+
+  void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
+    setState(() {
+      if (v == 'clear') {
+        if (_subtaskSortColumn == column) {
+          _subtaskSortColumn = null;
+          _subtaskSortAscending = true;
+        }
+      } else if (v == 'asc') {
+        _subtaskSortColumn = column;
+        _subtaskSortAscending = true;
+      } else if (v == 'desc') {
+        _subtaskSortColumn = column;
+        _subtaskSortAscending = false;
+      }
     });
   }
 
@@ -2578,8 +2612,51 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                           padding: EdgeInsets.all(8),
                           child: Center(child: CircularProgressIndicator()),
                         )
-                      else
-                        ..._subtasks.map(
+                      else ...[
+                        if (_subtasks.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Text(
+                                        'Sort',
+                                        style: (Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium ??
+                                                const TextStyle())
+                                            .copyWith(
+                                          fontSize: kLandingListCardFontSize,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    for (final col
+                                        in SubtaskListSortColumn.values)
+                                      SubtaskSortColumnChip(
+                                        column: col,
+                                        active: _subtaskSortColumn == col,
+                                        ascending: _subtaskSortAscending,
+                                        onMenuSelected: (v) =>
+                                            _onSubtaskSortMenu(col, v),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ...SubtaskListSort.sort(
+                          _subtasks,
+                          resolveName: (id) =>
+                              state.assigneeById(id)?.name ?? id,
+                          activeColumn: _subtaskSortColumn,
+                          ascending: _subtaskSortAscending,
+                        ).map(
                           (s) {
                             return SingularSubtaskRowCard(
                               subtask: s,
@@ -2601,6 +2678,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                             );
                           },
                         ),
+                      ],
                       const SizedBox(height: 16),
                       Text(
                         'Comments',
