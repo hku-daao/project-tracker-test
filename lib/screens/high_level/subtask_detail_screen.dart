@@ -385,19 +385,19 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
   /// [stored] is `subtask.update_date`; display in Hong Kong (UTC+8).
   String _subtaskLastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm')}';
   }
 
   /// Posted time for sub-task comments (matches [TaskDetailScreen._formatCommentPostedTs]).
   String _formatSubtaskCommentPostedTs(DateTime? stored) {
     if (stored == null) return '—';
-    return HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm');
+    return HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm');
   }
 
   /// `Last updated: …` line (matches [TaskDetailScreen._formatCommentLastUpdatedLine]).
   String _formatSubtaskCommentLastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm')}';
   }
 
   bool _isCommentAuthor(SubtaskCommentRowDisplay c) {

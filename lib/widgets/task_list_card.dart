@@ -155,12 +155,12 @@ class TaskListCard extends StatefulWidget {
     final theme = Theme.of(context);
     final baseStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
         .copyWith(fontSize: kLandingListCardFontSize);
+    final ymd = DateFormat('yyyy-MM-dd');
     final prefix =
         '${priorityToDisplayName(t.priority)} · ${statusLabel(t)}'
-        '${t.startDate != null ? ' · Start ${DateFormat.yMMMd().format(t.startDate!)}' : ''}';
+        '${t.startDate != null ? ' · Start ${ymd.format(t.startDate!)}' : ''}';
     final due = t.endDate;
-    final duePart =
-        due != null ? ' · Due ${DateFormat.yMMMd().format(due)}' : '';
+    final duePart = due != null ? ' · Due ${ymd.format(due)}' : '';
     final comp = t.completionDate;
     final showCompleted = _isTaskDisplayCompleted(t) && comp != null;
     if (!showCompleted) {
@@ -170,7 +170,7 @@ class TaskListCard extends StatefulWidget {
       );
     }
     final completedSeg =
-        ' · Completed on ${HkTime.formatInstantAsHk(comp, 'MMM dd, y')}';
+        ' · Completed on ${HkTime.formatInstantAsHk(comp, 'yyyy-MM-dd')}';
     return Text.rich(
       TextSpan(
         style: baseStyle,

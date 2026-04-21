@@ -20,7 +20,7 @@ String? _completedOnColoredSegment(SingularSubtask s) {
       st == 'completed' ||
       st == 'complete';
   if (!show) return null;
-  return ' · Completed on ${HkTime.formatInstantAsHk(cd, 'MMM dd, y')}';
+  return ' · Completed on ${HkTime.formatInstantAsHk(cd, 'yyyy-MM-dd')}';
 }
 
 /// Priority · status · Start · Due (red if overdue) · Completed on … — matches task-detail sub-task card meta.

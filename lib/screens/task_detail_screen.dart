@@ -273,15 +273,16 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     });
   }
 
+  /// Posted time on singular task comments (`yyyy-MM-dd HH:mm`, HK UTC+8, 24h).
   String _formatCommentPostedTs(DateTime? stored) {
     if (stored == null) return '—';
-    return HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm');
+    return HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm');
   }
 
-  /// Display line: `Last updated: MMM dd, yyyy, HH:mm` (HK wall clock, UTC+8).
+  /// Display line: `Last updated: yyyy-MM-dd HH:mm` (HK wall clock, UTC+8, 24h).
   String _formatCommentLastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM dd, yyyy, HH:mm')}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm')}';
   }
 
   bool _isOwnSingularComment(SingularCommentRowDisplay c) {
@@ -809,7 +810,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   /// [stored] is `task.update_date` from DB; display in Hong Kong (UTC+8).
   String _lastUpdatedLine(DateTime? stored) {
     if (stored == null) return 'Last updated: —';
-    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'MMM d, yyyy, HH:mm')}';
+    return 'Last updated: ${HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm')}';
   }
 
   static int _dateOnlyCompare(DateTime a, DateTime b) {
