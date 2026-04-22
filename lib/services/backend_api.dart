@@ -424,8 +424,9 @@ class BackendApi {
     }
   }
 
-  /// Emails the **sub-task creator** when a **non-creator** saves a comment (author must be a sub-task
-  /// or parent-task assignee per server rules; creator self-comments are skipped).
+  /// Emails the **sub-task creator** when a **non-creator** saves a comment. The server accepts the
+  /// caller when Firebase email matches `staff.email` or a linked `app_users.email` for the comment
+  /// author, and resolves the creator’s inbox via the same helper when `staff.email` is empty.
   /// Server: `POST /api/notify/subtask-comment` (`handleNotifySubtaskComment`). Uses
   /// `TASK_COMMENT_EMAIL_ENABLED` like task-comment notifications.
   Future<String?> notifySubtaskCommentAdded({

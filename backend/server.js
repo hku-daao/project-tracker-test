@@ -343,6 +343,30 @@ async function resolveStaffEmailForNotifications(supabaseClient, staffRow) {
   return '';
 }
 
+/**
+ * True when [sessionEmailNorm] matches `staff.email` or any `app_users.email` for `staff.id`
+ * (Firebase sign-in email often lives on `app_users`, not `staff.email`).
+ */
+async function sessionEmailBelongsToStaffRow(supabaseClient, staffRow, sessionEmailNorm) {
+  const want = (sessionEmailNorm || '').trim().toLowerCase();
+  if (!want) return false;
+  const direct = String(staffRow?.email || '').trim().toLowerCase();
+  if (direct && direct === want) return true;
+  const sid = String(staffRow?.id || '').trim();
+  if (!sid) return false;
+  const { data: rows, error } = await supabaseClient
+    .from('app_users')
+    .select('email')
+    .eq('staff_id', sid)
+    .limit(20);
+  if (error) return false;
+  for (const r of rows || []) {
+    const e = String(r?.email || '').trim().toLowerCase();
+    if (e && e === want) return true;
+  }
+  return false;
+}
+
 async function handleApiMe(req, res) {
   const session = await verifyFirebaseToken(req.headers.authorization);
   if (!session) {
@@ -909,36 +933,6 @@ function buildTaskUpdatedDefaultRecipientStaffIds(taskRow) {
 /** Same slot layout as [collectTaskAssigneeStaffIds] for `public.subtask`. */
 function collectSubtaskAssigneeStaffIds(subtaskRow) {
   return collectTaskAssigneeStaffIds(subtaskRow);
-}
-
-/** True when [staffUuid] matches a non-empty `assignee_01`…`assignee_10` on [subtaskRow]. */
-function isStaffSubtaskAssignee(subtaskRow, staffUuid) {
-  const sid = String(staffUuid || '').trim().toLowerCase();
-  if (!sid) return false;
-  return collectSubtaskAssigneeStaffIds(subtaskRow).some(
-    (id) => String(id).trim().toLowerCase() === sid,
-  );
-}
-
-/**
- * True when [staffUuid] is on the sub-task assignee slots or on the parent singular `task`
- * assignee slots (same staff.id uuid space as `subtask_comment.create_by`).
- */
-async function isStaffSubtaskOrParentTaskAssignee(subtaskRow, staffUuid, supabaseClient) {
-  if (isStaffSubtaskAssignee(subtaskRow, staffUuid)) return true;
-  const tid = (subtaskRow.task_id || '').toString().trim();
-  if (!tid || !supabaseClient) return false;
-  const { data: taskRow, error: tErr } = await supabaseClient
-    .from('task')
-    .select('*')
-    .eq('id', tid)
-    .maybeSingle();
-  if (tErr || !taskRow) return false;
-  const sid = String(staffUuid || '').trim().toLowerCase();
-  if (!sid) return false;
-  return collectTaskAssigneeStaffIds(taskRow).some(
-    (id) => String(id).trim().toLowerCase() === sid,
-  );
 }
 
 /**
@@ -3675,9 +3669,9 @@ async function handleNotifyTaskComment(req, res) {
 }
 
 /**
- * POST { commentId } — comment author only (session = author staff email). Sends **one** Mailgun
- * message to **subtask.create_by** when the author is on **sub-task** or **parent task** assignee
- * slots (`assignee_01`…`assignee_10`, same `staff.id` as `subtask_comment.create_by`) and is not the
+ * POST { commentId } — comment author only: Firebase email must match `staff.email` **or** any
+ * `app_users.email` linked to `subtask_comment.create_by` → `staff.id`. Sends **one** Mailgun message
+ * to **subtask.create_by** (resolved `staff` + `app_users` email) when the author is not the
  * sub-task creator (no self-email). Creator-only comments use `handleNotifySubtaskUpdated`.
  */
 async function handleNotifySubtaskComment(req, res) {
@@ -3736,15 +3730,23 @@ async function handleNotifySubtaskComment(req, res) {
       sendJson(req, res, 400, { error: 'Comment author staff not found' });
       return;
     }
-    const authorEmail = (authorStaff.email || '').trim().toLowerCase();
     const sessionEmail = (session.email || '').trim().toLowerCase();
-    if (!authorEmail || authorEmail !== sessionEmail) {
+    const authorMatchesSession = await sessionEmailBelongsToStaffRow(
+      supabase,
+      authorStaff,
+      sessionEmail,
+    );
+    if (!authorMatchesSession) {
       sendJson(req, res, 403, {
         error:
-          'Only the comment author (staff email must match signed-in user) can send comment emails',
+          'Only the comment author (signed-in email must match staff.email or linked app_users email) can send comment emails',
       });
       return;
     }
+    const authorReplyTo = (
+      (await resolveStaffEmailForNotifications(supabase, authorStaff)) ||
+      (authorStaff.email || '').trim()
+    ).trim();
     const subtaskId = (commentRow.subtask_id || '').toString().trim();
     if (!subtaskId) {
       sendJson(req, res, 400, { error: 'Sub-task comment has no subtask_id' });
@@ -3759,32 +3761,13 @@ async function handleNotifySubtaskComment(req, res) {
       sendJson(req, res, 404, { error: 'Sub-task not found' });
       return;
     }
-    const authorIsAssignee = await isStaffSubtaskOrParentTaskAssignee(
-      subtaskRow,
-      authorStaffId,
-      supabase,
-    );
-    if (!authorIsAssignee) {
-      sendJson(req, res, 200, {
-        ok: true,
-        commentId,
-        subtaskId,
-        recipients: 0,
-        results: [
-          {
-            ok: true,
-            skipped:
-              'sub-task comment notify is only for comment authors who are sub-task assignees or parent-task assignees (staff.id)',
-          },
-        ],
-      });
-      return;
-    }
     /** Resolved from `subtask_comment.create_by` → staff (subject line). */
     const authorNameForSubject =
       (authorStaff.display_name || '').trim() ||
       (authorStaff.name || '').trim() ||
-      authorEmail;
+      sessionEmail ||
+      authorReplyTo ||
+      'Colleague';
     const subtaskName =
       (subtaskRow.subtask_name || '').toString().trim() || '(no title)';
     const subtaskTitleForSubject = mailSubjectSingleLine(subtaskName).replace(/"/g, '');
@@ -3816,14 +3799,17 @@ async function handleNotifySubtaskComment(req, res) {
 
     const { data: creatorStaff, error: crStaffErr } = await supabase
       .from('staff')
-      .select('email, name, display_name')
+      .select('id, email, name, display_name')
       .eq('id', creatorId)
       .maybeSingle();
     if (crStaffErr || !creatorStaff) {
       sendJson(req, res, 400, { error: 'Sub-task creator staff not found' });
       return;
     }
-    const to = (creatorStaff.email || '').trim();
+    const to = (
+      (await resolveStaffEmailForNotifications(supabase, creatorStaff)) ||
+      (creatorStaff.email || '').trim()
+    ).trim();
     const results = [];
     if (!to) {
       results.push({
@@ -3864,7 +3850,7 @@ async function handleNotifySubtaskComment(req, res) {
       text,
       html,
       from: MAILGUN_NOTIFICATION_FROM,
-      replyTo: authorEmail,
+      replyTo: authorReplyTo || sessionEmail || undefined,
     });
     results.push({
       to,
