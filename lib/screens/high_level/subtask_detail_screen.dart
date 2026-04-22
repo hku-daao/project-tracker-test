@@ -59,6 +59,9 @@ class SubtaskDetailScreen extends StatefulWidget {
 class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
   static const Color _selGreen = Color(0xFF1B5E20);
 
+  /// Close-then-pick must stay on the user gesture stack (see task attachment menu).
+  final MenuController _attachmentMenuController = MenuController();
+
   SingularSubtask? _sub;
   Task? _parentTask;
   String? _myStaffUuid;
@@ -1644,14 +1647,14 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: MenuAnchor(
+                      controller: _attachmentMenuController,
                       menuChildren: [
                         MenuItemButton(
                           onPressed: _saving
                               ? null
                               : () {
-                                  Future.microtask(
-                                    _addSubtaskAttachmentFromDevice,
-                                  );
+                                  _attachmentMenuController.close();
+                                  _addSubtaskAttachmentFromDevice();
                                 },
                           child: const Text('From your device'),
                         ),
@@ -1659,9 +1662,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           onPressed: _saving
                               ? null
                               : () {
-                                  Future.microtask(
-                                    _addSubtaskAttachmentFromLink,
-                                  );
+                                  _attachmentMenuController.close();
+                                  _addSubtaskAttachmentFromLink();
                                 },
                           child: const Text('Link to a file or website'),
                         ),

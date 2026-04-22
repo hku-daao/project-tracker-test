@@ -14,14 +14,27 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _emailFocus = FocusNode(debugLabel: 'loginEmail');
   final _passwordFocus = FocusNode(debugLabel: 'loginPassword');
+  /// Kept out of Tab order so Tab moves email → password field → actions.
+  final _passwordVisibilityFocus =
+      FocusNode(debugLabel: 'loginPasswordVisibility', skipTraversal: true);
   bool _isSignUp = false;
   bool _loading = false;
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    // After sign-out the route is rebuilt; ensure keyboard Tab starts from email.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _emailFocus.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
     _emailFocus.dispose();
     _passwordFocus.dispose();
+    _passwordVisibilityFocus.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -148,6 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: TextFormField(
                         controller: _emailController,
                         focusNode: _emailFocus,
+                        autofocus: true,
                         keyboardType: TextInputType.emailAddress,
                         textInputAction: TextInputAction.next,
                         autofillHints: const [AutofillHints.email],
@@ -189,20 +203,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               : 'Password',
                           border: const OutlineInputBorder(),
                           prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: Focus(
-                            skipTraversal: true,
-                            child: IconButton(
-                              tooltip: _obscurePassword
-                                  ? 'Show password'
-                                  : 'Hide password',
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                              ),
-                              onPressed: () => setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              ),
+                          suffixIcon: IconButton(
+                            focusNode: _passwordVisibilityFocus,
+                            tooltip: _obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword,
                             ),
                           ),
                         ),

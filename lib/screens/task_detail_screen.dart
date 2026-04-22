@@ -168,6 +168,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   static const int _maxAssignees = 10;
   static const Color _selGreen = Color(0xFF1B5E20);
 
+  /// Close-then-pick must not defer to [Future.microtask]; native pickers need a
+  /// synchronous gesture chain on Android/iOS.
+  final MenuController _attachmentMenuController = MenuController();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -2564,14 +2568,14 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: MenuAnchor(
+                            controller: _attachmentMenuController,
                             menuChildren: [
                               MenuItemButton(
                                 onPressed: _saving
                                     ? null
                                     : () {
-                                        Future.microtask(
-                                          _addTaskAttachmentFromDevice,
-                                        );
+                                        _attachmentMenuController.close();
+                                        _addTaskAttachmentFromDevice();
                                       },
                                 child: const Text('From your device'),
                               ),
@@ -2579,9 +2583,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                 onPressed: _saving
                                     ? null
                                     : () {
-                                        Future.microtask(
-                                          _addTaskAttachmentFromLink,
-                                        );
+                                        _attachmentMenuController.close();
+                                        _addTaskAttachmentFromLink();
                                       },
                                 child: const Text('Link to a file or website'),
                               ),
