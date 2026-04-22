@@ -109,9 +109,11 @@ Project Tracker
 ${TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF}`;
 }
 
-/** When unset/false, task-comment emails are off. Set `TASK_COMMENT_EMAIL_ENABLED=true` to re-enable. */
-const TASK_COMMENT_EMAIL_ENABLED =
-  (process.env.TASK_COMMENT_EMAIL_ENABLED || '').trim().toLowerCase() === 'true';
+/** Task-comment emails (`handleNotifyTaskComment`). Default on; set `TASK_COMMENT_EMAIL_ENABLED=false` to disable. */
+const TASK_COMMENT_EMAIL_ENABLED = (() => {
+  const v = (process.env.TASK_COMMENT_EMAIL_ENABLED || 'true').trim().toLowerCase();
+  return !['false', '0', 'no', 'off'].includes(v);
+})();
 
 /** POST /api/cron/* — optional shared secret (Railway / external scheduler). */
 const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
@@ -848,26 +850,44 @@ function collectSubtaskAssigneeStaffIds(subtaskRow) {
   return collectTaskAssigneeStaffIds(subtaskRow);
 }
 
-function buildTaskCommentNotificationBodies(description, taskUrl) {
-  const raw = String(description || '').trim();
-  const safeDesc = raw.length ? escapeHtml(raw) : '(no text)';
-  const safeTaskUrl = escapeHtml(taskUrl);
-  const landingHref = escapeHtml(`${PROJECT_TRACKER_LANDING_URL}/`);
-  const html = `<p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:#333333;white-space:pre-wrap;">${safeDesc}</p>
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
-<tr><td align="left" style="text-align:left;">
-<table role="presentation" cellspacing="0" cellpadding="0" border="0">
-<tr>
-<td align="left" valign="middle" bgcolor="#1565C0" style="border-radius:6px;background-color:#1565C0;text-align:left;vertical-align:middle;">
-<a href="${safeTaskUrl}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;text-align:left;line-height:20px;vertical-align:middle;">Reply in Project Tracker</a>
-</td>
-</tr>
-</table>
-</td></tr>
-</table>
-<p style="font-size:12px;color:#666666;line-height:1.4;margin:0;">This task is in the <a href="${landingHref}" style="color:#1565C0;">Project Tracker</a>.</p>`;
-  const text = `${raw || '(no text)'}\n\nReply in Project Tracker:\n${taskUrl}\n\nThis task is in the Project Tracker.\n${PROJECT_TRACKER_LANDING_URL}/`;
-  return { html, text };
+/**
+ * Task-comment email to task creator only (`handleNotifyTaskComment`).
+ * @param {{ recipientDisplayName: string, commentDescription: string, taskName: string, taskUrl: string }} p
+ */
+function buildTaskCommentCreatorEmailHtml(p) {
+  const safeHi = escapeHtml(p.recipientDisplayName);
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  const safeDesc = escapeHtml(desc);
+  const safeTaskUrlAttr = escapeHtml(p.taskUrl);
+  const safeTitle = escapeHtml(p.taskName);
+  const safeLandingHref = escapeHtml(TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF);
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">Hi ${safeHi},<br><br>
+<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">Comment is added – ${safeDesc}</span><br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildTaskCommentCreatorEmailText(p) {
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  return `Hi ${p.recipientDisplayName},
+
+Comment is added – ${desc}
+
+${p.taskName}
+${p.taskUrl}
+
+Project Tracker
+${TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF}`;
 }
 
 /** Formats task.update_date (timestamptz) as YYYY-MM-DD in Asia/Hong_Kong. */
@@ -3301,8 +3321,8 @@ async function handleNotifySubtaskAssigned(req, res) {
 }
 
 /**
- * POST { commentId } — comment author only; emails other assignees (assignee_01..10) plus task
- * creator (create_by) when they are not the author, deduped.
+ * POST { commentId } — comment author only; emails task creator (`create_by`) only when they are
+ * not the comment author (no self-email when creator comments).
  */
 async function handleNotifyTaskComment(req, res) {
   if (req.method !== 'POST') {
@@ -3382,62 +3402,96 @@ async function handleNotifyTaskComment(req, res) {
       sendJson(req, res, 404, { error: 'Task not found' });
       return;
     }
-    const authorDisplay =
+    const authorNameForSubject =
       (authorStaff.display_name || '').trim() ||
       (authorStaff.name || '').trim() ||
       authorEmail;
     const taskName = (taskRow.task_name || '').toString().trim() || '(no title)';
     const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
-    const subject = `${mailSubjectSingleLine(authorDisplay)} comments on task "${taskTitleForSubject}"`;
+    const subject = `${mailSubjectSingleLine(authorNameForSubject)} comments on task "${taskTitleForSubject}"`;
     const taskUrl = taskWebAppUrl(taskId);
-    const { html, text } = buildTaskCommentNotificationBodies(commentRow.description, taskUrl);
 
     const authorNorm = authorStaffId.toLowerCase();
-    /** @type {Map<string, string>} normalized staff id -> canonical id string */
-    const recipientByNorm = new Map();
-    for (const id of collectTaskAssigneeStaffIds(taskRow)) {
-      const raw = String(id).trim();
-      if (!raw) continue;
-      const key = raw.toLowerCase();
-      if (key === authorNorm) continue;
-      if (!recipientByNorm.has(key)) recipientByNorm.set(key, raw);
-    }
     const creatorId = (taskRow.create_by || '').toString().trim();
-    if (creatorId) {
-      const key = creatorId.toLowerCase();
-      if (key !== authorNorm && !recipientByNorm.has(key)) {
-        recipientByNorm.set(key, creatorId);
-      }
+    if (!creatorId) {
+      sendJson(req, res, 400, { error: 'Task has no create_by' });
+      return;
     }
-    const results = [];
+    if (authorNorm === creatorId.toLowerCase()) {
+      sendJson(req, res, 200, {
+        ok: true,
+        commentId,
+        taskId,
+        recipients: 0,
+        results: [
+          {
+            ok: true,
+            skipped: 'comment author is task creator; no self-email',
+          },
+        ],
+      });
+      return;
+    }
 
-    for (const staffUuid of recipientByNorm.values()) {
-      const { data: s } = await supabase
-        .from('staff')
-        .select('email, name')
-        .eq('id', staffUuid)
-        .maybeSingle();
-      const to = (s?.email || '').trim();
-      if (!to) {
-        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
-        continue;
-      }
-      const r = await sendMailgun({
-        to,
-        subject,
-        text,
-        html,
-        from: MAILGUN_NOTIFICATION_FROM,
-        replyTo: authorEmail,
-      });
-      results.push({
-        to,
-        ok: r.ok,
-        mailgunId: r.ok ? r.id : null,
-        error: r.ok ? null : r.error,
-        detail: r.ok ? null : r.detail,
-      });
+    const { data: creatorStaff, error: crStaffErr } = await supabase
+      .from('staff')
+      .select('email, name, display_name')
+      .eq('id', creatorId)
+      .maybeSingle();
+    if (crStaffErr || !creatorStaff) {
+      sendJson(req, res, 400, { error: 'Task creator staff not found' });
+      return;
     }
+    const to = (creatorStaff.email || '').trim();
+    const results = [];
+    if (!to) {
+      results.push({
+        staffId: creatorId,
+        ok: false,
+        skipped: 'no email on creator staff row',
+      });
+      sendJson(req, res, 200, {
+        ok: true,
+        commentId,
+        taskId,
+        recipients: 0,
+        results,
+      });
+      return;
+    }
+
+    const recipientDisplayName =
+      (creatorStaff.display_name || '').trim() ||
+      (creatorStaff.name || '').trim() ||
+      to;
+    const html = buildTaskCommentCreatorEmailHtml({
+      recipientDisplayName,
+      commentDescription: commentRow.description,
+      taskName,
+      taskUrl,
+    });
+    const text = buildTaskCommentCreatorEmailText({
+      recipientDisplayName,
+      commentDescription: commentRow.description,
+      taskName,
+      taskUrl,
+    });
+
+    const r = await sendMailgun({
+      to,
+      subject,
+      text,
+      html,
+      from: MAILGUN_NOTIFICATION_FROM,
+      replyTo: authorEmail,
+    });
+    results.push({
+      to,
+      ok: r.ok,
+      mailgunId: r.ok ? r.id : null,
+      error: r.ok ? null : r.error,
+      detail: r.ok ? null : r.detail,
+    });
 
     sendJson(req, res, 200, {
       ok: true,

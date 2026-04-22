@@ -394,10 +394,9 @@ class BackendApi {
     }
   }
 
-  /// Emails other assignees after a task comment is saved (not the author). Requires Mailgun.
-  ///
-  /// Prefer [notifyTaskUpdated] with [commentAddedText] for assignee comment flows that should
-  /// match the task-updated template (see `task_detail_screen` post-comment-only path).
+  /// Emails the task creator after a comment is saved (not when the creator comments on own task).
+  /// Server: `POST /api/notify/task-comment` (`handleNotifyTaskComment`). Requires Mailgun;
+  /// enable with `TASK_COMMENT_EMAIL_ENABLED` on the backend (on by default unless set to false).
   Future<String?> notifyTaskCommentAdded({
     required String idToken,
     required String commentId,

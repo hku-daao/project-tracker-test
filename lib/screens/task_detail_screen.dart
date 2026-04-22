@@ -1288,10 +1288,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     Task task, {
     String commentSaveErrorPrefix = 'Task updated, but comment was not saved:',
     bool suppressNotificationEmail = false,
-    /// When true (assignee **Post comment** path), stamps [task] `update_by` then calls
-    /// [BackendApi.notifyTaskUpdated] with [commentAddedText] so the server uses
-    /// `handleNotifyTaskUpdated` (same template as task update + comment).
-    bool notifyCommentViaTaskUpdated = false,
   }) async {
     final commentBody = _commentController.text.trim();
     if (commentBody.isEmpty) return true;
@@ -1321,66 +1317,21 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       try {
         final token = await FirebaseAuth.instance.currentUser?.getIdToken();
         if (token != null) {
-          if (notifyCommentViaTaskUpdated) {
-            final staffKey = state.userStaffAppId?.trim();
-            if (staffKey == null || staffKey.isEmpty) {
-              if (mounted) {
-                showCopyableSnackBar(
-                  context,
-                  'Comment saved; task update email skipped (no staff id on profile)',
-                  backgroundColor: Colors.orange,
-                );
-              }
-            } else {
-              final touchErr = await SupabaseService.updateSingularTaskRow(
-                taskId: task.id,
-                updateByStaffLookupKey: staffKey,
-              );
-              if (touchErr != null) {
-                if (mounted) {
-                  showCopyableSnackBar(
-                    context,
-                    'Comment saved, but task stamp failed (email may be skipped): $touchErr',
-                    backgroundColor: Colors.orange,
-                  );
-                }
-              } else {
-                final notifyErr = await BackendApi().notifyTaskUpdated(
-                  idToken: token,
-                  taskId: task.id,
-                  commentAddedText: commentBody,
-                );
-                if (notifyErr != null && mounted) {
-                  final short = notifyErr.length > 120
-                      ? '${notifyErr.substring(0, 120)}…'
-                      : notifyErr;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Task update email: $short'),
-                      backgroundColor: Colors.orange,
-                      duration: const Duration(seconds: 4),
-                    ),
-                  );
-                }
-              }
-            }
-          } else {
-            final notifyErr = await BackendApi().notifyTaskCommentAdded(
-              idToken: token,
-              commentId: newCommentId,
+          final notifyErr = await BackendApi().notifyTaskCommentAdded(
+            idToken: token,
+            commentId: newCommentId,
+          );
+          if (notifyErr != null && mounted) {
+            final short = notifyErr.length > 120
+                ? '${notifyErr.substring(0, 120)}…'
+                : notifyErr;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Comment email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
             );
-            if (notifyErr != null && mounted) {
-              final short = notifyErr.length > 120
-                  ? '${notifyErr.substring(0, 120)}…'
-                  : notifyErr;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Comment email: $short'),
-                  backgroundColor: Colors.orange,
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            }
           }
         } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1395,11 +1346,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                notifyCommentViaTaskUpdated
-                    ? 'Task update email failed: $e'
-                    : 'Comment email failed: $e',
-              ),
+              content: Text('Comment email failed: $e'),
               backgroundColor: Colors.orange,
               duration: const Duration(seconds: 4),
             ),
@@ -1440,7 +1387,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         state,
         task,
         commentSaveErrorPrefix: 'Comment was not saved:',
-        notifyCommentViaTaskUpdated: true,
       );
       if (!mounted) return;
       if (ok) {
