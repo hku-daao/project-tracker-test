@@ -12,6 +12,7 @@ import '../../priority.dart';
 import '../../services/backend_api.dart';
 import '../../services/firebase_attachment_upload_service.dart';
 import '../../services/supabase_service.dart';
+import '../../utils/attachment_save_reminder_snackbar.dart';
 import '../../utils/attachment_url_launch.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/due_span_policy.dart';
@@ -150,6 +151,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     if (r.error != null && r.error!.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 4),
           content: Text(r.error!),
           backgroundColor: Colors.orange,
         ),
@@ -166,14 +168,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       );
     });
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'File is uploaded. Press Update to save the attachment to the sub-task.',
-          ),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      showAttachmentSaveReminderSnackBar(context);
     }
   }
 
@@ -188,6 +183,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         ),
       );
     });
+    if (mounted) {
+      showAttachmentSaveReminderSnackBar(context);
+    }
   }
 
   Future<void> _editSubtaskAttachment(int index) async {
@@ -206,6 +204,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       e.descController.text = r.description;
       e.urlController.text = r.url;
     });
+    if (mounted) {
+      showAttachmentSaveReminderSnackBar(context);
+    }
   }
 
   List<({String? content, String? description})> _subtaskAttachmentPayload() {
@@ -568,8 +569,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       await _load(rebindAttachments: false);
       if (!suppressSuccessSnack && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sub-task is updated'),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
             backgroundColor: Colors.green,
           ),
         );
@@ -601,8 +601,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             key.isEmpty ||
             !parent.assigneeIds.contains(key)) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Choose a valid Sub-task PIC'),
+            const SnackBar(duration: const Duration(seconds: 4), content: Text('Choose a valid Sub-task PIC'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -634,8 +633,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           await _load(rebindAttachments: false);
           if (!suppressSuccessSnack && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sub-task is updated'),
+              const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -649,7 +647,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         if (!_subtaskAttachmentsDirty()) {
           if (!willSaveCommentAfter) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Nothing is updated')),
+              const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated')),
             );
           }
           return false;
@@ -668,8 +666,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           await _load(rebindAttachments: false);
           if (!suppressSuccessSnack && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sub-task is updated'),
+              const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -683,7 +680,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         if (!_subtaskAttachmentsDirty()) {
           if (!willSaveCommentAfter) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Nothing is updated')),
+              const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated')),
             );
           }
           return false;
@@ -702,8 +699,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           await _load(rebindAttachments: false);
           if (!suppressSuccessSnack && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sub-task is updated'),
+              const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -730,8 +726,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             if (!mounted) return false;
             if (!suppressSuccessSnack && mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Sub-task is updated'),
+                const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                   backgroundColor: Colors.green,
                 ),
               );
@@ -743,8 +738,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         }
         if (!willSaveCommentAfter) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Nothing is updated'),
+            const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -756,7 +750,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     if (!_subtaskCreatorHasMetadataOrAttachmentChanges(state, st, parent)) {
       if (!willSaveCommentAfter) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nothing is updated')),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated')),
         );
       }
       return false;
@@ -787,8 +781,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           )) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Due date cannot be before start date'),
+            const SnackBar(duration: const Duration(seconds: 4), content: Text('Due date cannot be before start date'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -799,9 +792,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       if (needsDueReason && _changeDueReasonController.text.trim().isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Enter a reason when the due date is beyond the allowed working days for this priority.',
+            const SnackBar(duration: const Duration(seconds: 4), content: Text(
+                'Enter a reason when the due date is beyond the allowed working days for this priority',
               ),
               backgroundColor: Colors.orange,
             ),
@@ -834,8 +826,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       await _load(rebindAttachments: false);
       if (!suppressSuccessSnack && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sub-task is updated'),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
             backgroundColor: Colors.green,
           ),
         );
@@ -851,9 +842,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     final c = _commentController.text.trim();
     if (link.isEmpty && c.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Add attachment and/or comment before submitting.',
+        const SnackBar(duration: const Duration(seconds: 4), content: Text(
+            'Add attachment and/or comment before submitting',
           ),
           backgroundColor: Colors.orange,
         ),
@@ -905,7 +895,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
               SnackBar(
                 content: Text('Submitted; email: $short'),
                 backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 8),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
@@ -915,8 +905,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       await _load(rebindAttachments: false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Submitted'),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Submitted'),
           backgroundColor: Colors.green,
         ),
       );
@@ -954,7 +945,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
               SnackBar(
                 content: Text('Accept email: $short'),
                 backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 8),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
@@ -962,7 +953,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       } catch (_) {}
       await _load(rebindAttachments: false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Accepted'), backgroundColor: Colors.green),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Accepted'), backgroundColor: Colors.green),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -997,7 +988,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
               SnackBar(
                 content: Text('Return email: $short'),
                 backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 8),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
@@ -1005,7 +996,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       } catch (_) {}
       await _load(rebindAttachments: false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Returned'), backgroundColor: Colors.green),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Returned'), backgroundColor: Colors.green),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1034,8 +1025,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     final text = _editCommentController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Comment cannot be empty.'),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Comment cannot be empty'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -1111,9 +1103,9 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             'Sub-task was saved. Notification email was not sent: the live API '
             'does not include POST /api/notify/subtask-updated yet. Redeploy the '
             'Project Tracker backend on Railway from the current repository '
-            '(backend/server.js).',
+            '(backend/server.js)',
             backgroundColor: Colors.blueGrey.shade700,
-            duration: const Duration(seconds: 12),
+            duration: const Duration(seconds: 4),
           );
           return;
         }
@@ -1123,7 +1115,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           SnackBar(
             content: Text('Sub-task update email: $short'),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 8),
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -1801,9 +1793,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                                               ScaffoldMessenger.of(
                                                 context,
                                               ).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                    'Enter a link first.',
+                                                const SnackBar(duration: const Duration(seconds: 4), content: Text(
+                                                    'Enter a link first',
                                                   ),
                                                 ),
                                               );
@@ -1908,8 +1899,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           if (!mounted) return;
                           if (metaOk || commentOk) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Sub-task is updated'),
+                              const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                                 backgroundColor: Colors.green,
                               ),
                             );

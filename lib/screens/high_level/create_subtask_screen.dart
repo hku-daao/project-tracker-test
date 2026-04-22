@@ -155,14 +155,13 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
   Future<void> _submit(AppState state, Task task) async {
     if (!_formKey.currentState!.validate()) return;
     if (!task.isSingularTableRow) {
-      showCopyableSnackBar(context, 'Sub-tasks are only for cloud tasks.');
+      showCopyableSnackBar(context, 'Sub-tasks are only for cloud tasks');
       return;
     }
     final assigneeIds = task.assigneeIds;
     if (assigneeIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Parent task has no assignees.'),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Parent task has no assignees'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -172,22 +171,20 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
         (assigneeIds.length == 1 ? assigneeIds.first : null);
     if (picK == null || picK.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select a Sub-task PIC'),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Select a Sub-task PIC'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
     if (!task.assigneeIds.contains(picK)) {
-      showCopyableSnackBar(context, 'PIC must be a task assignee.');
+      showCopyableSnackBar(context, 'PIC must be a task assignee');
       return;
     }
     final due = _endDate;
     if (due != null && _dateOnlyCompare(due, _startDate) < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Due date cannot be before start date'),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Due date cannot be before start date'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -200,9 +197,8 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
     );
     if (needsDueReason && _changeDueReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Enter a reason when the due date is beyond the allowed working days for this priority.',
+        const SnackBar(duration: const Duration(seconds: 4), content: Text(
+            'Enter a reason when the due date is beyond the allowed working days for this priority',
           ),
           backgroundColor: Colors.orange,
         ),
@@ -217,7 +213,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
         if (u == null || u.isEmpty) {
           showCopyableSnackBar(
             context,
-            'Could not resolve staff id for task assignee.',
+            'Could not resolve staff id for task assignee',
             backgroundColor: Colors.orange,
           );
           return;
@@ -231,7 +227,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       if (picUuid == null || picUuid.isEmpty) {
         showCopyableSnackBar(
           context,
-          'Could not resolve staff id for PIC.',
+          'Could not resolve staff id for PIC',
           backgroundColor: Colors.orange,
         );
         return;
@@ -271,7 +267,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
               SnackBar(
                 content: Text('Notification: $short'),
                 backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 8),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
@@ -279,8 +275,9 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       } catch (_) {}
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sub-task is created'),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Sub-task is created'),
           backgroundColor: Colors.green,
         ),
       );

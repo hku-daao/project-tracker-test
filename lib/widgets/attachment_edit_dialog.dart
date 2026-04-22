@@ -55,6 +55,7 @@ Future<({String description, String url})?> showAttachmentEditDialog(
                       if (r.error != null && r.error!.isNotEmpty) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
                           SnackBar(
+                            duration: const Duration(seconds: 4),
                             content: Text(r.error!),
                             backgroundColor: Colors.orange,
                           ),
@@ -70,11 +71,11 @@ Future<({String description, String url})?> showAttachmentEditDialog(
                         }
                       });
                       ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'File is uploaded. Press Save to apply, then Update on the page to persist.',
+                        SnackBar(
+                          duration: const Duration(seconds: 4),
+                          content: const Text(
+                            'File is uploaded. Press Save to apply, then Update on the page to persist',
                           ),
-                          duration: Duration(seconds: 4),
                         ),
                       );
                     },

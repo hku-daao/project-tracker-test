@@ -116,7 +116,7 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                       onPressed: () {
                         state.markInitiativeIncomplete(init.id);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Marked incomplete')),
+                          const SnackBar(duration: const Duration(seconds: 4), content: Text('Marked incomplete')),
                         );
                       },
                       icon: const Icon(Icons.cancel_outlined),
@@ -126,7 +126,7 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                       onPressed: () {
                         state.markInitiativeComplete(init.id);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Marked as complete')),
+                          const SnackBar(duration: const Duration(seconds: 4), content: Text('Marked as complete')),
                         );
                       },
                       icon: const Icon(Icons.check_circle_outline),
@@ -237,7 +237,7 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
     );
     _commentController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Update/ comment added')));
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Update/ comment added')));
   }
 
   void _editComment(BuildContext context, AppState state, TaskComment c) {
@@ -329,12 +329,12 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
                       'Sub-task kept locally only. Cloud: $err',
                     ),
                     backgroundColor: Colors.orange,
-                    duration: const Duration(seconds: 10),
+                    duration: const Duration(seconds: 4),
                   ),
                 );
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sub-task added')),
+                  const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task added')),
                 );
               }
             },
@@ -368,7 +368,7 @@ class _InitiativeDetailScreenState extends State<InitiativeDetailScreen> {
               state.deleteSubTask(subTask.id, directorName);
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sub-task deleted')));
+                  const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task deleted')));
             },
             child: const Text('Delete'),
           ),

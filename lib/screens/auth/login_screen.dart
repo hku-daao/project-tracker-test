@@ -40,8 +40,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Account created. You are signed in.'),
+            SnackBar(
+              duration: const Duration(seconds: 4),
+              content: const Text('Account created. You are signed in'),
               backgroundColor: Colors.green,
             ),
           );
@@ -57,31 +58,32 @@ class _LoginScreenState extends State<LoginScreen> {
       String message;
       switch (e.code) {
         case 'user-not-found':
-          message = 'No account found for this email.';
+          message = 'No account found for this email';
           break;
         case 'wrong-password':
-          message = 'Wrong password.';
+          message = 'Wrong password';
           break;
         case 'invalid-email':
-          message = 'Invalid email address.';
+          message = 'Invalid email address';
           break;
         case 'user-disabled':
-          message = 'This account has been disabled.';
+          message = 'This account has been disabled';
           break;
         case 'email-already-in-use':
-          message = 'An account already exists for this email.';
+          message = 'An account already exists for this email';
           break;
         case 'weak-password':
-          message = 'Password is too weak (use at least 6 characters).';
+          message = 'Password is too weak (use at least 6 characters)';
           break;
         case 'invalid-credential':
-          message = 'Invalid email or password.';
+          message = 'Invalid email or password';
           break;
         default:
-          message = e.message ?? 'Sign in failed.';
+          message = e.message ?? 'Sign in failed';
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 4),
           content: Text(message),
           backgroundColor: Colors.red.shade700,
         ),
@@ -90,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
+            duration: const Duration(seconds: 4),
             content: Text('Error: $e'),
             backgroundColor: Colors.red.shade700,
           ),

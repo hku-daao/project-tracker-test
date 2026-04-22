@@ -46,7 +46,7 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedTeamId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a team first')),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Select a team first')),
       );
       return;
     }
@@ -54,14 +54,17 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
     if (officers.isEmpty && _selectedOfficerIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text(
-                'No Responsible Officers for this team yet (to be provided). Add team officers in app state.')),
+          duration: Duration(seconds: 4),
+          content: Text(
+            'No Responsible Officers for this team yet (to be provided). Add team officers in app state',
+          ),
+        ),
       );
       return;
     }
     if (_selectedOfficerIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one Responsible Officer')),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Select at least one Responsible Officer')),
       );
       return;
     }
@@ -99,7 +102,7 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
     });
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Task created')),
+      const SnackBar(duration: const Duration(seconds: 4), content: Text('Task created')),
     );
     if (SupabaseConfig.isConfigured) {
       final err = await SupabaseService.insertTask(
@@ -119,12 +122,11 @@ class _CreateLowLevelTaskScreenState extends State<CreateLowLevelTaskScreen> {
           context,
           'Supabase: $err',
           backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 12),
+          duration: const Duration(seconds: 4),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Task synced to Supabase'),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Task synced to Supabase'),
             backgroundColor: Colors.green,
           ),
         );

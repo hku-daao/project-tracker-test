@@ -791,7 +791,9 @@ class _SystemAdminScreenState extends State<SystemAdminScreen> {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                                content: Text(ok ? 'Saved' : 'Failed')),
+                              duration: const Duration(seconds: 4),
+                              content: Text(ok ? 'Saved' : 'Failed'),
+                            ),
                           );
                           if (ok) await _reload();
                         },
@@ -816,7 +818,9 @@ class _SystemAdminScreenState extends State<SystemAdminScreen> {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                                content: Text(ok ? 'Deleted' : 'Failed')),
+                              duration: const Duration(seconds: 4),
+                              content: Text(ok ? 'Deleted' : 'Failed'),
+                            ),
                           );
                           if (ok) await _reload();
                         },
@@ -859,7 +863,9 @@ class _SystemAdminScreenState extends State<SystemAdminScreen> {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                                content: Text(ok ? 'Saved' : 'Failed')),
+                              duration: const Duration(seconds: 4),
+                              content: Text(ok ? 'Saved' : 'Failed'),
+                            ),
                           );
                           if (ok) await _reload();
                         },
@@ -916,7 +922,9 @@ class _SystemAdminScreenState extends State<SystemAdminScreen> {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                                content: Text(ok ? 'Saved' : 'Failed')),
+                              duration: const Duration(seconds: 4),
+                              content: Text(ok ? 'Saved' : 'Failed'),
+                            ),
                           );
                           if (ok) await _reload();
                         },
@@ -960,7 +968,9 @@ class _SystemAdminScreenState extends State<SystemAdminScreen> {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                                content: Text(ok ? 'Saved' : 'Failed')),
+                              duration: const Duration(seconds: 4),
+                              content: Text(ok ? 'Saved' : 'Failed'),
+                            ),
                           );
                           if (ok) await _reload();
                         },

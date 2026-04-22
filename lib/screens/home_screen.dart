@@ -21,8 +21,21 @@ Future<bool> _confirmLeaveCreateTaskDraft(BuildContext context) async {
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Unsaved task'),
-      content: const Text(
-        'Click Create task button to save your task. If you leave now, nothing will be saved.',
+      content: Text.rich(
+        TextSpan(
+          style: Theme.of(ctx).textTheme.bodyLarge,
+          children: const [
+            TextSpan(text: 'Press '),
+            TextSpan(
+              text: 'Create task',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            TextSpan(
+              text:
+                  ' to save your task. If you leave now, nothing will be saved.',
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -49,7 +62,7 @@ Future<void> _openFeedbackForm(BuildContext context) async {
   if (!context.mounted) return;
   if (!ok) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Could not open feedback form.')),
+      const SnackBar(duration: const Duration(seconds: 4), content: Text('Could not open feedback form')),
     );
     return;
   }
@@ -256,7 +269,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text('Backend: $_backendError'),
-                                    duration: const Duration(seconds: 5),
+                                    duration: const Duration(seconds: 4),
                                     action: SnackBarAction(
                                       label: 'Retry',
                                       onPressed: _checkBackend,

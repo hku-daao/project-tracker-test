@@ -280,8 +280,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     if (!_formKey.currentState!.validate()) return;
     if (_endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Due date is required.'),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Due date is required'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -300,7 +299,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     if (SupabaseConfig.isConfigured && _pickerStaffForRole().isNotEmpty) {
       if (_selectedAssigneeIds.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Select at least one assignee')),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Select at least one assignee')),
         );
         return;
       }
@@ -312,7 +311,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     } else if (useServer) {
       if (_selectedAssigneeIds.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Select at least one assignee')),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Select at least one assignee')),
         );
         return;
       }
@@ -332,8 +331,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       final self = state.userStaffAppId;
       if (self == null || self.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Select team(s) and assignees, or configure Supabase.'),
+          const SnackBar(duration: const Duration(seconds: 4), content: Text('Select team(s) and assignees, or configure Supabase'),
           ),
         );
         return;
@@ -350,8 +348,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
 
     if (_dateOnlyCompare(capturedStart, capturedEnd) > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Start date cannot be after due date.'),
+        const SnackBar(duration: const Duration(seconds: 4), content: Text('Start date cannot be after due date'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -362,9 +359,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
         dueDateExceedsPolicyForPriority(capturedStart, capturedEnd, priority);
     if (needsDueReason && _changeDueReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Enter a reason when the due date is beyond the allowed working days for this priority.',
+        const SnackBar(duration: const Duration(seconds: 4), content: Text(
+            'Enter a reason when the due date is beyond the allowed working days for this priority',
           ),
           backgroundColor: Colors.orange,
         ),
@@ -378,9 +374,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     } else {
       if (_picAssigneeId == null || !directorIds.contains(_picAssigneeId)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Select a PIC (person in charge) from the assignees.',
+          const SnackBar(duration: const Duration(seconds: 4), content: Text(
+              'Select a PIC (person in charge) from the assignees',
             ),
             backgroundColor: Colors.orange,
           ),
@@ -432,12 +427,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
             debugPrint('notifyTaskAssigned: skipped — Firebase ID token is null');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Task saved. Assignment email was not sent (sign-in token missing).',
+                SnackBar(
+                  duration: const Duration(seconds: 4),
+                  content: const Text(
+                    'Task saved. Assignment email was not sent (sign-in token missing)',
                   ),
                   backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 6),
                 ),
               );
             }
@@ -456,7 +451,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
                   SnackBar(
                     content: Text('Assignment email: $short'),
                     backgroundColor: Colors.orange,
-                    duration: const Duration(seconds: 8),
+                    duration: const Duration(seconds: 4),
                   ),
                 );
               }
@@ -469,7 +464,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
               SnackBar(
                 content: Text('Assignment email failed: $e'),
                 backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 8),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
@@ -491,7 +486,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
             context,
             'Task created, but comment was not saved: ${cResult.error}',
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 10),
+            duration: const Duration(seconds: 4),
           );
         }
       } else if (!SupabaseConfig.isConfigured) {
@@ -535,9 +530,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     if (!SupabaseConfig.isConfigured) {
       showCopyableSnackBar(
         context,
-        'Saved in this browser only. Set Supabase anon key for this environment (see docs/ENVIRONMENTS.md), rebuild web, redeploy — then data survives refresh.',
+        'Saved in this browser only. Set Supabase anon key for this environment (see docs/ENVIRONMENTS.md), rebuild web, redeploy — then data survives refresh',
         backgroundColor: Colors.blue,
-        duration: const Duration(seconds: 10),
+        duration: const Duration(seconds: 4),
       );
       if (mounted) context.read<AppState>().requestSwitchToTasksTab();
     } else if (cloudErr != null) {
@@ -545,14 +540,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
         context,
         'Could not save to Supabase: $cloudErr',
         backgroundColor: Colors.orange,
-        duration: const Duration(seconds: 14),
+        duration: const Duration(seconds: 4),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Task is created'),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Task is created'),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 4),
         ),
       );
       await _reloadTasksAfterCreate();

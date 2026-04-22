@@ -6,7 +6,7 @@ void showCopyableSnackBar(
   BuildContext context,
   String message, {
   Color? backgroundColor,
-  Duration duration = const Duration(seconds: 12),
+  Duration duration = const Duration(seconds: 4),
 }) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(

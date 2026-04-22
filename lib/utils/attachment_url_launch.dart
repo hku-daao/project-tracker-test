@@ -9,8 +9,9 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
   if (uri == null || !uri.hasScheme) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('This attachment is not a valid web link.'),
+      SnackBar(
+        duration: const Duration(seconds: 4),
+        content: const Text('This attachment is not a valid web link'),
         backgroundColor: Colors.orange,
       ),
     );
@@ -21,7 +22,8 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Cannot open links of type “$scheme” from here.'),
+        duration: const Duration(seconds: 4),
+        content: Text('Cannot open links of type “$scheme” from here'),
         backgroundColor: Colors.orange,
       ),
     );
@@ -31,8 +33,9 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not open the link.'),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Could not open the link'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -41,6 +44,7 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 4),
         content: Text('Could not open link: $e'),
         backgroundColor: Colors.orange,
       ),
