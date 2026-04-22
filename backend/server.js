@@ -55,6 +55,9 @@ const TASK_UPDATE_NOTIFY_MAX_VALUE_LEN = 4000;
 const TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN = 8000;
 
 /**
+ * Task-updated assignee email: Aptos 16px; first block = field lines and/or comment line
+ * per product template (double break between field block and comment when both present).
+ *
  * @param {{ recipientDisplayName: string, changeLinesHtml: string, changeLinesText: string, commentLineHtml: string, commentLineText: string, taskName: string, taskUrl: string, updaterName: string, updatedAtLine: string }} p
  */
 function buildTaskUpdatedAssigneeEmailHtml(p) {
@@ -64,21 +67,33 @@ function buildTaskUpdatedAssigneeEmailHtml(p) {
   const safeUpdater = escapeHtml(p.updaterName);
   const safeUpdatedAt = escapeHtml(p.updatedAtLine);
   const safeLandingHref = escapeHtml(TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF);
-  const topBlock = [p.changeLinesHtml, p.commentLineHtml].filter(Boolean).join('<br>');
+  const chHtml = (p.changeLinesHtml || '').trim();
+  const cmtHtml = (p.commentLineHtml || '').trim();
+  const topParts = [];
+  if (chHtml) topParts.push(chHtml);
+  if (cmtHtml) topParts.push(cmtHtml);
+  const topBlock = topParts.join('<br><br>');
   const defaultLine =
-    '<span style="color:#000000;">The task has been updated.</span>';
-  const firstBlock = topBlock.trim() ? topBlock : defaultLine;
-  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
+    '<span style="color:#000000;font-family:Aptos,\'Segoe UI\',Calibri,sans-serif;font-size:16px;">The task has been updated.</span>';
+  const firstBlock = topBlock ? topBlock : defaultLine;
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">Hi ${safeHi},<br><br>
 ${firstBlock}<br><br>
-<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
 Updated by: ${safeUpdater}<br><br>
 Updated at: ${safeUpdatedAt}<br><br>
-<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;color:#1565C0;">Project Tracker</a></div>`;
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
 }
 
 function buildTaskUpdatedAssigneeEmailText(p) {
-  const top = [p.changeLinesText, p.commentLineText].filter(Boolean).join('\n');
-  const first = top.trim() ? top : 'The task has been updated.';
+  const ch = (p.changeLinesText || '').trim();
+  const cmt = (p.commentLineText || '').trim();
+  const topParts = [];
+  if (ch) topParts.push(ch);
+  if (cmt) topParts.push(cmt);
+  const top = topParts.join('\n\n');
+  const first = top ? top : 'The task has been updated.';
   return `Hi ${p.recipientDisplayName},
 
 ${first}
@@ -3503,7 +3518,7 @@ async function handleNotifyTaskUpdated(req, res) {
       const safeVal = escapeHtml(value);
       const safeLbl = escapeHtml(label);
       changeLinesHtmlParts.push(
-        `<span style="color:#000000;">${safeLbl} is updated – ${safeVal}</span>`,
+        `<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">${safeLbl} is updated – ${safeVal}</span>`,
       );
       changeLinesTextParts.push(`${label} is updated – ${value}`);
       nCh += 1;
@@ -3519,7 +3534,7 @@ async function handleNotifyTaskUpdated(req, res) {
         c = `${c.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
       }
       const safeC = escapeHtml(c);
-      commentLineHtml = `<span style="color:#000000;">Comment is added – ${safeC}</span>`;
+      commentLineHtml = `<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">Comment is added – ${safeC}</span>`;
       commentLineText = `Comment is added – ${c}`;
     }
     const changeLinesHtml = changeLinesHtmlParts.join('<br>');
