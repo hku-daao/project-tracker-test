@@ -954,6 +954,54 @@ Project Tracker
 ${TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF}`;
 }
 
+/**
+ * “Project Tracker” link in sub-task comment → creator emails (strict product URL, no trailing path).
+ */
+const SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF = 'https://projecttracker.hku.hk';
+
+/**
+ * Sub-task comment email to sub-task creator only (`handleNotifySubtaskComment`).
+ * Body: Hi {creator display_name}; “Comment is added – {description}”; bold+underlined
+ * {subtask_name} → `subtaskWebAppUrl(subtask.id)`; “Project Tracker” → product URL; Aptos 16px.
+ *
+ * @param {{ recipientDisplayName: string, commentDescription: string, subtaskName: string, subtaskUrl: string }} p
+ */
+function buildSubtaskCommentCreatorEmailHtml(p) {
+  const safeHi = escapeHtml(p.recipientDisplayName);
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  const safeDesc = escapeHtml(desc);
+  const safeSubtaskUrlAttr = escapeHtml(p.subtaskUrl);
+  const safeTitle = escapeHtml(p.subtaskName);
+  const safeLandingHref = escapeHtml(SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF);
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">Hi ${safeHi},<br><br>
+Comment is added – ${safeDesc}<br><br>
+<a href="${safeSubtaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildSubtaskCommentCreatorEmailText(p) {
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  return `Hi ${p.recipientDisplayName},
+
+Comment is added – ${desc}
+
+${p.subtaskName}
+${p.subtaskUrl}
+
+Project Tracker
+${SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF}`;
+}
+
 /** Formats task.update_date (timestamptz) as YYYY-MM-DD in Asia/Hong_Kong. */
 function formatUpdateDateYYYYMMDD(raw) {
   if (raw == null || raw === '') return '—';
@@ -3572,7 +3620,7 @@ async function handleNotifyTaskComment(req, res) {
 
 /**
  * POST { commentId } — subtask_comment author only; emails sub-task creator (`subtask.create_by`)
- * when they are not the author. Same HTML shell as task-comment-to-creator (`buildTaskCommentCreatorEmail*`).
+ * when they are not the author. Uses `buildSubtaskCommentCreatorEmail*` (subject/body per product template).
  */
 async function handleNotifySubtaskComment(req, res) {
   if (req.method !== 'POST') {
@@ -3716,17 +3764,17 @@ async function handleNotifySubtaskComment(req, res) {
       (creatorStaff.display_name || '').trim() ||
       (creatorStaff.name || '').trim() ||
       to;
-    const html = buildTaskCommentCreatorEmailHtml({
+    const html = buildSubtaskCommentCreatorEmailHtml({
       recipientDisplayName,
       commentDescription: commentRow.description,
-      taskName: subtaskName,
-      taskUrl: subtaskUrl,
+      subtaskName,
+      subtaskUrl,
     });
-    const text = buildTaskCommentCreatorEmailText({
+    const text = buildSubtaskCommentCreatorEmailText({
       recipientDisplayName,
       commentDescription: commentRow.description,
-      taskName: subtaskName,
-      taskUrl: subtaskUrl,
+      subtaskName,
+      subtaskUrl,
     });
 
     const r = await sendMailgun({
