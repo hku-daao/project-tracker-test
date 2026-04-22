@@ -395,6 +395,9 @@ class BackendApi {
   }
 
   /// Emails other assignees after a task comment is saved (not the author). Requires Mailgun.
+  ///
+  /// Prefer [notifyTaskUpdated] with [commentAddedText] for assignee comment flows that should
+  /// match the task-updated template (see `task_detail_screen` post-comment-only path).
   Future<String?> notifyTaskCommentAdded({
     required String idToken,
     required String commentId,
