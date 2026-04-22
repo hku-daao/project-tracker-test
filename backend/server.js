@@ -37,12 +37,8 @@ function taskWebAppUrl(taskId) {
   return `${base}/#/?task=${encodeURIComponent(id)}`;
 }
 
-/** Footer link in “task updated” assignee emails (override with env). */
-const TASK_UPDATE_EMAIL_LANDING_URL = (
-  process.env.TASK_UPDATE_EMAIL_LANDING_URL || 'https://projecttracker.hku-ia.ai'
-)
-  .trim()
-  .replace(/\/$/, '');
+/** “Project Tracker” footer link in task-updated assignee emails (fixed product URL). */
+const TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF = 'https://projecttracker.hku.hk/';
 
 /** Allowed keys from Flutter for task-updated email lines (display label is server-side). */
 const TASK_UPDATE_NOTIFY_FIELD_LABELS = {
@@ -67,24 +63,22 @@ function buildTaskUpdatedAssigneeEmailHtml(p) {
   const safeTitle = escapeHtml(p.taskName);
   const safeUpdater = escapeHtml(p.updaterName);
   const safeUpdatedAt = escapeHtml(p.updatedAtLine);
-  const landing = `${TASK_UPDATE_EMAIL_LANDING_URL}/`;
-  const safeLandingHref = escapeHtml(landing);
+  const safeLandingHref = escapeHtml(TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF);
   const topBlock = [p.changeLinesHtml, p.commentLineHtml].filter(Boolean).join('<br>');
   const defaultLine =
     '<span style="color:#000000;">The task has been updated.</span>';
   const firstBlock = topBlock.trim() ? topBlock : defaultLine;
-  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
+  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
 ${firstBlock}<br><br>
-<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
 Updated by: ${safeUpdater}<br><br>
 Updated at: ${safeUpdatedAt}<br><br>
-<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;color:#1565C0;">Project Tracker</a></div>`;
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;color:#1565C0;">Project Tracker</a></div>`;
 }
 
 function buildTaskUpdatedAssigneeEmailText(p) {
   const top = [p.changeLinesText, p.commentLineText].filter(Boolean).join('\n');
   const first = top.trim() ? top : 'The task has been updated.';
-  const landing = `${TASK_UPDATE_EMAIL_LANDING_URL}/`;
   return `Hi ${p.recipientDisplayName},
 
 ${first}
@@ -97,7 +91,7 @@ Updated by: ${p.updaterName}
 Updated at: ${p.updatedAtLine}
 
 Project Tracker
-${landing}`;
+${TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF}`;
 }
 
 /** When unset/false, task-comment emails are off. Set `TASK_COMMENT_EMAIL_ENABLED=true` to re-enable. */
@@ -3270,7 +3264,8 @@ async function handleNotifySubtaskAssigned(req, res) {
 }
 
 /**
- * POST { commentId } — comment author only; emails other assignees (assignee_01..10), not create_by.
+ * POST { commentId } — comment author only; emails other assignees (assignee_01..10) plus task
+ * creator (create_by) when they are not the author, deduped.
  */
 async function handleNotifyTaskComment(req, res) {
   if (req.method !== 'POST') {
@@ -3357,16 +3352,29 @@ async function handleNotifyTaskComment(req, res) {
     const taskName = (taskRow.task_name || '').toString().trim() || '(no title)';
     const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
     const subject = `${mailSubjectSingleLine(authorDisplay)} comments on task "${taskTitleForSubject}"`;
-    const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
+    const taskUrl = taskWebAppUrl(taskId);
     const { html, text } = buildTaskCommentNotificationBodies(commentRow.description, taskUrl);
 
     const authorNorm = authorStaffId.toLowerCase();
-    const assigneeIds = collectTaskAssigneeStaffIds(taskRow).filter(
-      (id) => String(id).trim().toLowerCase() !== authorNorm,
-    );
+    /** @type {Map<string, string>} normalized staff id -> canonical id string */
+    const recipientByNorm = new Map();
+    for (const id of collectTaskAssigneeStaffIds(taskRow)) {
+      const raw = String(id).trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (key === authorNorm) continue;
+      if (!recipientByNorm.has(key)) recipientByNorm.set(key, raw);
+    }
+    const creatorId = (taskRow.create_by || '').toString().trim();
+    if (creatorId) {
+      const key = creatorId.toLowerCase();
+      if (key !== authorNorm && !recipientByNorm.has(key)) {
+        recipientByNorm.set(key, creatorId);
+      }
+    }
     const results = [];
 
-    for (const staffUuid of assigneeIds) {
+    for (const staffUuid of recipientByNorm.values()) {
       const { data: s } = await supabase
         .from('staff')
         .select('email, name')
