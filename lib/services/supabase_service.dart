@@ -1937,9 +1937,10 @@ class SupabaseService {
       final lookup = updaterStaffLookupKey?.trim();
       if (lookup != null && lookup.isNotEmpty) {
         final staffId = await _staffRowIdForAssigneeKey(lookup);
-        if (staffId != null && staffId.isNotEmpty) {
-          map['update_by'] = staffId;
+        if (staffId == null || staffId.isEmpty) {
+          return 'Could not resolve staff id for update_by';
         }
+        map['update_by'] = staffId;
       }
       if (updateChangeDueReason) {
         final t = changeDueReason?.trim();

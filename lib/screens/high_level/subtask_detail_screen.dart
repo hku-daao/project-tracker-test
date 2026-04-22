@@ -543,11 +543,109 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     return true;
   }
 
+  static bool _dateOnlyEqual(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  static String _formatYmdNotify(DateTime d) {
+    return DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, d.day));
+  }
+
+  /// Field keys must match the backend allow-list for sub-task-updated emails.
+  List<Map<String, String>> _buildSubtaskUpdateNotifyChanges({
+    required SingularSubtask st,
+    required AppState state,
+    required String newName,
+    required String newDesc,
+    required int newPriority,
+    required DateTime? newStart,
+    required DateTime? newDue,
+  }) {
+    final out = <Map<String, String>>[];
+    if (st.subtaskName.trim() != newName.trim()) {
+      out.add({'field': 'subtaskName', 'value': newName.trim()});
+    }
+    if (st.description.trim() != newDesc.trim()) {
+      out.add({'field': 'description', 'value': newDesc.trim()});
+    }
+    if (st.priority != newPriority) {
+      out.add({
+        'field': 'priority',
+        'value': priorityToDisplayName(newPriority),
+      });
+    }
+    if (!_dateOnlyEqual(st.startDate, newStart)) {
+      out.add({
+        'field': 'startDate',
+        'value': newStart == null ? '—' : _formatYmdNotify(newStart),
+      });
+    }
+    if (!_dateOnlyEqual(st.dueDate, newDue)) {
+      out.add({
+        'field': 'dueDate',
+        'value': newDue == null ? '—' : _formatYmdNotify(newDue),
+      });
+    }
+    return out;
+  }
+
+  Future<void> _notifySubtaskCommentCreatorEmail(String commentId) async {
+    final id = commentId.trim();
+    if (id.isEmpty) return;
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token != null) {
+        final notifyErr = await BackendApi().notifySubtaskCommentAdded(
+          idToken: token,
+          commentId: id,
+        );
+        if (notifyErr != null && mounted) {
+          final short = notifyErr.length > 120
+              ? '${notifyErr.substring(0, 120)}…'
+              : notifyErr;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sub-task comment email: $short'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 4),
+            content: Text(
+              'Comment saved; notify email skipped (no sign-in token)',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sub-task comment email failed: $e'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   /// Returns `true` if a comment row was inserted. [suppressSuccessSnack] avoids a green snackbar (e.g. combined Update flow).
+  ///
+  /// When [suppressCreatorCommentEmail] is true (e.g. **Update** bundles the comment into
+  /// [BackendApi.notifySubtaskUpdated]), the dedicated creator comment email is not sent here.
   Future<bool> _postComment(
     AppState state,
     SingularSubtask st, {
     bool suppressSuccessSnack = false,
+    bool suppressCreatorCommentEmail = false,
   }) async {
     if (!_isAssignee(state, st) && !_isCreator(state, st)) {
       return false;
@@ -565,6 +663,12 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       if (ins.error != null) {
         showCopyableSnackBar(context, ins.error!, backgroundColor: Colors.orange);
         return false;
+      }
+      final newCommentId = ins.commentId?.trim();
+      if (newCommentId != null &&
+          newCommentId.isNotEmpty &&
+          !suppressCreatorCommentEmail) {
+        await _notifySubtaskCommentCreatorEmail(newCommentId);
       }
       _commentController.clear();
       await _load(rebindAttachments: false);
@@ -822,7 +926,6 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         showCopyableSnackBar(context, err, backgroundColor: Colors.orange);
         return false;
       }
-      await _notifySubtaskUpdatedEmail(st.id);
       if (!mounted) return false;
       await _load(rebindAttachments: false);
       if (!suppressSuccessSnack && mounted) {
@@ -870,6 +973,10 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         if (ins.error != null && mounted) {
           showCopyableSnackBar(context, ins.error!, backgroundColor: Colors.orange);
           return;
+        }
+        final cid = ins.commentId?.trim();
+        if (cid != null && cid.isNotEmpty) {
+          await _notifySubtaskCommentCreatorEmail(cid);
         }
       }
       final err = await SupabaseService.updateSubtaskRow(
@@ -1089,13 +1196,19 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     await _load(rebindAttachments: false);
   }
 
-  Future<void> _notifySubtaskUpdatedEmail(String subtaskId) async {
+  Future<void> _notifySubtaskUpdatedEmail(
+    String subtaskId, {
+    List<Map<String, String>>? changes,
+    String? commentAddedText,
+  }) async {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (token == null) return;
       final err = await BackendApi().notifySubtaskUpdated(
         idToken: token,
         subtaskId: subtaskId,
+        changes: changes,
+        commentAddedText: commentAddedText,
       );
       if (err != null && mounted) {
         if (err == BackendApi.notifySubtaskUpdatedBackendNotDeployed) {
@@ -1860,8 +1973,19 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                               !(canSetPic && multiTaskAssignees))
                       ? null
                       : () async {
+                          final pendingCommentSnap =
+                              _commentController.text.trim();
                           final hadComment = (assignee || creator) &&
-                              _commentController.text.trim().isNotEmpty;
+                              pendingCommentSnap.isNotEmpty;
+                          final changesForEmail = _buildSubtaskUpdateNotifyChanges(
+                            st: st,
+                            state: state,
+                            newName: _nameController.text.trim(),
+                            newDesc: _descController.text.trim(),
+                            newPriority: _editPriority,
+                            newStart: _editStart,
+                            newDue: _editDue,
+                          );
                           final metaOk = await _saveMetadata(
                             state,
                             st,
@@ -1870,14 +1994,40 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           );
                           var commentOk = false;
                           if (hadComment) {
+                            final token =
+                                await FirebaseAuth.instance.currentUser
+                                    ?.getIdToken();
+                            if (!mounted) return;
                             commentOk = await _postComment(
                               state,
                               st,
                               suppressSuccessSnack: true,
+                              suppressCreatorCommentEmail: token != null,
                             );
                           }
                           if (!mounted) return;
                           if (metaOk || commentOk) {
+                            final sk = state.userStaffAppId?.trim();
+                            if (sk != null && sk.isNotEmpty) {
+                              final touchErr =
+                                  await SupabaseService.updateSubtaskRow(
+                                subtaskId: st.id,
+                                updaterStaffLookupKey: sk,
+                              );
+                              if (touchErr != null && mounted) {
+                                showCopyableSnackBar(
+                                  context,
+                                  'Sub-task saved; email stamp skipped: $touchErr',
+                                  backgroundColor: Colors.orange,
+                                );
+                              }
+                            }
+                            await _notifySubtaskUpdatedEmail(
+                              st.id,
+                              changes: metaOk ? changesForEmail : const [],
+                              commentAddedText:
+                                  commentOk ? pendingCommentSnap : null,
+                            );
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(duration: const Duration(seconds: 4), content: Text('Sub-task is updated'),
                                 backgroundColor: Colors.green,

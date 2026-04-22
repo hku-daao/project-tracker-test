@@ -424,6 +424,36 @@ class BackendApi {
     }
   }
 
+  /// Emails the sub-task creator after a comment is saved (not when the creator comments on own sub-task).
+  /// Server: `POST /api/notify/subtask-comment` (`handleNotifySubtaskComment`). Uses the same
+  /// `TASK_COMMENT_EMAIL_ENABLED` flag as task-comment notifications.
+  Future<String?> notifySubtaskCommentAdded({
+    required String idToken,
+    required String commentId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/subtask-comment'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'commentId': commentId}),
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   /// Emails assignees and creator after a task row is updated (Update button). Requires Mailgun.
   ///
   /// [changes]: each `{ 'field': 'taskName'|'description'|... , 'value': '...' }` for email lines.
@@ -466,11 +496,24 @@ class BackendApi {
   }
 
   /// Emails sub-task assignees and creator after the sub-task row is updated (Update button). Requires Mailgun.
+  ///
+  /// [changes]: each `{ 'field': 'subtaskName'|'description'|... , 'value': '...' }` for email lines.
+  /// [commentAddedText]: when a sub-task comment was saved in the same update.
   Future<String?> notifySubtaskUpdated({
     required String idToken,
     required String subtaskId,
+    List<Map<String, String>>? changes,
+    String? commentAddedText,
   }) async {
     try {
+      final payload = <String, dynamic>{'subtaskId': subtaskId};
+      if (changes != null && changes.isNotEmpty) {
+        payload['changes'] = changes;
+      }
+      final c = commentAddedText?.trim();
+      if (c != null && c.isNotEmpty) {
+        payload['commentAddedText'] = c;
+      }
       final response = await http
           .post(
             url('/api/notify/subtask-updated'),
@@ -478,7 +521,7 @@ class BackendApi {
               'Authorization': 'Bearer $idToken',
               'Content-Type': 'application/json',
             },
-            body: jsonEncode({'subtaskId': subtaskId}),
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 60));
       if (response.statusCode == 200) return null;
