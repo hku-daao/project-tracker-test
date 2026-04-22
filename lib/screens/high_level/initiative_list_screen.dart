@@ -1114,9 +1114,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                     },
                     borderRadius: BorderRadius.circular(4),
                     child: InputDecorator(
-                      decoration: const InputDecoration(
+            decoration: const InputDecoration(
                         labelText: 'Filters',
-                        border: OutlineInputBorder(),
+              border: OutlineInputBorder(),
                         suffixIcon: Icon(Icons.arrow_drop_down),
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(
@@ -1272,12 +1272,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                       maxWidth: _kLandingTaskListMaxWidth,
                     ),
                     child: ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      children: [
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
                         if (filteredInitiatives.isNotEmpty) ...[
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8, bottom: 8),
-                            child: Text(
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 8),
+                        child: Text(
                               'Initiatives',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.bold),
@@ -1289,9 +1289,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                           ),
                         ],
                         if (filteredTasks.isNotEmpty) ...[
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16, bottom: 8),
-                            child: Text(
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16, bottom: 8),
+                        child: Text(
                               'Tasks (${filteredTasks.length})',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.bold),
@@ -1310,11 +1310,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                               'Deleted tasks',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(
-                                    fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.bold,
                                     color: Colors.grey,
-                                  ),
-                            ),
-                          ),
+                              ),
+                        ),
+                      ),
                           if (filteredTasks.isEmpty)
                             const Padding(
                               padding: EdgeInsets.only(bottom: 12),

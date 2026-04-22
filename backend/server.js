@@ -73,12 +73,12 @@ function buildTaskUpdatedAssigneeEmailHtml(p) {
   const defaultLine =
     '<span style="color:#000000;">The task has been updated.</span>';
   const firstBlock = topBlock.trim() ? topBlock : defaultLine;
-  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
+  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
 ${firstBlock}<br><br>
-<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
 Updated by: ${safeUpdater}<br><br>
 Updated at: ${safeUpdatedAt}<br><br>
-<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;color:#1565C0;">Project Tracker</a></div>`;
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:14px;color:#1565C0;">Project Tracker</a></div>`;
 }
 
 function buildTaskUpdatedAssigneeEmailText(p) {
