@@ -30,6 +30,76 @@ function subtaskWebAppUrl(subtaskId) {
   return `${base}/#/?subtask=${encodeURIComponent(id)}`;
 }
 
+/** Flutter web deep link for task detail (hash survives many email clients). */
+function taskWebAppUrl(taskId) {
+  const id = String(taskId || '').trim();
+  const base = String(PUBLIC_WEB_APP_URL || 'https://projecttracker.hku.hk').trim().replace(/\/$/, '');
+  return `${base}/#/?task=${encodeURIComponent(id)}`;
+}
+
+/** Footer link in “task updated” assignee emails (override with env). */
+const TASK_UPDATE_EMAIL_LANDING_URL = (
+  process.env.TASK_UPDATE_EMAIL_LANDING_URL || 'https://projecttracker.hku-ia.ai'
+)
+  .trim()
+  .replace(/\/$/, '');
+
+/** Allowed keys from Flutter for task-updated email lines (display label is server-side). */
+const TASK_UPDATE_NOTIFY_FIELD_LABELS = {
+  taskName: 'Task name',
+  description: 'Description',
+  assignees: 'Assignees',
+  priority: 'Priority',
+  startDate: 'Start date',
+  dueDate: 'Due date',
+};
+
+const TASK_UPDATE_NOTIFY_MAX_CHANGES = 8;
+const TASK_UPDATE_NOTIFY_MAX_VALUE_LEN = 4000;
+const TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN = 8000;
+
+/**
+ * @param {{ recipientDisplayName: string, changeLinesHtml: string, changeLinesText: string, commentLineHtml: string, commentLineText: string, taskName: string, taskUrl: string, updaterName: string, updatedAtLine: string }} p
+ */
+function buildTaskUpdatedAssigneeEmailHtml(p) {
+  const safeHi = escapeHtml(p.recipientDisplayName);
+  const safeTaskUrlAttr = escapeHtml(p.taskUrl);
+  const safeTitle = escapeHtml(p.taskName);
+  const safeUpdater = escapeHtml(p.updaterName);
+  const safeUpdatedAt = escapeHtml(p.updatedAtLine);
+  const landing = `${TASK_UPDATE_EMAIL_LANDING_URL}/`;
+  const safeLandingHref = escapeHtml(landing);
+  const topBlock = [p.changeLinesHtml, p.commentLineHtml].filter(Boolean).join('<br>');
+  const defaultLine =
+    '<span style="color:#000000;">The task has been updated.</span>';
+  const firstBlock = topBlock.trim() ? topBlock : defaultLine;
+  return `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;line-height:1.5;color:#000000;">Hi ${safeHi},<br><br>
+${firstBlock}<br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+Updated by: ${safeUpdater}<br><br>
+Updated at: ${safeUpdatedAt}<br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:12px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildTaskUpdatedAssigneeEmailText(p) {
+  const top = [p.changeLinesText, p.commentLineText].filter(Boolean).join('\n');
+  const first = top.trim() ? top : 'The task has been updated.';
+  const landing = `${TASK_UPDATE_EMAIL_LANDING_URL}/`;
+  return `Hi ${p.recipientDisplayName},
+
+${first}
+
+${p.taskName}
+${p.taskUrl}
+
+Updated by: ${p.updaterName}
+
+Updated at: ${p.updatedAtLine}
+
+Project Tracker
+${landing}`;
+}
+
 /** When unset/false, task-comment emails are off. Set `TASK_COMMENT_EMAIL_ENABLED=true` to re-enable. */
 const TASK_COMMENT_EMAIL_ENABLED =
   (process.env.TASK_COMMENT_EMAIL_ENABLED || '').trim().toLowerCase() === 'true';
@@ -3403,14 +3473,49 @@ async function handleNotifyTaskUpdated(req, res) {
     const taskName = (taskRow.task_name || '').toString().trim() || '(no title)';
     const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
     const subject = `Task updated - ${taskTitleForSubject}`;
-    const taskUrl = `${PUBLIC_WEB_APP_URL}/?task=${encodeURIComponent(taskId)}`;
+    const taskUrl = taskWebAppUrl(taskId);
     const updatedAtLine = formatUpdateDateTimeYmdHm(taskRow.update_date);
-    const landing = 'https://projecttracker.hku.hk/';
-    const safeLandingHref = escapeHtml(landing);
-    const safeTaskUrlAttr = escapeHtml(taskUrl);
-    const safeTitle = escapeHtml(taskName);
-    const safeUpdaterName = escapeHtml(updaterNameForBody);
-    const safeUpdatedAt = escapeHtml(updatedAtLine);
+
+    const changeLinesHtmlParts = [];
+    const changeLinesTextParts = [];
+    const rawChanges = Array.isArray(body.changes) ? body.changes : [];
+    let nCh = 0;
+    for (const row of rawChanges) {
+      if (nCh >= TASK_UPDATE_NOTIFY_MAX_CHANGES) break;
+      if (!row || typeof row !== 'object') continue;
+      const field = String(row.field || '').trim();
+      const label = TASK_UPDATE_NOTIFY_FIELD_LABELS[field];
+      if (!label) continue;
+      let value = row.value;
+      if (value == null) value = '';
+      value = String(value);
+      if (value.length > TASK_UPDATE_NOTIFY_MAX_VALUE_LEN) {
+        value = `${value.slice(0, TASK_UPDATE_NOTIFY_MAX_VALUE_LEN)}…`;
+      }
+      const safeVal = escapeHtml(value);
+      const safeLbl = escapeHtml(label);
+      changeLinesHtmlParts.push(
+        `<span style="color:#000000;">${safeLbl} is updated – ${safeVal}</span>`,
+      );
+      changeLinesTextParts.push(`${label} is updated – ${value}`);
+      nCh += 1;
+    }
+    let commentLineHtml = '';
+    let commentLineText = '';
+    const rawComment =
+      body.commentAddedText != null ? String(body.commentAddedText) : '';
+    const commentTrim = rawComment.trim();
+    if (commentTrim) {
+      let c = commentTrim;
+      if (c.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+        c = `${c.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+      }
+      const safeC = escapeHtml(c);
+      commentLineHtml = `<span style="color:#000000;">Comment is added – ${safeC}</span>`;
+      commentLineText = `Comment is added – ${c}`;
+    }
+    const changeLinesHtml = changeLinesHtmlParts.join('<br>');
+    const changeLinesText = changeLinesTextParts.join('\n');
 
     /** @type {Map<string, string>} normalized staff id -> canonical id string */
     const recipientByNorm = new Map();
@@ -3444,26 +3549,28 @@ async function handleNotifyTaskUpdated(req, res) {
         (s.display_name || '').trim() ||
         (s.name || '').trim() ||
         to;
-      const safeDisplayName = escapeHtml(displayNameForHi);
-      const html = `<div style="margin:0;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;">Hi ${safeDisplayName},<br><br>
-The task has been updated.<br><br>
-<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
-Updated by: ${safeUpdaterName}<br><br>
-Updated at: ${safeUpdatedAt}<br><br>
-<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
-      const text = `Hi ${displayNameForHi},
-
-The task has been updated.
-
-${taskName}
-${taskUrl}
-
-Updated by: ${updaterNameForBody}
-
-Updated at: ${updatedAtLine}
-
-Project Tracker
-${landing}`;
+      const html = buildTaskUpdatedAssigneeEmailHtml({
+        recipientDisplayName: displayNameForHi,
+        changeLinesHtml,
+        changeLinesText,
+        commentLineHtml,
+        commentLineText,
+        taskName,
+        taskUrl,
+        updaterName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const text = buildTaskUpdatedAssigneeEmailText({
+        recipientDisplayName: displayNameForHi,
+        changeLinesHtml,
+        changeLinesText,
+        commentLineHtml,
+        commentLineText,
+        taskName,
+        taskUrl,
+        updaterName: updaterNameForBody,
+        updatedAtLine,
+      });
       const r = await sendMailgun({
         to,
         subject,

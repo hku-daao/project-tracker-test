@@ -866,6 +866,63 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     return false;
   }
 
+  static String _formatYmdForNotify(DateTime d) {
+    return DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, d.day));
+  }
+
+  String _assigneeNamesCsvForNotify(AppState state, List<String> assigneeIds) {
+    if (assigneeIds.isEmpty) return '—';
+    return assigneeIds
+        .map((id) => (state.assigneeById(id)?.name ?? id).trim())
+        .where((s) => s.isNotEmpty)
+        .join(', ');
+  }
+
+  /// Field keys must match the backend allow-list for task-updated emails.
+  List<Map<String, String>> _buildTaskUpdateNotifyChanges({
+    required Task task,
+    required AppState state,
+    required List<String> newAssigneeIds,
+    required int newPriority,
+    required DateTime? newStart,
+    required DateTime? newDue,
+    required String newName,
+    required String newDesc,
+  }) {
+    final out = <Map<String, String>>[];
+    if (task.name.trim() != newName.trim()) {
+      out.add({'field': 'taskName', 'value': newName.trim()});
+    }
+    if (task.description.trim() != newDesc.trim()) {
+      out.add({'field': 'description', 'value': newDesc.trim()});
+    }
+    if (!_assigneeSetsEqual(List<String>.from(task.assigneeIds), newAssigneeIds)) {
+      out.add({
+        'field': 'assignees',
+        'value': _assigneeNamesCsvForNotify(state, newAssigneeIds),
+      });
+    }
+    if (task.priority != newPriority) {
+      out.add({
+        'field': 'priority',
+        'value': priorityToDisplayName(newPriority),
+      });
+    }
+    if (!_dateOnlyEqual(task.startDate, newStart)) {
+      out.add({
+        'field': 'startDate',
+        'value': newStart == null ? '—' : _formatYmdForNotify(newStart),
+      });
+    }
+    if (!_dateOnlyEqual(task.endDate, newDue)) {
+      out.add({
+        'field': 'dueDate',
+        'value': newDue == null ? '—' : _formatYmdForNotify(newDue),
+      });
+    }
+    return out;
+  }
+
   String? _firstTaskAttachmentUrl() {
     for (final e in _taskAttachments) {
       final u = e.urlController.text.trim();
@@ -1230,6 +1287,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     AppState state,
     Task task, {
     String commentSaveErrorPrefix = 'Task updated, but comment was not saved:',
+    bool suppressNotificationEmail = false,
   }) async {
     final commentBody = _commentController.text.trim();
     if (commentBody.isEmpty) return true;
@@ -1253,7 +1311,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     _commentController.clear();
     await _loadTableComments();
     final newCommentId = cResult.commentId?.trim();
-    if (newCommentId != null && newCommentId.isNotEmpty) {
+    if (newCommentId != null &&
+        newCommentId.isNotEmpty &&
+        !suppressNotificationEmail) {
       try {
         final token = await FirebaseAuth.instance.currentUser?.getIdToken();
         if (token != null) {
@@ -1512,12 +1572,40 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         }
       }
 
-      try {
-        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-        if (token != null) {
+      final pendingCommentSnap = _commentController.text.trim();
+      final changesForEmail = _buildTaskUpdateNotifyChanges(
+        task: task,
+        state: state,
+        newAssigneeIds: assigneeIdsForState,
+        newPriority: _localPriority,
+        newStart: _startDate,
+        newDue: _dueDate,
+        newName: _nameController.text,
+        newDesc: _descController.text,
+      );
+
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (!mounted) return;
+
+      final commentInsertedOk = await _insertPendingCommentFromController(
+        state,
+        task,
+        suppressNotificationEmail: token != null,
+      );
+      if (!mounted) return;
+
+      final String? commentForEmail =
+          pendingCommentSnap.isNotEmpty && commentInsertedOk
+              ? pendingCommentSnap
+              : null;
+
+      if (token != null) {
+        try {
           final notifyErr = await BackendApi().notifyTaskUpdated(
             idToken: token,
             taskId: task.id,
+            changes: changesForEmail,
+            commentAddedText: commentForEmail,
           );
           if (notifyErr != null && mounted) {
             final short = notifyErr.length > 120
@@ -1531,21 +1619,19 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
               ),
             );
           }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Update email failed: $e'),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 4),
-            ),
-          );
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Update email failed: $e'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
         }
       }
       if (!mounted) return;
-
-      await _insertPendingCommentFromController(state, task);
 
       final lk = state.userStaffAppId?.trim();
       String? updaterName;

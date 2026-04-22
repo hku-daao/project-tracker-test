@@ -423,11 +423,24 @@ class BackendApi {
   }
 
   /// Emails assignees and creator after a task row is updated (Update button). Requires Mailgun.
+  ///
+  /// [changes]: each `{ 'field': 'taskName'|'description'|... , 'value': '...' }` for email lines.
+  /// [commentAddedText]: when a comment was saved in the same update, avoids a duplicate comment-only email.
   Future<String?> notifyTaskUpdated({
     required String idToken,
     required String taskId,
+    List<Map<String, String>>? changes,
+    String? commentAddedText,
   }) async {
     try {
+      final payload = <String, dynamic>{'taskId': taskId};
+      if (changes != null && changes.isNotEmpty) {
+        payload['changes'] = changes;
+      }
+      final c = commentAddedText?.trim();
+      if (c != null && c.isNotEmpty) {
+        payload['commentAddedText'] = c;
+      }
       final response = await http
           .post(
             url('/api/notify/task-updated'),
@@ -435,7 +448,7 @@ class BackendApi {
               'Authorization': 'Bearer $idToken',
               'Content-Type': 'application/json',
             },
-            body: jsonEncode({'taskId': taskId}),
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 60));
       if (response.statusCode == 200) return null;
