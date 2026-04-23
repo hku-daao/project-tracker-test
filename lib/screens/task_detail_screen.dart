@@ -966,6 +966,25 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     return '—';
   }
 
+  /// Read-only assignee names for non-creator view (prefers [StaffForAssignment.name] via [_labelForAssigneeId]).
+  String _singularTaskAssigneesDisplayLine(Task task, AppState state) {
+    if (task.assigneeIds.isEmpty) return '—';
+    final names = task.assigneeIds
+        .map((id) => _labelForAssigneeId(id, state).trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+    if (names.isEmpty) return '—';
+    return names.join(', ');
+  }
+
+  /// Read-only PIC label for non-creator view ([task.pic] resolved like assignees).
+  String _singularTaskPicDisplayLine(Task task, AppState state) {
+    final raw = task.pic?.trim();
+    if (raw == null || raw.isEmpty) return '—';
+    final n = _labelForAssigneeId(raw, state).trim();
+    return n.isEmpty ? '—' : n;
+  }
+
   String _normalizeLocalStatus(String? db) {
     if (db == null || db.trim().isEmpty) return 'Incomplete';
     final l = db.trim().toLowerCase();
@@ -2137,39 +2156,89 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                         ),
                                   ),
                                   const SizedBox(height: 8),
-                                  TextField(
-                                    controller: _nameController,
-                                    readOnly: _saving ||
-                                        !_canEditSingularTaskMetadata(
-                                          state,
-                                          task,
-                                        ),
-                                    enableInteractiveSelection:
-                                        _isCreator(state, task) ||
-                                            _isTaskAssignee(state, task),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Task name',
-                                      border: OutlineInputBorder(),
+                                  if (_isCreator(state, task)) ...[
+                                    TextField(
+                                      controller: _nameController,
+                                      readOnly: _saving ||
+                                          !_canEditSingularTaskMetadata(
+                                            state,
+                                            task,
+                                          ),
+                                      enableInteractiveSelection:
+                                          _isCreator(state, task) ||
+                                              _isTaskAssignee(state, task),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Task name',
+                                        border: OutlineInputBorder(),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  TextField(
-                                    controller: _descController,
-                                    readOnly: _saving ||
-                                        !_canEditSingularTaskMetadata(
-                                          state,
-                                          task,
-                                        ),
-                                    enableInteractiveSelection:
-                                        _isCreator(state, task) ||
-                                            _isTaskAssignee(state, task),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Description',
-                                      border: OutlineInputBorder(),
-                                      alignLabelWithHint: true,
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: _descController,
+                                      readOnly: _saving ||
+                                          !_canEditSingularTaskMetadata(
+                                            state,
+                                            task,
+                                          ),
+                                      enableInteractiveSelection:
+                                          _isCreator(state, task) ||
+                                              _isTaskAssignee(state, task),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Description',
+                                        border: OutlineInputBorder(),
+                                        alignLabelWithHint: true,
+                                      ),
+                                      maxLines: 4,
                                     ),
-                                    maxLines: 4,
-                                  ),
+                                  ] else ...[
+                                    Text(
+                                      'Task assignee(s): ${_singularTaskAssigneesDisplayLine(task, state)}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'PIC: ${_singularTaskPicDisplayLine(task, state)}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: _nameController,
+                                      readOnly: true,
+                                      enableInteractiveSelection:
+                                          _isTaskAssignee(state, task),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Task name',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: _descController,
+                                      readOnly: true,
+                                      enableInteractiveSelection:
+                                          _isTaskAssignee(state, task),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Description',
+                                        border: OutlineInputBorder(),
+                                        alignLabelWithHint: true,
+                                      ),
+                                      maxLines: 4,
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -2186,6 +2255,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
+                              if (_canEditSingularTaskMetadata(state, task)) ...[
                               if (!SupabaseConfig.isConfigured) ...[
                                 Text(
                                   'Assignees',
@@ -2450,6 +2520,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                     child: CircularProgressIndicator(),
                                   ),
                                 ),
+                              ],
                               const SizedBox(height: 16),
                               Text(
                                 'Priority',
