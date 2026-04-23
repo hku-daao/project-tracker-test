@@ -63,7 +63,7 @@ class InitiativeListScreen extends StatefulWidget {
 }
 
 class _InitiativeListScreenState extends State<InitiativeListScreen> {
-  /// Landing list column: [TaskListCard] + search field alignment.
+  /// Landing list column max width ([TaskListCard] + search below filter chips).
   static const double _kLandingTaskListMaxWidth = 1100;
 
   /// Max width for team / status filter fields (readable on wide layouts).
@@ -620,6 +620,32 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     );
   }
 
+  /// Landing Tasks tab — same width as the task list column below.
+  Widget _buildLandingTaskSearchField() {
+    return TextField(
+      controller: _taskSearchController,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        labelText: 'Search tasks',
+        hintText: 'Search by task name, description',
+        border: const OutlineInputBorder(),
+        isDense: true,
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _taskSearchController.text.isNotEmpty
+            ? IconButton(
+                tooltip: 'Clear search',
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  setState(() {
+                    _taskSearchController.clear();
+                  });
+                },
+              )
+            : null,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_filterType == 'my') {
@@ -809,11 +835,6 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             builder: (context, constraints) {
               final menuMaxHeight = MediaQuery.sizeOf(context).height * 0.65;
 
-              /// Same max width as [ListView] / [TaskListCard] column below.
-              final listColumnMaxWidth = min(
-                _kLandingTaskListMaxWidth,
-                constraints.maxWidth,
-              );
               final wideFilterWidth = min(
                 280.0,
                 constraints.maxWidth * 0.38,
@@ -1135,34 +1156,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 },
               );
 
-              final searchField = TextField(
-                controller: _taskSearchController,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: 'Search tasks',
-                  hintText: 'Search by task name, description',
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _taskSearchController.text.isNotEmpty
-                      ? IconButton(
-                          tooltip: 'Clear search',
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              _taskSearchController.clear();
-                            });
-                          },
-                        )
-                      : null,
-                ),
-              );
-
               final filterWidth = constraints.maxWidth < 600
                   ? min(_filterFieldMaxWidth, constraints.maxWidth)
                   : wideFilterWidth;
 
-              /// Filters stay left; search is centered and matches the list column below.
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1171,16 +1168,6 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: filterWidth),
                       child: filterMenu,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: listColumnMaxWidth),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: searchField,
-                      ),
                     ),
                   ),
                 ],
@@ -1259,6 +1246,23 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               ),
             ),
           ),
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final listColumnMaxWidth = min(
+              _kLandingTaskListMaxWidth,
+              constraints.maxWidth,
+            );
+            return Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: listColumnMaxWidth),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: _buildLandingTaskSearchField(),
+                ),
+              ),
+            );
+          },
         ),
         Expanded(
           child:
