@@ -1970,11 +1970,13 @@ class SupabaseService {
   static Future<String?> markSubtaskDeleted({
     required String subtaskId,
     String? updaterStaffLookupKey,
+    bool bumpSubtaskRowAuditFields = true,
   }) async {
     return updateSubtaskRow(
       subtaskId: subtaskId,
       status: 'Deleted',
       updaterStaffLookupKey: updaterStaffLookupKey,
+      bumpSubtaskRowAuditFields: bumpSubtaskRowAuditFields,
     );
   }
 

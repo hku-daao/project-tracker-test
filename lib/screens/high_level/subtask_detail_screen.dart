@@ -475,13 +475,14 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     return _uuidEq(_myStaffUuid, id);
   }
 
-  /// [onTap] null = read-only (same visuals as creator, no interaction).
+  /// Dimmed when [enabled] is false; no tap target (read-only), same look as task detail opacity.
   Widget _priorityToggleButton({
     required String label,
     required bool selected,
-    VoidCallback? onTap,
+    required bool enabled,
+    required VoidCallback onTap,
   }) {
-    final inner = Container(
+    final body = Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
@@ -498,16 +499,19 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       ),
     );
     return Expanded(
-      child: Material(
-        color: selected ? _selGreen : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        child: onTap != null
-            ? InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(8),
-                child: inner,
-              )
-            : inner,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: Material(
+          color: selected ? _selGreen : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          child: enabled
+              ? InkWell(
+                  onTap: onTap,
+                  borderRadius: BorderRadius.circular(8),
+                  child: body,
+                )
+              : body,
+        ),
       ),
     );
   }
@@ -978,11 +982,14 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           await _notifySubtaskCommentCreatorEmail(cid);
         }
       }
+      final subCreator = _isCreator(state, st);
       final err = await SupabaseService.updateSubtaskRow(
         subtaskId: st.id,
         submission: 'Submitted',
-        updaterStaffLookupKey: state.userStaffAppId,
+        updaterStaffLookupKey:
+            subCreator ? state.userStaffAppId : null,
         stampSubmitDateNow: true,
+        bumpSubtaskRowAuditFields: subCreator,
       );
       if (!mounted) return;
       if (err != null) {
@@ -1027,12 +1034,15 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     setState(() => _saving = true);
     try {
       final completedAt = st.submitDate ?? DateTime.now().toUtc();
+      final subCreator = _isCreator(state, st);
       final err = await SupabaseService.updateSubtaskRow(
         subtaskId: st.id,
         status: 'Completed',
         submission: 'Accepted',
-        updaterStaffLookupKey: state.userStaffAppId,
+        updaterStaffLookupKey:
+            subCreator ? state.userStaffAppId : null,
         completionDateAt: completedAt,
+        bumpSubtaskRowAuditFields: subCreator,
       );
       if (!mounted) return;
       if (err != null) {
@@ -1070,12 +1080,15 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
   Future<void> _return(AppState state, SingularSubtask st) async {
     setState(() => _saving = true);
     try {
+      final subCreator = _isCreator(state, st);
       final err = await SupabaseService.updateSubtaskRow(
         subtaskId: st.id,
         status: 'Incomplete',
         submission: 'Returned',
-        updaterStaffLookupKey: state.userStaffAppId,
+        updaterStaffLookupKey:
+            subCreator ? state.userStaffAppId : null,
         clearCompletionDate: true,
+        bumpSubtaskRowAuditFields: subCreator,
       );
       if (!mounted) return;
       if (err != null) {
@@ -1368,9 +1381,12 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     if (go != true || !mounted) return;
     setState(() => _saving = true);
     try {
+      final subCreator = _isCreator(state, st);
       final err = await SupabaseService.markSubtaskDeleted(
         subtaskId: st.id,
-        updaterStaffLookupKey: state.userStaffAppId,
+        updaterStaffLookupKey:
+            subCreator ? state.userStaffAppId : null,
+        bumpSubtaskRowAuditFields: subCreator,
       );
       if (!mounted) return;
       if (err != null) {
@@ -1566,11 +1582,10 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                               selected: creator
                                   ? (_editPriority == priorityStandard)
                                   : (st.priority == priorityStandard),
-                              onTap: creator && !_saving
-                                  ? () => setState(
-                                        () => _editPriority = priorityStandard,
-                                      )
-                                  : null,
+                              enabled: creator && !_saving,
+                              onTap: () => setState(
+                                () => _editPriority = priorityStandard,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             _priorityToggleButton(
@@ -1578,11 +1593,10 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                               selected: creator
                                   ? (_editPriority == priorityUrgent)
                                   : (st.priority == priorityUrgent),
-                              onTap: creator && !_saving
-                                  ? () => setState(
-                                        () => _editPriority = priorityUrgent,
-                                      )
-                                  : null,
+                              enabled: creator && !_saving,
+                              onTap: () => setState(
+                                () => _editPriority = priorityUrgent,
+                              ),
                             ),
                           ],
                         ),

@@ -481,8 +481,8 @@ class _TaskListCardState extends State<TaskListCard> {
                               const SizedBox(height: 4),
                               Text(
                                 maxSubDue != null
-                                    ? 'Maximum sub-task due date: ${DateFormat('yyyy-MM-dd').format(maxSubDue)}'
-                                    : 'Maximum sub-task due date: —',
+                                    ? 'Max. sub-task due: ${DateFormat('yyyy-MM-dd').format(maxSubDue)}'
+                                    : 'Max. sub-task due: —',
                                 style: listTextVariant,
                               ),
                             ],
