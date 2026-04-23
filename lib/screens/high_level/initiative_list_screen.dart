@@ -1013,8 +1013,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                     });
                                     _persistLandingFilters();
                                   },
-                                  child: Text(team.name),
-                                ),
+                  child: Text(team.name),
+                ),
                               if (_selectedTeamIds.length == 1) ...[
                                 const Divider(height: 24),
                                 Padding(
@@ -1155,7 +1155,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                               const Divider(height: 24),
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                                child: Text(
+                  child: Text(
                                   'Submission',
                                   style: Theme.of(context).textTheme.titleSmall
                                       ?.copyWith(fontWeight: FontWeight.w600),
@@ -1342,10 +1342,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             alignment: Alignment.centerLeft,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
+                  children: [
                   _buildTaskFilterChip(
                     value: 'all',
                     label: 'All',
@@ -1370,7 +1370,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                     selectedLabelColor: Colors.black87,
                     leading: _myCreatedTasksFilterIcon(filterKey == 'created'),
                   ),
-                  Padding(
+                      Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: SizedBox(
                       height: 32,
@@ -1383,13 +1383,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                   ),
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: Text(
+                        child: Text(
                       'Sort',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
+                              ),
+                        ),
                       ),
-                    ),
-                  ),
                   for (final col in TaskListSortColumn.values)
                     _buildSortColumnControl(col),
                 ],
@@ -1431,12 +1431,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                             children: [
                               if (filteredInitiatives.isNotEmpty) ...[
-                                Padding(
+                      Padding(
                                   padding: const EdgeInsets.only(
                                     top: 8,
                                     bottom: 8,
                                   ),
-                                  child: Text(
+                        child: Text(
                                     'Initiatives',
                                     style: Theme.of(context)
                                         .textTheme
@@ -1484,11 +1484,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                         .textTheme
                                         .titleMedium
                                         ?.copyWith(
-                                      fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.bold,
                                       color: Colors.grey,
-                                    ),
-                                  ),
-                                ),
+                              ),
+                        ),
+                      ),
                                 if (filteredTasks.isEmpty)
                                   const Padding(
                                     padding: EdgeInsets.only(bottom: 12),

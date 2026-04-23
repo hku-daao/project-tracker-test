@@ -60,7 +60,7 @@ Future<void> _openFeedbackForm(BuildContext context) async {
   if (!context.mounted) return;
   if (!ok) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(duration: const Duration(seconds: 4), content: Text('Could not open feedback form')),
+      const SnackBar(duration: Duration(seconds: 4), content: Text('Could not open feedback form')),
     );
     return;
   }
@@ -163,6 +163,39 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  static const String _kImportantNoticeBody =
+      'Do not store donor, prospect, or alumni data in Project Tracker, '
+      'including personal details, giving history, or engagement records. '
+      'Use Project Tracker only for task-based entries such as "prepare donor report" '
+      'or "update alumni engagement plan", and link to the appropriate secure system—'
+      'such as the institutional CRM or advancement intelligence platform—where the '
+      'actual information is maintained.';
+
+  void _closeDrawerThenImportantNotice() {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Important Notice'),
+          content: SingleChildScrollView(
+            child: Text(
+              _kImportantNoticeBody,
+              style: Theme.of(ctx).textTheme.bodyLarge,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
   Future<void> _closeDrawerThenSignOut() async {
     Navigator.of(context).pop();
     if (!mounted) return;
@@ -232,6 +265,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: const Icon(Icons.feedback_outlined),
                 title: const Text('Feedback'),
                 onTap: _closeDrawerThenFeedback,
+              ),
+              ListTile(
+                leading: const Icon(Icons.error_outline),
+                title: const Text('Important Notice'),
+                onTap: _closeDrawerThenImportantNotice,
               ),
               if (kIsWeb)
                 ListTile(
