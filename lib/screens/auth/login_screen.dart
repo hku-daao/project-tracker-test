@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../utils/copyable_snackbar.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -94,21 +96,17 @@ class _LoginScreenState extends State<LoginScreen> {
         default:
           message = e.message ?? 'Sign in failed';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: Text(message),
-          backgroundColor: Colors.red.shade700,
-        ),
+      showCopyableSnackBar(
+        context,
+        message,
+        backgroundColor: Colors.red.shade700,
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 4),
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red.shade700,
-          ),
+        showCopyableSnackBar(
+          context,
+          'Error: $e',
+          backgroundColor: Colors.red.shade700,
         );
       }
     } finally {

@@ -18,6 +18,9 @@ import '../utils/attachment_file_pick.dart';
 class FirebaseAttachmentUploadService {
   FirebaseAttachmentUploadService._();
 
+  /// Root prefix in Firebase Storage (no spaces — Storage rules path segments cannot contain spaces).
+  static const String _storageAppRoot = 'project_tracker';
+
   static const int _maxBytes = 50 * 1024 * 1024;
 
   static String? _guardSync() {
@@ -237,7 +240,8 @@ class FirebaseAttachmentUploadService {
   }) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final objectName = _storageObjectName(originalFilename);
-    final path = 'users/$uid/$storageRelativeFolder/$objectName';
+    final path =
+        '$_storageAppRoot/users/$uid/$storageRelativeFolder/$objectName';
     final contentType = _contentTypeForFilename(originalFilename);
     try {
       if (kIsWeb) {

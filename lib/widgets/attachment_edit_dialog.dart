@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../utils/copyable_snackbar.dart';
+
 typedef AttachmentPickUpload = Future<({String? url, String? label, String? error})> Function();
 
 /// Edit description and link; optional **Replace with file from device** uploads to Firebase Storage.
@@ -62,12 +64,10 @@ Future<({String description, String url})?> showAttachmentEditDialog(
                       final r = await pickReplaceFromDevice();
                       if (!ctx.mounted) return;
                       if (r.error != null && r.error!.isNotEmpty) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            duration: const Duration(seconds: 4),
-                            content: Text(r.error!),
-                            backgroundColor: Colors.orange,
-                          ),
+                        showCopyableSnackBar(
+                          ctx,
+                          r.error!,
+                          backgroundColor: Colors.orange,
                         );
                         return;
                       }

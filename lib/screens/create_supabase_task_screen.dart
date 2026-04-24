@@ -79,11 +79,9 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
     if (selected &&
         _selectedStaffIds.length >= _maxAssignees &&
         !_selectedStaffIds.contains(id)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: Text('At most $_maxAssignees assignees (staff.id)'),
-        ),
+      showCopyableSnackBar(
+        context,
+        'At most $_maxAssignees assignees (staff.id)',
       );
       return;
     }
@@ -127,12 +125,10 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
     if (_startDate != null &&
         _dueDate != null &&
         _dateOnlyCompare(_startDate!, _dueDate!) > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: const Text('Start date cannot be after due date'),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Start date cannot be after due date',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -162,12 +158,10 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 4),
-        content: const Text('Task row inserted into Supabase'),
-        backgroundColor: Colors.green,
-      ),
+    showCopyableSnackBar(
+      context,
+      'Task row inserted into Supabase',
+      backgroundColor: Colors.green,
     );
     _taskNameController.clear();
     _descController.clear();

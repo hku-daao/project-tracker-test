@@ -500,12 +500,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   ) async {
     final state = context.read<AppState>();
     if (!_canMarkTaskDeleted(state)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text(
-            'Only the task creator or a director can delete comments',
-          ),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Only the task creator or a director can delete comments',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -707,14 +705,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     } catch (e, st) {
       debugPrint('reload task attachments: $e\n$st');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Could not reload attachments: ${e.toString().length > 120 ? '${e.toString().substring(0, 120)}…' : e}',
-            ),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 4),
-          ),
+        showCopyableSnackBar(
+          context,
+          'Could not reload attachments: $e',
+          backgroundColor: Colors.orange,
         );
       }
     }
@@ -733,13 +727,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     );
     if (!mounted) return;
     if (r.error != null && r.error!.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: Text(r.error!),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      showCopyableSnackBar(context, r.error!, backgroundColor: Colors.orange);
       return;
     }
     if (r.url == null) return;
@@ -1018,14 +1006,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             onTap: enabled
                 ? onTap
                 : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        duration: const Duration(seconds: 4),
-                        content: Text(
-                          disabledMessage ??
-                              'You do not have permission for this action',
-                        ),
-                      ),
+                    showCopyableSnackBar(
+                      context,
+                      disabledMessage ??
+                          'You do not have permission for this action',
                     );
                   },
             borderRadius: BorderRadius.circular(8),
@@ -1342,34 +1326,25 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             commentId: newCommentId,
           );
           if (notifyErr != null && mounted) {
-            final short = notifyErr.length > 120
-                ? '${notifyErr.substring(0, 120)}…'
-                : notifyErr;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Comment email: $short'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Comment email: $notifyErr',
+              backgroundColor: Colors.orange,
             );
           }
         } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(duration: const Duration(seconds: 4), content: Text(
-                'Comment saved; notify email skipped (no sign-in token)',
-              ),
-              backgroundColor: Colors.orange,
-            ),
+          showCopyableSnackBar(
+            context,
+            'Comment saved; notify email skipped (no sign-in token)',
+            backgroundColor: Colors.orange,
           );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Comment email failed: $e'),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 4),
-            ),
+          showCopyableSnackBar(
+            context,
+            'Comment email failed: $e',
+            backgroundColor: Colors.orange,
           );
         }
       }
@@ -1394,10 +1369,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       return;
     }
     if (_commentController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated'),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Nothing is updated',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -1410,10 +1385,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       );
       if (!mounted) return;
       if (ok) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(duration: const Duration(seconds: 4), content: Text('Task is updated'),
-            backgroundColor: Colors.green,
-          ),
+        showCopyableSnackBar(
+          context,
+          'Task is updated',
+          backgroundColor: Colors.green,
         );
       }
     } finally {
@@ -1440,10 +1415,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     if (_startDate != null &&
         _dueDate != null &&
         _dateOnlyCompare(_startDate!, _dueDate!) > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Start date cannot be after due date'),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Start date cannot be after due date',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -1454,12 +1429,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           if (mounted) _changeDueReasonFocusNode.requestFocus();
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text(
-            'Enter a reason when the start/due span exceeds the allowed working days for this priority',
-          ),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Enter a reason when the start/due span exceeds the allowed working days for this priority',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -1473,17 +1446,13 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     late final List<String> directorIds;
     if (SupabaseConfig.isConfigured && useSupabasePicker) {
       if (_selectedAssigneeIds.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(duration: const Duration(seconds: 4), content: Text('Select at least one assignee')),
-        );
+        showCopyableSnackBar(context, 'Select at least one assignee');
         return;
       }
       directorIds = _selectedAssigneeIds.toList();
     } else if (useServer) {
       if (_selectedAssigneeIds.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(duration: const Duration(seconds: 4), content: Text('Select at least one assignee')),
-        );
+        showCopyableSnackBar(context, 'Select at least one assignee');
         return;
       }
       directorIds = _selectedAssigneeIds.toList();
@@ -1492,11 +1461,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     } else {
       final self = state.userStaffAppId;
       if (self == null || self.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(duration: const Duration(seconds: 4), content: Text(
-              'Select team(s) and assignees, or configure Supabase',
-            ),
-          ),
+        showCopyableSnackBar(
+          context,
+          'Select team(s) and assignees, or configure Supabase',
         );
         return;
       }
@@ -1504,11 +1471,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     }
 
     if (directorIds.length > _maxAssignees) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: Text('At most $_maxAssignees assignees'),
-        ),
+      showCopyableSnackBar(
+        context,
+        'At most $_maxAssignees assignees',
       );
       return;
     }
@@ -1518,14 +1483,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       picKey = directorIds.first;
     } else {
       if (_picAssigneeId == null || !directorIds.contains(_picAssigneeId)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 4),
-            content: const Text(
-              'Select a PIC (person in charge) from the assignees',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        showCopyableSnackBar(
+          context,
+          'Select a PIC (person in charge) from the assignees',
+          backgroundColor: Colors.orange,
         );
         return;
       }
@@ -1543,9 +1504,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final pendingComment = _commentController.text.trim().isNotEmpty;
     if (!pendingComment &&
         !_taskCoreOrAttachmentsChanged(task, takeForCompare, picKey)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated')),
-      );
+      showCopyableSnackBar(context, 'Nothing is updated');
       return;
     }
 
@@ -1633,25 +1592,18 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             commentAddedText: commentForEmail,
           );
           if (notifyErr != null && mounted) {
-            final short = notifyErr.length > 120
-                ? '${notifyErr.substring(0, 120)}…'
-                : notifyErr;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Task saved; update email: $short'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Task saved; update email: $notifyErr',
+              backgroundColor: Colors.orange,
             );
           }
         } catch (e) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Update email failed: $e'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Update email failed: $e',
+              backgroundColor: Colors.orange,
             );
           }
         }
@@ -1685,10 +1637,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
               needsDueReason ? _changeDueReasonController.text.trim() : null,
         ),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Task is updated'),
-          backgroundColor: Colors.green,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Task is updated',
+        backgroundColor: Colors.green,
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1708,9 +1660,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final pendingComment = _commentController.text.trim().isNotEmpty;
     final attachmentsDirty = _taskAttachmentsDirty();
     if (!pendingComment && !attachmentsDirty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Nothing is updated')),
-      );
+      showCopyableSnackBar(context, 'Nothing is updated');
       return;
     }
     setState(() => _saving = true);
@@ -1739,10 +1689,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         if (!commentOk) return;
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(duration: const Duration(seconds: 4), content: Text('Task is updated'),
-            backgroundColor: Colors.green,
-          ),
+        showCopyableSnackBar(
+          context,
+          'Task is updated',
+          backgroundColor: Colors.green,
         );
       }
     } finally {
@@ -1754,12 +1704,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final link = _firstTaskAttachmentUrl()?.trim() ?? '';
     final subComment = _commentController.text.trim();
     if (link.isEmpty && subComment.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text(
-            'Add a hyperlink in Attachment and/or a comment above before submitting',
-          ),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Add a hyperlink in Attachment and/or a comment above before submitting',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -1823,13 +1771,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             taskId: task.id,
           );
           if (ne != null && mounted) {
-            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Submitted; email: $short'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Submitted; email: $ne',
+              backgroundColor: Colors.orange,
             );
           }
         }
@@ -1847,10 +1792,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           updateDate: DateTime.now(),
         ),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Submission sent'),
-          backgroundColor: Colors.green,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Submission sent',
+        backgroundColor: Colors.green,
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1894,13 +1839,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             taskId: task.id,
           );
           if (ne != null && mounted) {
-            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Accept email: $short'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Accept email: $ne',
+              backgroundColor: Colors.orange,
             );
           }
         }
@@ -1916,10 +1858,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           updateDate: DateTime.now(),
         ),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Task accepted'),
-          backgroundColor: Colors.green,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Task accepted',
+        backgroundColor: Colors.green,
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1962,13 +1904,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             taskId: task.id,
           );
           if (ne != null && mounted) {
-            final short = ne.length > 120 ? '${ne.substring(0, 120)}…' : ne;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Return email: $short'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
-              ),
+            showCopyableSnackBar(
+              context,
+              'Return email: $ne',
+              backgroundColor: Colors.orange,
             );
           }
         }
@@ -1984,10 +1923,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
           updateDate: DateTime.now(),
         ),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Task returned to PIC'),
-          backgroundColor: Colors.green,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Task returned to PIC',
+        backgroundColor: Colors.green,
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2036,10 +1975,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       state.replaceTask(
         task.copyWith(dbStatus: 'Deleted', status: TaskStatus.todo),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Task marked as deleted'),
-          backgroundColor: Colors.green,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Task marked as deleted',
+        backgroundColor: Colors.green,
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2055,10 +1994,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     );
     if (d == null || !mounted) return;
     if (_dueDate != null && _dateOnlyCompare(d, _dueDate!) > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Start date cannot be after due date'),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Start date cannot be after due date',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -2074,10 +2013,10 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     );
     if (d == null || !mounted) return;
     if (_startDate != null && _dateOnlyCompare(_startDate!, d) > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Due date cannot be before start date'),
-          backgroundColor: Colors.orange,
-        ),
+      showCopyableSnackBar(
+        context,
+        'Due date cannot be before start date',
+        backgroundColor: Colors.orange,
       );
       return;
     }
@@ -2841,13 +2780,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                                       .urlController.text
                                                       .trim();
                                                   if (u.isEmpty) {
-                                                    ScaffoldMessenger.of(
+                                                    showCopyableSnackBar(
                                                       context,
-                                                    ).showSnackBar(
-                                                      const SnackBar(duration: const Duration(seconds: 4), content: Text(
-                                                          'Enter a link first',
-                                                        ),
-                                                      ),
+                                                      'Enter a link first',
                                                     );
                                                     return;
                                                   }
@@ -3445,9 +3380,7 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
               state.deleteTask(task.id, deletedByName);
               Navigator.pop(ctx);
               Navigator.pop(context);
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(duration: const Duration(seconds: 4), content: Text('Task deleted')));
+              showCopyableSnackBar(context, 'Task deleted');
             },
             child: const Text('Delete'),
           ),
@@ -3470,9 +3403,7 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
       body: body,
     );
     _commentController.clear();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(duration: const Duration(seconds: 4), content: Text('Comment added')));
+    showCopyableSnackBar(context, 'Comment added');
   }
 
   void _showAddMilestone(BuildContext context, AppState state) {
@@ -3515,9 +3446,7 @@ class _LegacyTaskDetailViewState extends State<_LegacyTaskDetailView> {
                   progressPercent: percent,
                 );
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(duration: const Duration(seconds: 4), content: Text('Milestone added')),
-                );
+                showCopyableSnackBar(context, 'Milestone added');
               },
               child: const Text('Add'),
             ),
