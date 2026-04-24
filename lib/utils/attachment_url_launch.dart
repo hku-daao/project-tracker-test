@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/firebase_attachment_upload_service.dart';
+import 'attachment_storage_new_tab.dart';
 import 'copyable_snackbar.dart';
 
 /// True when [uri] is an object URL under this app’s Firebase Storage bucket.
@@ -66,6 +67,16 @@ bool _projectFirebaseUrlMissingDownloadToken(Uri uri) {
   return token == null || token.isEmpty;
 }
 
+/// Public Storage file URL with `alt=media` and a non-empty `token` (safe to open in a new tab).
+bool _isFirebaseStorageMediaDownloadUrl(Uri uri) {
+  if (uri.scheme.toLowerCase() != 'https') return false;
+  if (uri.host.toLowerCase() != 'firebasestorage.googleapis.com') return false;
+  if (uri.path.contains('/o/') == false) return false;
+  if (uri.queryParameters['alt'] != 'media') return false;
+  final token = uri.queryParameters['token'];
+  return token != null && token.isNotEmpty;
+}
+
 Future<String> _effectiveLaunchUrl(String raw) async {
   final uri = Uri.tryParse(raw.trim());
   if (uri == null) return raw.trim();
@@ -77,6 +88,13 @@ Future<String> _effectiveLaunchUrl(String raw) async {
   if (objectPath == null || objectPath.isEmpty) return raw.trim();
   try {
     if (kIsWeb) {
+      try {
+        final sdkUrl =
+            await FirebaseStorage.instance.ref(objectPath).getDownloadURL();
+        if (sdkUrl.contains('token=')) return sdkUrl;
+      } catch (e, st) {
+        debugPrint('openAttachmentUrl web getDownloadURL: $e\n$st');
+      }
       final resolved =
           await FirebaseAttachmentUploadService.fetchStorageDownloadUrlRest(
             objectPath,
@@ -155,8 +173,16 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
       );
       return;
     }
-    // Use navigation (`launchUrl`) for Storage download links. In-app `http.get` to the
-    // same URL hits browser CORS and fails with "Failed to fetch" on many origins.
+    // On web, prefer [window.open] for Firebase Storage media URLs. Some deployments
+    // saw `ClientException: Failed to fetch` from the stack around `launchUrl` even
+    // when the link was valid; direct navigation avoids that path.
+    if (kIsWeb && _isFirebaseStorageMediaDownloadUrl(launch)) {
+      if (tryOpenUrlInNewTab(launch.toString())) {
+        return;
+      }
+    }
+    // Use navigation (`launchUrl`) for other links. In-app `http.get` to Storage
+    // hits browser CORS and fails with "Failed to fetch" on many origins.
     final ok = await launchUrl(launch, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
       showCopyableSnackBar(
