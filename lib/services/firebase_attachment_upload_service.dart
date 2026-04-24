@@ -101,6 +101,52 @@ class FirebaseAttachmentUploadService {
     return '${const Uuid().v4()}$ext';
   }
 
+  /// Decodes object `name` from API if it was percent-encoded twice.
+  static String _normalizeObjectPathForUrl(String pathOrName) {
+    var s = pathOrName.trim();
+    if (s.contains('%')) {
+      try {
+        s = Uri.decodeComponent(s);
+      } catch (_) {}
+    }
+    return s;
+  }
+
+  static String? _extractFirebaseDownloadTokenRegex(String body) {
+    final re = RegExp(
+      r'"firebaseStorageDownloadTokens"\s*:\s*"([^"]+)"',
+      caseSensitive: false,
+    );
+    final m = re.firstMatch(body);
+    if (m == null) return null;
+    var t = (m.group(1) ?? '').trim();
+    if (t.contains(',')) t = t.split(',').first.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  /// Parses multipart `GET` / insert JSON or a raw body string for `firebaseStorageDownloadTokens`.
+  static String? _downloadUrlFromStorageResponseBody(
+    String body,
+    String bucket,
+    String objectPath,
+  ) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final fromMap = _downloadUrlFromObjectJson(
+          Map<String, dynamic>.from(decoded),
+          bucket,
+          objectPath,
+        );
+        if (fromMap != null) return fromMap;
+      }
+    } catch (_) {}
+    final token = _extractFirebaseDownloadTokenRegex(body);
+    if (token == null) return null;
+    final norm = _normalizeObjectPathForUrl(objectPath);
+    return 'https://firebasestorage.googleapis.com/v0/b/$bucket/o/${Uri.encodeComponent(norm)}?alt=media&token=$token';
+  }
+
   /// `alt=media&token=` URL from a Storage object JSON body (multipart response or `GET .../o/`).
   static String? _downloadUrlFromObjectJson(
     Map<String, dynamic> json,
@@ -120,10 +166,10 @@ class FirebaseAttachmentUploadService {
     if (token != null && token.contains(',')) {
       token = token.split(',').first.trim();
     }
-    final nameInObj = json['name']?.toString().trim();
-    final objectName = (nameInObj != null && nameInObj.isNotEmpty)
-        ? nameInObj
-        : fallbackObjectPath;
+    final rawName = json['name']?.toString().trim();
+    final objectName = _normalizeObjectPathForUrl(
+      (rawName != null && rawName.isNotEmpty) ? rawName : fallbackObjectPath,
+    );
     if (token == null || token.isEmpty) return null;
     return 'https://firebasestorage.googleapis.com/v0/b/$bucket/o/${Uri.encodeComponent(objectName)}?alt=media&token=$token';
   }
@@ -133,7 +179,6 @@ class FirebaseAttachmentUploadService {
     if (Firebase.apps.isEmpty) return null;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return null;
-    final idToken = await user.getIdToken();
     final bucket = Firebase.app().options.storageBucket?.trim() ?? '';
     if (bucket.isEmpty) return null;
     final trimmed = objectPath.trim();
@@ -142,25 +187,27 @@ class FirebaseAttachmentUploadService {
     final uri = Uri.parse(
       'https://firebasestorage.googleapis.com/v0/b/$bucket/o/$enc',
     );
-    final resp = await http.get(
-      uri,
-      headers: {'Authorization': 'Bearer $idToken'},
-    );
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      debugPrint(
-        'fetchStorageDownloadUrlRest HTTP ${resp.statusCode} ${resp.body.length > 200 ? '${resp.body.substring(0, 200)}…' : resp.body}',
+    for (var attempt = 0; attempt < 8; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
+      }
+      final idToken = await user.getIdToken();
+      final resp = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer $idToken'},
       );
-      return null;
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        debugPrint(
+          'fetchStorageDownloadUrlRest HTTP ${resp.statusCode} (try ${attempt + 1})',
+        );
+        continue;
+      }
+      final url = _downloadUrlFromStorageResponseBody(resp.body, bucket, trimmed);
+      if (url != null && url.contains('token=')) {
+        return url;
+      }
     }
-    try {
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map) return null;
-      final json = Map<String, dynamic>.from(decoded);
-      return _downloadUrlFromObjectJson(json, bucket, trimmed);
-    } catch (e, st) {
-      debugPrint('fetchStorageDownloadUrlRest parse: $e\n$st');
-      return null;
-    }
+    return null;
   }
 
   /// Web upload with custom metadata (multipart) so Storage `create` rules can require ACL.
@@ -231,7 +278,9 @@ class FirebaseAttachmentUploadService {
       }
       final json = Map<String, dynamic>.from(decoded);
 
-      final downloadUrl = _downloadUrlFromObjectJson(json, bucket, objectPath);
+      var downloadUrl = _downloadUrlFromObjectJson(json, bucket, objectPath);
+      downloadUrl ??=
+          _downloadUrlFromStorageResponseBody(resp.body, bucket, objectPath);
       if (downloadUrl != null) {
         return (url: downloadUrl, error: null);
       }

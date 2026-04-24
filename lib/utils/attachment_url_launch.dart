@@ -6,17 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/firebase_attachment_upload_service.dart';
+import 'attachment_open_download_stub.dart'
+    if (dart.library.html) 'attachment_open_download_web.dart';
 import 'copyable_snackbar.dart';
 
-/// True when [uri] targets this app’s Firebase Storage bucket (uploaded attachments).
-bool _isProjectFirebaseStorageDownloadUrl(Uri uri) {
+/// True when [uri] is an object URL under this app’s Firebase Storage bucket.
+bool _isAppFirebaseStorageObjectUrl(Uri uri) {
   if (uri.scheme.toLowerCase() != 'https') return false;
   if (uri.host.toLowerCase() != 'firebasestorage.googleapis.com') return false;
   if (Firebase.apps.isEmpty) return false;
   try {
     final bucket = Firebase.app().options.storageBucket?.trim() ?? '';
     if (bucket.isEmpty) return false;
-    return uri.path.contains('/b/$bucket/');
+    return uri.path.contains('/b/$bucket/') && uri.path.contains('/o/');
   } catch (_) {
     return false;
   }
@@ -61,7 +63,7 @@ String? _objectPathFromFirebaseStorageApiUrl(Uri uri) {
 }
 
 bool _projectFirebaseUrlMissingDownloadToken(Uri uri) {
-  if (!_isProjectFirebaseStorageDownloadUrl(uri)) return false;
+  if (!_isAppFirebaseStorageObjectUrl(uri)) return false;
   final token = uri.queryParameters['token'];
   return token == null || token.isEmpty;
 }
@@ -131,7 +133,7 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
     );
     return;
   }
-  if (_isProjectFirebaseStorageDownloadUrl(uri) && _firebaseUserIfAvailable() == null) {
+  if (_isAppFirebaseStorageObjectUrl(uri) && _firebaseUserIfAvailable() == null) {
     if (!context.mounted) return;
     showCopyableSnackBar(
       context,
@@ -144,13 +146,29 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
     final href = await _effectiveLaunchUrl(t);
     final launch = Uri.tryParse(href) ?? uri;
     // Opening .../o/path **without** ?alt=media&token= returns JSON in the browser.
-    if (_isProjectFirebaseStorageDownloadUrl(launch) &&
+    if (_isAppFirebaseStorageObjectUrl(launch) &&
         _projectFirebaseUrlMissingDownloadToken(launch)) {
       if (!context.mounted) return;
       showCopyableSnackBar(
         context,
         'This attachment link is incomplete (missing download token). '
         'Sign in with the same account used to upload, or re-upload the file.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
+    // Web: fetch bytes in-app then open a blob URL so the tab never navigates to a
+    // JSON metadata response from the Storage API.
+    if (kIsWeb &&
+        _isAppFirebaseStorageObjectUrl(launch) &&
+        !_projectFirebaseUrlMissingDownloadToken(launch)) {
+      if (await openHttpUrlAsBlobInNewTab(launch.toString())) {
+        return;
+      }
+      if (!context.mounted) return;
+      showCopyableSnackBar(
+        context,
+        'Could not open this file (invalid or expired link). Re-upload the attachment.',
         backgroundColor: Colors.orange,
       );
       return;
