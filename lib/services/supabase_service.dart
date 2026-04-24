@@ -2022,17 +2022,18 @@ class SupabaseService {
 
   /// Replaces all `subtask_attachment` rows (skips rows where both fields are empty).
   ///
-  /// Inserts use `subtask_id` only (see migration `035_subtask_tables.sql`). If your database
-  /// adds an optional `task_id` column (e.g. `042_subtask_attachment_task_id.sql`), run that
-  /// migration and extend this method to set it; PostgREST errors with PGRST204 if the client
-  /// sends a column that does not exist.
+  /// When [taskId] is set, it is stored on each row (`042_subtask_attachment_task_id.sql`).
+  /// Some RLS policies require denormalized `task_id` on insert; omit [taskId] only if the
+  /// column does not exist (PostgREST returns PGRST204 for unknown columns).
   static Future<String?> replaceSubtaskAttachments({
     required String subtaskId,
+    String? taskId,
     required List<({String? content, String? description})> rows,
   }) async {
     if (!_enabled) return 'Supabase not configured';
     final sid = subtaskId.trim();
     if (sid.isEmpty) return 'Missing sub-task id';
+    final tid = taskId?.trim();
     try {
       final supabase = Supabase.instance.client;
       await supabase.from('subtask_attachment').delete().eq('subtask_id', sid);
@@ -2045,6 +2046,9 @@ class SupabaseService {
           'content': c.isEmpty ? null : c,
           'description': d.isEmpty ? null : d,
         };
+        if (tid != null && tid.isNotEmpty) {
+          map['task_id'] = tid;
+        }
         await supabase.from('subtask_attachment').insert(map);
       }
       return null;
@@ -2057,9 +2061,11 @@ class SupabaseService {
   static Future<String?> upsertSubtaskAttachmentContent({
     required String subtaskId,
     required String content,
+    String? taskId,
   }) async {
     return replaceSubtaskAttachments(
       subtaskId: subtaskId,
+      taskId: taskId,
       rows: [(content: content, description: null)],
     );
   }

@@ -13,7 +13,13 @@ Future<void> showAttachmentSourceBottomSheet({
   required BuildContext context,
   required VoidCallback onPickFromDevice,
   required VoidCallback onPickFromLink,
-}) {
+  /// When false, skips the sheet and runs [onPickFromLink] (device upload hidden).
+  bool showPickFromDevice = true,
+}) async {
+  if (!showPickFromDevice) {
+    onPickFromLink();
+    return;
+  }
   void runAfterSheetDismissed(VoidCallback action) {
     SchedulerBinding.instance.addPostFrameCallback((_) {
       SchedulerBinding.instance.addPostFrameCallback((_) => action());

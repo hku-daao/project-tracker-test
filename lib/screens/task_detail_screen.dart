@@ -2707,6 +2707,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                 : () {
                                     showAttachmentSourceBottomSheet(
                                       context: context,
+                                      showPickFromDevice: false,
                                       onPickFromDevice: () {
                                         if (!mounted) return;
                                         _addTaskAttachmentFromDevice();

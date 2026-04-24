@@ -756,6 +756,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           }
           final errA = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: st.id,
+            taskId: st.taskId,
             rows: _subtaskAttachmentPayload(),
           );
           if (!mounted) return false;
@@ -790,6 +791,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         try {
           final errA = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: st.id,
+            taskId: st.taskId,
             rows: _subtaskAttachmentPayload(),
           );
           if (!mounted) return false;
@@ -823,6 +825,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         try {
           final errA = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: st.id,
+            taskId: st.taskId,
             rows: _subtaskAttachmentPayload(),
           );
           if (!mounted) return false;
@@ -849,6 +852,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           try {
             final errA = await SupabaseService.replaceSubtaskAttachments(
               subtaskId: st.id,
+              taskId: st.taskId,
               rows: _subtaskAttachmentPayload(),
             );
             if (!mounted) return false;
@@ -897,6 +901,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     try {
       final errA = await SupabaseService.replaceSubtaskAttachments(
         subtaskId: st.id,
+        taskId: st.taskId,
         rows: _subtaskAttachmentPayload(),
       );
       if (!mounted) return false;
@@ -987,6 +992,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     try {
       final e = await SupabaseService.replaceSubtaskAttachments(
         subtaskId: st.id,
+        taskId: st.taskId,
         rows: _subtaskAttachmentPayload(),
       );
       if (e != null && mounted) {
@@ -1806,6 +1812,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           : () {
                               showAttachmentSourceBottomSheet(
                                 context: context,
+                                showPickFromDevice: false,
                                 onPickFromDevice: () {
                                   if (!mounted) return;
                                   _addSubtaskAttachmentFromDevice();
