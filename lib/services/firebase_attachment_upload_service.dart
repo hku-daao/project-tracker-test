@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -210,85 +209,106 @@ class FirebaseAttachmentUploadService {
     return null;
   }
 
-  /// Web upload with custom metadata (multipart) so Storage `create` rules can require ACL.
-  static Future<({String? url, String? error})> _uploadObjectWebMultipart({
+  /// Rejects values that are clearly not a public Storage download URL (e.g. multipart JSON).
+  static bool _isValidStorageDownloadUrlForPersist(String? u) {
+    if (u == null || u.isEmpty) return false;
+    final t = u.trim();
+    if (t.startsWith('{')) return false;
+    return t.startsWith('https://firebasestorage.googleapis.com/v0/b/') &&
+        t.contains('alt=media') &&
+        t.contains('token=');
+  }
+
+  /// Web: `uploadType=media` (raw bytes only). Multipart metadata uploads were returning
+  /// bodies that looked like `{"contentType":...,"metadata":{...}}` and could be mistaken
+  /// for download URLs.
+  static Future<({String? error})> _uploadObjectWebMediaBytes({
     required String objectPath,
     required Uint8List bytes,
     required String contentType,
-    required Map<String, String> customMetadata,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      return (url: null, error: 'Not signed in.');
+      return (error: 'Not signed in.');
     }
     final idToken = await user.getIdToken();
     final bucket = Firebase.app().options.storageBucket?.trim() ?? '';
     if (bucket.isEmpty) {
-      return (url: null, error: 'Firebase app has no storageBucket in options.');
+      return (error: 'Firebase app has no storageBucket in options.');
     }
-    if (customMetadata.isEmpty) {
-      return (url: null, error: 'Missing attachment access metadata.');
-    }
-
-    final boundary = 'dart-${const Uuid().v4()}';
-    final metaJson = jsonEncode({
-      'contentType': contentType,
-      'metadata': customMetadata,
-    });
-    final b = BytesBuilder(copy: false);
-    b.add('--$boundary\r\n'.codeUnits);
-    b.add('Content-Type: application/json; charset=UTF-8\r\n\r\n'.codeUnits);
-    b.add(utf8.encode(metaJson));
-    b.add('\r\n--$boundary\r\n'.codeUnits);
-    b.add('Content-Type: $contentType\r\n\r\n'.codeUnits);
-    b.add(bytes);
-    b.add('\r\n--$boundary--\r\n'.codeUnits);
-
     final encodedName = Uri.encodeComponent(objectPath);
     final uri = Uri.parse(
-      'https://firebasestorage.googleapis.com/v0/b/$bucket/o?uploadType=multipart&name=$encodedName',
+      'https://firebasestorage.googleapis.com/v0/b/$bucket/o?uploadType=media&name=$encodedName',
     );
-
     final resp = await http.post(
       uri,
       headers: {
         'Authorization': 'Bearer $idToken',
-        'Content-Type': 'multipart/related; boundary=$boundary',
+        'Content-Type': contentType,
       },
-      body: b.toBytes(),
+      body: bytes,
     );
-
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       final bodyShort =
           resp.body.length > 400 ? '${resp.body.substring(0, 400)}…' : resp.body;
       var msg = 'Storage upload failed (HTTP ${resp.statusCode}). $bodyShort';
       if (resp.statusCode == 403) {
-        msg += ' Deploy Storage rules (firebase deploy --only storage). If you use '
-            'Firebase Anonymous sign-in, remove the anonymous check in storage.rules. '
-            'Ensure your Firebase user uid matches the path and ACL metadata includes '
-            'your staff key when staffKey custom claims are enabled.';
+        msg += ' Deploy Storage rules (firebase deploy --only storage) and sign in.';
       }
-      return (url: null, error: msg);
+      return (error: msg);
     }
+    return (error: null);
+  }
 
+  /// Merges ACL keys (`m0`…) into object `metadata` via GET + PATCH (keeps download tokens).
+  static Future<void> _mergePatchAclMetadataRest({
+    required String objectPath,
+    required Map<String, String> aclMetadata,
+  }) async {
+    if (aclMetadata.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final bucket = Firebase.app().options.storageBucket?.trim() ?? '';
+    if (bucket.isEmpty) return;
+    final enc = Uri.encodeComponent(objectPath.trim());
+    final objectUri = Uri.parse(
+      'https://firebasestorage.googleapis.com/v0/b/$bucket/o/$enc',
+    );
     try {
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map) {
-        return (url: null, error: 'Unexpected Storage response (not JSON object).');
+      final idToken = await user.getIdToken();
+      final getResp = await http.get(
+        objectUri,
+        headers: {'Authorization': 'Bearer $idToken'},
+      );
+      if (getResp.statusCode != 200) {
+        debugPrint('ACL metadata GET failed HTTP ${getResp.statusCode}');
+        return;
       }
-      final json = Map<String, dynamic>.from(decoded);
-
-      var downloadUrl = _downloadUrlFromObjectJson(json, bucket, objectPath);
-      downloadUrl ??=
-          _downloadUrlFromStorageResponseBody(resp.body, bucket, objectPath);
-      if (downloadUrl != null) {
-        return (url: downloadUrl, error: null);
+      final decoded = jsonDecode(getResp.body);
+      if (decoded is! Map) return;
+      final root = Map<String, dynamic>.from(decoded);
+      final md = root['metadata'];
+      final meta = md is Map
+          ? Map<String, dynamic>.from(md)
+          : <String, dynamic>{};
+      for (final e in aclMetadata.entries) {
+        meta[e.key] = e.value;
       }
-      // Bytes are on the server; token may appear after a follow-up GET (handled in [_putBytes]).
-      return (url: null, error: null);
+      final patchResp = await http.patch(
+        objectUri,
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode({'metadata': meta}),
+      );
+      if (patchResp.statusCode < 200 || patchResp.statusCode >= 300) {
+        debugPrint(
+          'ACL metadata PATCH failed HTTP ${patchResp.statusCode} ${patchResp.body.length > 200 ? '${patchResp.body.substring(0, 200)}…' : patchResp.body}',
+        );
+      }
     } catch (e, st) {
-      debugPrint('parse Storage multipart JSON: $e\n$st');
-      return (url: null, error: 'Upload succeeded but response could not be parsed: $e');
+      debugPrint('mergePatchAclMetadata: $e\n$st');
     }
   }
 
@@ -405,28 +425,26 @@ class FirebaseAttachmentUploadService {
     final contentType = _contentTypeForFilename(originalFilename);
     try {
       if (kIsWeb) {
-        final up = await _uploadObjectWebMultipart(
+        final mediaErr = await _uploadObjectWebMediaBytes(
           objectPath: path,
           bytes: bytes,
           contentType: contentType,
-          customMetadata: aclMetadata,
         );
-        if (up.error != null) {
-          return (url: null, label: null, error: up.error);
+        if (mediaErr.error != null) {
+          return (url: null, label: null, error: mediaErr.error);
         }
-        // On web, `getDownloadURL()` often throws in firebase_storage_web; use REST instead.
-        var downloadUrl = up.url;
-        if (downloadUrl == null ||
-            downloadUrl.isEmpty ||
-            !downloadUrl.contains('token=')) {
-          downloadUrl = await fetchStorageDownloadUrlRest(path);
-        }
-        if (downloadUrl == null || downloadUrl.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await _mergePatchAclMetadataRest(
+          objectPath: path,
+          aclMetadata: aclMetadata,
+        );
+        final downloadUrl = await fetchStorageDownloadUrlRest(path);
+        if (!_isValidStorageDownloadUrlForPersist(downloadUrl)) {
           return (
             url: null,
             label: null,
             error:
-                'Upload finished but could not obtain a download link (try again).',
+                'Upload finished but could not obtain a valid download link. Please try again.',
           );
         }
         return (url: downloadUrl, label: originalFilename, error: null);
