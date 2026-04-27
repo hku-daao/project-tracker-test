@@ -36,7 +36,7 @@ class LandingTaskFilters {
   final List<String> submissionFilters;
   final String search;
 
-  /// `creator` | `assignee` | `startDate` | `dueDate` | `status` | `submission`, or null.
+  /// `creator` | `assignee` | `startDate` | `dueDate` | `subtaskDueDate` | `status` | `submission`, or null.
   final String? sortColumn;
   final bool sortAscending;
 

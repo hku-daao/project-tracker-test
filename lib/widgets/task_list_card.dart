@@ -273,6 +273,18 @@ class TaskListCard extends StatefulWidget {
     );
   }
 
+  /// Latest calendar due among all sub-tasks (any count); `null` if none have a due date.
+  /// Used by landing-page task list sort (same rule as each card’s sub-task list).
+  static DateTime? maxSubtaskDueForSort(List<SingularSubtask> subtasks) {
+    DateTime? maxD;
+    for (final st in subtasks) {
+      final d = st.dueDate;
+      if (d == null) continue;
+      if (maxD == null || d.isAfter(maxD)) maxD = d;
+    }
+    return maxD;
+  }
+
   @override
   State<TaskListCard> createState() => _TaskListCardState();
 }
@@ -323,16 +335,8 @@ class _TaskListCardState extends State<TaskListCard> {
     return (names, picTeam, subtasks);
   }
 
-  /// Latest calendar due among all sub-tasks (any count); `null` if none have a due date.
-  DateTime? _maxSubtaskDue(List<SingularSubtask> subtasks) {
-    DateTime? maxD;
-    for (final st in subtasks) {
-      final d = st.dueDate;
-      if (d == null) continue;
-      if (maxD == null || d.isAfter(maxD)) maxD = d;
-    }
-    return maxD;
-  }
+  DateTime? _maxSubtaskDue(List<SingularSubtask> subtasks) =>
+      TaskListCard.maxSubtaskDueForSort(subtasks);
 
   void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
     setState(() {

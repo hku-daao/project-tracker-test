@@ -10,8 +10,10 @@ import '../../models/initiative.dart';
 import '../../models/task.dart';
 import '../../models/assignee.dart';
 import '../../models/team.dart';
+import '../../config/supabase_config.dart';
 import '../../priority.dart';
 import '../../services/landing_task_filters_storage.dart';
+import '../../services/supabase_service.dart';
 import '../../widgets/task_list_card.dart';
 import 'initiative_detail_screen.dart';
 
@@ -22,6 +24,7 @@ enum TaskListSortColumn {
   pic('pic'),
   startDate('startDate'),
   dueDate('dueDate'),
+  subtaskDueDate('subtaskDueDate'),
   status('status'),
   submission('submission');
 
@@ -48,6 +51,8 @@ enum TaskListSortColumn {
         return 'Start date';
       case TaskListSortColumn.dueDate:
         return 'Due date';
+      case TaskListSortColumn.subtaskDueDate:
+        return 'Sub-task due date';
       case TaskListSortColumn.status:
         return 'Status';
       case TaskListSortColumn.submission:
@@ -108,6 +113,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   int _tasksPageSize = 50;
   int _tasksPageIndex = 0;
   int _deletedTasksPageIndex = 0;
+
+  /// Max sub-task due date per parent task id (singular tasks only); used for [TaskListSortColumn.subtaskDueDate].
+  final Map<String, DateTime?> _subtaskMaxDueByTaskId = {};
+  String _cachedSingularTaskIdsSig = '';
 
   /// Per-user prefs: do not persist until first load finished (avoids clobbering saved teams).
   bool _landingFiltersPrefsReady = false;
@@ -432,6 +441,40 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return ascending ? c : -c;
   }
 
+  String _singularTaskIdsSignature(AppState state) {
+    final ids = state.tasks
+        .where((t) => t.isSingularTableRow)
+        .map((t) => t.id)
+        .toList()
+      ..sort();
+    return ids.join('|');
+  }
+
+  void _scheduleSubtaskDuePrefetchIfNeeded(List<Task> tasks) {
+    if (!SupabaseConfig.isConfigured) return;
+    final singularIds = tasks.map((t) => t.id).toList()..sort();
+    final idsToFetch = singularIds
+        .where((id) => !_subtaskMaxDueByTaskId.containsKey(id))
+        .toList();
+    if (idsToFetch.isEmpty) return;
+    unawaited(_loadSubtaskMaxDuesForTasks(idsToFetch));
+  }
+
+  Future<void> _loadSubtaskMaxDuesForTasks(List<String> taskIds) async {
+    final updates = <String, DateTime?>{};
+    for (final id in taskIds) {
+      if (!mounted) return;
+      try {
+        final list = await SupabaseService.fetchSubtasksForTask(id);
+        updates[id] = TaskListCard.maxSubtaskDueForSort(list);
+      } catch (_) {
+        updates[id] = null;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _subtaskMaxDueByTaskId.addAll(updates));
+  }
+
   List<Task> _sortTasks(List<Task> tasks, AppState state) {
     if (_taskSortColumn == null) return tasks;
     final col = _taskSortColumn!;
@@ -462,6 +505,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           break;
         case TaskListSortColumn.dueDate:
           c = _cmpDateForSort(a.endDate, b.endDate, asc);
+          break;
+        case TaskListSortColumn.subtaskDueDate:
+          final aMax =
+              a.isSingularTableRow ? _subtaskMaxDueByTaskId[a.id] : null;
+          final bMax =
+              b.isSingularTableRow ? _subtaskMaxDueByTaskId[b.id] : null;
+          c = _cmpDateForSort(aMax, bMax, asc);
           break;
         case TaskListSortColumn.status:
           c = _cmpStrNullable(
@@ -901,6 +951,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     var initiatives = state.initiativesForTeams(allTeams);
     var tasks = state.tasksForTeams(allTeams);
 
+    final singularSig = _singularTaskIdsSignature(state);
+    if (singularSig != _cachedSingularTaskIdsSig) {
+      _cachedSingularTaskIdsSig = singularSig;
+      _subtaskMaxDueByTaskId.clear();
+    }
+
     if (_filterAssigneeMenuStaffIds.isNotEmpty) {
       initiatives = initiatives
           .where((i) => i.directorIds.any(_filterAssigneeMenuStaffIds.contains))
@@ -1049,8 +1105,18 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
     filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
     filteredTasks = _applyTaskSearch(filteredTasks);
-    filteredTasks = _sortTasks(filteredTasks, state);
     filteredDeletedTasks = _applyTaskSearch(filteredDeletedTasks);
+    if (_taskSortColumn == TaskListSortColumn.subtaskDueDate) {
+      final seen = <String>{};
+      final forPrefetch = <Task>[];
+      for (final t in [...filteredTasks, ...filteredDeletedTasks]) {
+        if (!t.isSingularTableRow || seen.contains(t.id)) continue;
+        seen.add(t.id);
+        forPrefetch.add(t);
+      }
+      _scheduleSubtaskDuePrefetchIfNeeded(forPrefetch);
+    }
+    filteredTasks = _sortTasks(filteredTasks, state);
     filteredDeletedTasks = _sortTasks(filteredDeletedTasks, state);
 
     final pagedTasks = _landingPageSlice(
