@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../app_state.dart';
 import '../../models/initiative.dart';
+import '../../models/singular_subtask.dart';
 import '../../models/task.dart';
 import '../../models/assignee.dart';
 import '../../models/team.dart';
@@ -116,6 +117,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Max sub-task due date per parent task id (singular tasks only); used for [TaskListSortColumn.subtaskDueDate].
   final Map<String, DateTime?> _subtaskMaxDueByTaskId = {};
+  /// Lowercased sub-task names + descriptions per parent task id (singular only); used for landing search.
+  final Map<String, String> _subtaskSearchBlobByTaskId = {};
   String _cachedSingularTaskIdsSig = '';
 
   /// Per-user prefs: do not persist until first load finished (avoids clobbering saved teams).
@@ -383,8 +386,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return parts.join(' · ');
   }
 
-  /// Each whitespace-separated keyword must appear in [Task.name] or [Task.description] (case-insensitive).
-  static bool _taskMatchesLandingSearch(Task t, String query) {
+  /// Each whitespace-separated keyword must appear in [Task.name], [Task.description],
+  /// or any non-deleted sub-task name/description (case-insensitive).
+  bool _taskMatchesLandingSearch(Task t, String query) {
     final tokens = query
         .trim()
         .toLowerCase()
@@ -394,12 +398,25 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     if (tokens.isEmpty) return true;
     final name = t.name.toLowerCase();
     final desc = t.description.toLowerCase();
+    final subBlob = t.isSingularTableRow
+        ? (_subtaskSearchBlobByTaskId[t.id] ?? '')
+        : '';
     for (final token in tokens) {
-      if (!name.contains(token) && !desc.contains(token)) {
-        return false;
-      }
+      final inTask = name.contains(token) || desc.contains(token);
+      final inSub = subBlob.contains(token);
+      if (!inTask && !inSub) return false;
     }
     return true;
+  }
+
+  static String _subtaskSearchBlobFromList(List<SingularSubtask> list) {
+    final parts = <String>[];
+    for (final st in list) {
+      if (st.isDeleted) continue;
+      parts.add(st.subtaskName);
+      parts.add(st.description);
+    }
+    return parts.join(' ').trim().toLowerCase();
   }
 
   List<Task> _applyTaskSearch(List<Task> tasks) {
@@ -450,29 +467,50 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return ids.join('|');
   }
 
-  void _scheduleSubtaskDuePrefetchIfNeeded(List<Task> tasks) {
+  void _scheduleSubtaskRowDataPrefetch(
+    List<Task> tasks,
+    List<Task> deletedTasks,
+  ) {
     if (!SupabaseConfig.isConfigured) return;
-    final singularIds = tasks.map((t) => t.id).toList()..sort();
-    final idsToFetch = singularIds
-        .where((id) => !_subtaskMaxDueByTaskId.containsKey(id))
-        .toList();
+    final needDue = _taskSortColumn == TaskListSortColumn.subtaskDueDate;
+    final needBlob = _taskSearchController.text.trim().isNotEmpty;
+    if (!needDue && !needBlob) return;
+    final seen = <String>{};
+    final combined = <Task>[];
+    for (final t in [...tasks, ...deletedTasks]) {
+      if (!t.isSingularTableRow || seen.contains(t.id)) continue;
+      seen.add(t.id);
+      combined.add(t);
+    }
+    final singularIds = combined.map((t) => t.id).toList()..sort();
+    final idsToFetch = singularIds.where((id) {
+      final missingDue = needDue && !_subtaskMaxDueByTaskId.containsKey(id);
+      final missingBlob = needBlob && !_subtaskSearchBlobByTaskId.containsKey(id);
+      return missingDue || missingBlob;
+    }).toList();
     if (idsToFetch.isEmpty) return;
-    unawaited(_loadSubtaskMaxDuesForTasks(idsToFetch));
+    unawaited(_loadSubtaskRowDataForTasks(idsToFetch));
   }
 
-  Future<void> _loadSubtaskMaxDuesForTasks(List<String> taskIds) async {
-    final updates = <String, DateTime?>{};
+  Future<void> _loadSubtaskRowDataForTasks(List<String> taskIds) async {
+    final dueUpdates = <String, DateTime?>{};
+    final blobUpdates = <String, String>{};
     for (final id in taskIds) {
       if (!mounted) return;
       try {
         final list = await SupabaseService.fetchSubtasksForTask(id);
-        updates[id] = TaskListCard.maxSubtaskDueForSort(list);
+        dueUpdates[id] = TaskListCard.maxSubtaskDueForSort(list);
+        blobUpdates[id] = _subtaskSearchBlobFromList(list);
       } catch (_) {
-        updates[id] = null;
+        dueUpdates[id] = null;
+        blobUpdates[id] = '';
       }
     }
     if (!mounted) return;
-    setState(() => _subtaskMaxDueByTaskId.addAll(updates));
+    setState(() {
+      _subtaskMaxDueByTaskId.addAll(dueUpdates);
+      _subtaskSearchBlobByTaskId.addAll(blobUpdates);
+    });
   }
 
   List<Task> _sortTasks(List<Task> tasks, AppState state) {
@@ -913,7 +951,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       },
       decoration: InputDecoration(
         labelText: 'Search tasks',
-        hintText: 'Search by task name, description',
+        hintText: 'Task name, description, sub-task name or description',
         border: const OutlineInputBorder(),
         isDense: true,
         prefixIcon: const Icon(Icons.search),
@@ -955,6 +993,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     if (singularSig != _cachedSingularTaskIdsSig) {
       _cachedSingularTaskIdsSig = singularSig;
       _subtaskMaxDueByTaskId.clear();
+      _subtaskSearchBlobByTaskId.clear();
     }
 
     if (_filterAssigneeMenuStaffIds.isNotEmpty) {
@@ -1104,18 +1143,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     }
 
     filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
+    _scheduleSubtaskRowDataPrefetch(filteredTasks, filteredDeletedTasks);
     filteredTasks = _applyTaskSearch(filteredTasks);
     filteredDeletedTasks = _applyTaskSearch(filteredDeletedTasks);
-    if (_taskSortColumn == TaskListSortColumn.subtaskDueDate) {
-      final seen = <String>{};
-      final forPrefetch = <Task>[];
-      for (final t in [...filteredTasks, ...filteredDeletedTasks]) {
-        if (!t.isSingularTableRow || seen.contains(t.id)) continue;
-        seen.add(t.id);
-        forPrefetch.add(t);
-      }
-      _scheduleSubtaskDuePrefetchIfNeeded(forPrefetch);
-    }
     filteredTasks = _sortTasks(filteredTasks, state);
     filteredDeletedTasks = _sortTasks(filteredDeletedTasks, state);
 

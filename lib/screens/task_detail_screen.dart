@@ -1738,7 +1738,11 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
   Future<void> _submitForReview(AppState state, Task task) async {
     final link = _firstTaskAttachmentUrl()?.trim() ?? '';
     final subComment = _commentController.text.trim();
-    if (link.isEmpty && subComment.isEmpty) {
+    // Comments saved via **Update** clear [_commentController]; still count persisted rows.
+    final hasPersistedActiveComment = _tableComments.any(
+      (c) => !c.isDeleted && c.description.trim().isNotEmpty,
+    );
+    if (link.isEmpty && subComment.isEmpty && !hasPersistedActiveComment) {
       showCopyableSnackBar(
         context,
         'Add a hyperlink in Attachment and/or a comment above before submitting',

@@ -1094,6 +1094,7 @@ async function sendMailgun({ to, subject, text, html, from: fromOverride, replyT
     });
     const raw = await r.text();
     if (!r.ok) {
+      console.error('[mailgun] send failed', r.status, url, raw.slice(0, 800));
       return {
         ok: false,
         error: `Mailgun HTTP ${r.status}`,
