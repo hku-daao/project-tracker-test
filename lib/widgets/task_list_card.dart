@@ -147,10 +147,23 @@ class TaskListCard extends StatefulWidget {
     return t.status == TaskStatus.done;
   }
 
+  /// True when [Task.endDate] is set and strictly before HK today (not deleted / completed).
+  static bool taskEndDateCalendarOverdue(Task t) {
+    if (_isTaskDisplayCompleted(t)) return false;
+    if (t.isSingularTableRow) {
+      final s = t.dbStatus?.trim().toLowerCase() ?? '';
+      if (s == 'delete' || s == 'deleted') return false;
+    }
+    final due = t.endDate;
+    if (due == null) return false;
+    final day = DateTime(due.year, due.month, due.day);
+    return day.isBefore(HkTime.todayDateOnlyHk());
+  }
+
   /// Same green as the **Accepted** submission chip (`#298A00`).
   static const Color kCompletedOnMetaColor = kSubtaskCompletedOnMetaColor;
 
-  /// Priority · status · Start · Due · Completed on … (single line).
+  /// Priority · status · Start · Due (red if overdue) · Completed on … (single line).
   static Widget buildTaskMetaLine(BuildContext context, Task t) {
     final theme = Theme.of(context);
     final baseStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
@@ -160,13 +173,41 @@ class TaskListCard extends StatefulWidget {
         '${priorityToDisplayName(t.priority)} · ${statusLabel(t)}'
         '${t.startDate != null ? ' · Start ${ymd.format(t.startDate!)}' : ''}';
     final due = t.endDate;
-    final duePart = due != null ? ' · Due ${ymd.format(due)}' : '';
     final comp = t.completionDate;
     final showCompleted = _isTaskDisplayCompleted(t) && comp != null;
+    final dueOverdue = taskEndDateCalendarOverdue(t);
+    final dueStr = due != null ? ymd.format(due) : null;
+
+    List<InlineSpan> dueSpans() {
+      if (due == null || dueStr == null) return const <InlineSpan>[];
+      if (dueOverdue) {
+        return [
+          const TextSpan(text: ' · Due '),
+          TextSpan(
+            text: dueStr,
+            style: baseStyle.copyWith(
+              color: kOverdueDueDateColor,
+              fontWeight: FontWeight.w600,
+              fontSize: kLandingListCardFontSize,
+            ),
+          ),
+        ];
+      }
+      return [TextSpan(text: ' · Due $dueStr')];
+    }
+
     if (!showCompleted) {
-      return Text(
-        '$prefix$duePart',
-        style: baseStyle,
+      if (due == null) {
+        return Text(prefix, style: baseStyle);
+      }
+      return Text.rich(
+        TextSpan(
+          style: baseStyle,
+          children: [
+            TextSpan(text: prefix),
+            ...dueSpans(),
+          ],
+        ),
       );
     }
     final completedSeg =
@@ -175,7 +216,8 @@ class TaskListCard extends StatefulWidget {
       TextSpan(
         style: baseStyle,
         children: [
-          TextSpan(text: '$prefix$duePart'),
+          TextSpan(text: prefix),
+          ...dueSpans(),
           TextSpan(
             text: completedSeg,
             style: baseStyle.copyWith(
@@ -273,16 +315,29 @@ class TaskListCard extends StatefulWidget {
     );
   }
 
-  /// Latest calendar due among all sub-tasks (any count); `null` if none have a due date.
-  /// Used by landing-page task list sort (same rule as each card’s sub-task list).
-  static DateTime? maxSubtaskDueForSort(List<SingularSubtask> subtasks) {
-    DateTime? maxD;
+  /// Earliest **calendar day** due among sub-tasks; `null` if none have a due date.
+  /// Used with [maxSubtaskDueForSort] for landing **Due date** sort vs [Task.endDate] (date-only).
+  static DateTime? minSubtaskDueForSort(List<SingularSubtask> subtasks) {
+    DateTime? minDay;
     for (final st in subtasks) {
       final d = st.dueDate;
       if (d == null) continue;
-      if (maxD == null || d.isAfter(maxD)) maxD = d;
+      final day = DateTime(d.year, d.month, d.day);
+      if (minDay == null || day.isBefore(minDay)) minDay = day;
     }
-    return maxD;
+    return minDay;
+  }
+
+  /// Latest **calendar day** due among sub-tasks; `null` if none have a due date.
+  static DateTime? maxSubtaskDueForSort(List<SingularSubtask> subtasks) {
+    DateTime? maxDay;
+    for (final st in subtasks) {
+      final d = st.dueDate;
+      if (d == null) continue;
+      final day = DateTime(d.year, d.month, d.day);
+      if (maxDay == null || day.isAfter(maxDay)) maxDay = day;
+    }
+    return maxDay;
   }
 
   @override
@@ -334,9 +389,6 @@ class _TaskListCardState extends State<TaskListCard> {
         await SupabaseService.fetchStaffTeamBusinessIdForAssigneeKey(picKey);
     return (names, picTeam, subtasks);
   }
-
-  DateTime? _maxSubtaskDue(List<SingularSubtask> subtasks) =>
-      TaskListCard.maxSubtaskDueForSort(subtasks);
 
   void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
     setState(() {
@@ -394,7 +446,10 @@ class _TaskListCardState extends State<TaskListCard> {
             picKey.isNotEmpty;
         final pk = picKey;
         final cardTint = TaskListCard.cardColorForPicTeam(picTeamId);
-        final maxSubDue = _maxSubtaskDue(subtasks);
+        final earliestSubDue = TaskListCard.minSubtaskDueForSort(subtasks);
+        final todayHk = HkTime.todayDateOnlyHk();
+        final earliestSubDueOverdue = earliestSubDue != null &&
+            earliestSubDue.isBefore(todayHk);
         String resolveName(String id) =>
             nameMap[id] ?? state.assigneeById(id)?.name ?? id;
         return Card(
@@ -483,12 +538,33 @@ class _TaskListCardState extends State<TaskListCard> {
                             TaskListCard.buildTaskMetaLine(context, t),
                             if (subtasks.isNotEmpty) ...[
                               const SizedBox(height: 4),
-                              Text(
-                                maxSubDue != null
-                                    ? 'Max. sub-task due: ${DateFormat('yyyy-MM-dd').format(maxSubDue)}'
-                                    : 'Max. sub-task due: —',
-                                style: listTextVariant,
-                              ),
+                              earliestSubDue == null
+                                  ? Text(
+                                      'Earliest sub-task due: —',
+                                      style: listTextVariant,
+                                    )
+                                  : Text.rich(
+                                      TextSpan(
+                                        style: listTextVariant,
+                                        children: [
+                                          const TextSpan(
+                                            text: 'Earliest sub-task due: ',
+                                          ),
+                                          TextSpan(
+                                            text: DateFormat('yyyy-MM-dd')
+                                                .format(earliestSubDue),
+                                            style: listTextVariant.copyWith(
+                                              color: earliestSubDueOverdue
+                                                  ? kOverdueDueDateColor
+                                                  : listTextVariant.color,
+                                              fontWeight: earliestSubDueOverdue
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                             ],
                           ],
                         ),

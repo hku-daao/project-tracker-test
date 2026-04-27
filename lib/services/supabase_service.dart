@@ -68,6 +68,10 @@ class TasksLoadResult {
 class SupabaseService {
   static bool get _enabled => SupabaseConfig.isConfigured;
 
+  /// Coalesces concurrent [fetchSubtasksForTask] calls for the same parent task id so landing
+  /// prefetch, many [TaskListCard]s, and [SingularTaskDetailView] do not stampede Supabase.
+  static final Map<String, Future<List<SingularSubtask>>> _fetchSubtasksInflight = {};
+
   static DateTime? _parseDate(dynamic v) {
     if (v == null) return null;
     if (v is DateTime) return v;
@@ -1762,11 +1766,51 @@ class SupabaseService {
       completionDate: _parseDateTimeNullable(row['completion_date']),
       assigneeIds: assigneeIds,
       pic: picKey,
-      createDate: _parseDateTime(row['create_date']),
+      createDate: _parseDateTimeNullable(
+        row['create_date'] ?? row['created_at'],
+      ),
       updateDate: _parseDateTimeNullable(row['update_date']),
       updateByStaffName: _updateByDisplayName(row, staffUuidToName),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
     );
+  }
+
+  /// Loads raw `subtask` rows for [taskId] with best-effort ordering (schema varies by deployment).
+  static Future<List<Map<String, dynamic>>> _fetchSubtaskRawRowsForTask(
+    String taskId,
+  ) async {
+    if (!_enabled) return [];
+    final tid = taskId.trim();
+    if (tid.isEmpty) return [];
+    final client = Supabase.instance.client;
+    List<Map<String, dynamic>> asMapList(dynamic res) => (res as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    try {
+      final res = await client
+          .from('subtask')
+          .select()
+          .eq('task_id', tid)
+          .order('create_date', ascending: false);
+      return asMapList(res);
+    } catch (_) {
+      try {
+        final res = await client
+            .from('subtask')
+            .select()
+            .eq('task_id', tid)
+            .order('created_at', ascending: false);
+        return asMapList(res);
+      } catch (_) {
+        try {
+          final res =
+              await client.from('subtask').select().eq('task_id', tid);
+          return asMapList(res);
+        } catch (_) {
+          return [];
+        }
+      }
+    }
   }
 
   static bool _subtaskRowStatusNotDeleted(Map<String, dynamic> row) {
@@ -1808,29 +1852,51 @@ class SupabaseService {
   }
 
   /// Non-deleted subtasks for a parent [taskId], newest first.
-  static Future<List<SingularSubtask>> fetchSubtasksForTask(
-    String taskId,
-  ) async {
-    if (!_enabled) return [];
+  static Future<List<SingularSubtask>> fetchSubtasksForTask(String taskId) {
+    final tid = taskId.trim();
+    if (!_enabled || tid.isEmpty) return Future.value([]);
+    return _fetchSubtasksInflight.putIfAbsent(tid, () {
+      final f = _fetchSubtasksForTaskImpl(tid);
+      f.whenComplete(() => _fetchSubtasksInflight.remove(tid));
+      return f;
+    });
+  }
+
+  static Future<List<SingularSubtask>> _fetchSubtasksForTaskImpl(String tid) async {
+    Map<String, String> staffMap = {};
+    Map<String, String> staffNames = {};
     try {
       final maps = await _loadMaps();
-      final staffMap = maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
-      final staffNames = maps?.staffUuidToName ?? <String, String>{};
-      final res = await Supabase.instance.client
-          .from('subtask')
-          .select()
-          .eq('task_id', taskId)
-          .order('create_date', ascending: false);
-      final out = <SingularSubtask>[];
-      for (final raw in (res as List)) {
-        final row = Map<String, dynamic>.from(raw as Map);
+      staffMap = maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
+      staffNames = maps?.staffUuidToName ?? <String, String>{};
+    } catch (_) {
+      try {
+        staffMap = await _staffUuidToAppIdMapAll();
+      } catch (_) {}
+    }
+    final rawRows = await _fetchSubtaskRawRowsForTask(tid);
+    final out = <SingularSubtask>[];
+    for (final row in rawRows) {
+      try {
         final st = _singularSubtaskFromRow(row, staffMap, staffNames);
         if (st != null && !st.isDeleted) out.add(st);
+      } catch (_) {
+        continue;
       }
-      return out;
-    } catch (_) {
-      return [];
     }
+    out.sort((a, b) {
+      final ca = a.createDate;
+      final cb = b.createDate;
+      if (ca == null && cb == null) {
+        return b.subtaskName.toLowerCase().compareTo(a.subtaskName.toLowerCase());
+      }
+      if (ca == null) return 1;
+      if (cb == null) return -1;
+      final c = cb.compareTo(ca);
+      if (c != 0) return c;
+      return b.subtaskName.toLowerCase().compareTo(a.subtaskName.toLowerCase());
+    });
+    return out;
   }
 
   static Future<SingularSubtask?> fetchSubtaskById(String subtaskId) async {

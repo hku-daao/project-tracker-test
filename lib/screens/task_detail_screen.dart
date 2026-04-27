@@ -232,6 +232,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     if (oldWidget.taskId != widget.taskId) {
       _subtaskSortColumn = null;
       _subtaskSortAscending = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadSubtasks();
+      });
     }
   }
 
@@ -254,16 +257,30 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   Future<void> _loadSubtasks() async {
     if (!SupabaseConfig.isConfigured) {
-      if (mounted) setState(() => _subtasks = []);
+      if (mounted) {
+        setState(() {
+          _subtasks = [];
+          _loadingSubtasks = false;
+        });
+      }
       return;
     }
-    setState(() => _loadingSubtasks = true);
-    final list = await SupabaseService.fetchSubtasksForTask(widget.taskId);
-    if (!mounted) return;
-    setState(() {
-      _subtasks = list;
-      _loadingSubtasks = false;
-    });
+    if (mounted) setState(() => _loadingSubtasks = true);
+    try {
+      final list = await SupabaseService.fetchSubtasksForTask(widget.taskId);
+      if (!mounted) return;
+      setState(() {
+        _subtasks = list;
+        _loadingSubtasks = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _subtasks = [];
+          _loadingSubtasks = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadTableComments() async {

@@ -15,6 +15,7 @@ import '../../config/supabase_config.dart';
 import '../../priority.dart';
 import '../../services/landing_task_filters_storage.dart';
 import '../../services/supabase_service.dart';
+import '../../utils/hk_time.dart';
 import '../../widgets/task_list_card.dart';
 import 'initiative_detail_screen.dart';
 
@@ -25,7 +26,6 @@ enum TaskListSortColumn {
   pic('pic'),
   startDate('startDate'),
   dueDate('dueDate'),
-  subtaskDueDate('subtaskDueDate'),
   status('status'),
   submission('submission');
 
@@ -34,6 +34,8 @@ enum TaskListSortColumn {
 
   static TaskListSortColumn? fromStorage(String? s) {
     if (s == null || s.isEmpty) return null;
+    // Legacy persisted column removed from UI — treat as **Due date** (task + sub-task).
+    if (s == 'subtaskDueDate') return TaskListSortColumn.dueDate;
     for (final v in TaskListSortColumn.values) {
       if (v.storageKey == s) return v;
     }
@@ -52,8 +54,6 @@ enum TaskListSortColumn {
         return 'Start date';
       case TaskListSortColumn.dueDate:
         return 'Due date';
-      case TaskListSortColumn.subtaskDueDate:
-        return 'Sub-task due date';
       case TaskListSortColumn.status:
         return 'Status';
       case TaskListSortColumn.submission:
@@ -91,6 +91,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   late final ExpansibleController _filterCreatorTeamController;
   late final ExpansibleController _filterCreatorTeammateTileController;
   late final ExpansibleController _filterStatusTileController;
+  late final ExpansibleController _filterOverdueTileController;
   late final ExpansibleController _filterSubmissionTileController;
 
   /// Scope: `all` | `assigned` | `created` (chips: All, Assigned to me, My created tasks).
@@ -101,6 +102,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Subset of [_submissionPending]…[_submissionReturned]. Empty = all (label "All submission").
   final Set<String> _selectedSubmissionFilters = {};
+
+  /// When true, only tasks with an overdue task due date and/or an overdue incomplete sub-task (HK calendar).
+  bool _filterOverdueOnly = false;
   final TextEditingController _taskSearchController = TextEditingController();
   final MenuController _filterMenuController = MenuController();
   bool _remindersExpanded = false;
@@ -115,8 +119,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   int _tasksPageIndex = 0;
   int _deletedTasksPageIndex = 0;
 
-  /// Max sub-task due date per parent task id (singular tasks only); used for [TaskListSortColumn.subtaskDueDate].
+  /// Min / max sub-task `due_date` per parent task id (singular tasks only); used for [TaskListSortColumn.dueDate].
+  final Map<String, DateTime?> _subtaskMinDueByTaskId = {};
   final Map<String, DateTime?> _subtaskMaxDueByTaskId = {};
+  /// Singular tasks only: after fetch, true if any non-deleted, non-completed sub-task has calendar due before HK today.
+  final Map<String, bool> _subtaskHasOverdueByTaskId = {};
   /// Lowercased sub-task names + descriptions per parent task id (singular only); used for landing search.
   final Map<String, String> _subtaskSearchBlobByTaskId = {};
   String _cachedSingularTaskIdsSig = '';
@@ -271,6 +278,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   /// True when status / submission / assignee / creator / search are not at default (all).
   bool get _hasTeamOrStatusFilterSelections =>
       _selectedTaskStatuses.isNotEmpty ||
+      _filterOverdueOnly ||
       _selectedSubmissionFilters.isNotEmpty ||
       _filterAssigneeMenuStaffIds.isNotEmpty ||
       _filterCreatorMenuStaffIds.isNotEmpty ||
@@ -281,12 +289,16 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     setState(() {
       _selectedTaskStatuses.clear();
       _selectedSubmissionFilters.clear();
+      _filterOverdueOnly = false;
       _filterAssigneeMenuTeamId = null;
       _filterAssigneeMenuStaffIds.clear();
       _filterCreatorMenuTeamId = null;
       _filterCreatorMenuStaffIds.clear();
       _taskSearchController.clear();
       _lastSubtaskSearchQueryForBlob = '';
+      _subtaskMinDueByTaskId.clear();
+      _subtaskMaxDueByTaskId.clear();
+      _subtaskHasOverdueByTaskId.clear();
       _subtaskSearchBlobByTaskId.clear();
       _subtaskFetchGeneration++;
       _landingSubtaskServerSearchSeq++;
@@ -307,6 +319,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _filterCreatorTeamController.collapse();
     _filterCreatorTeammateTileController.collapse();
     _filterStatusTileController.collapse();
+    _filterOverdueTileController.collapse();
     _filterSubmissionTileController.collapse();
   }
 
@@ -345,7 +358,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _collapseCreatorFilterExpansionIfEngaged();
   }
 
-  /// Accordion: only one of Assignee / Creator / Status / Submission stays expanded.
+  /// Accordion: only one of Assignee / Creator / Status / Overdue / Submission stays expanded.
   void _onTopLevelFilterSectionExpanded(String openedId) {
     if (openedId != 'assignee') {
       _filterAssigneeRootController.collapse();
@@ -358,6 +371,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       _filterCreatorTeammateTileController.collapse();
     }
     if (openedId != 'status') _filterStatusTileController.collapse();
+    if (openedId != 'overdue') _filterOverdueTileController.collapse();
     if (openedId != 'submission') _filterSubmissionTileController.collapse();
   }
 
@@ -402,6 +416,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       parts.add('All status');
     } else {
       parts.add(_statusFilterDisplayText());
+    }
+    if (_filterOverdueOnly) {
+      parts.add('Overdue');
     }
     if (_selectedSubmissionFilters.isEmpty) {
       parts.add('All submission');
@@ -545,6 +562,44 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return ascending ? c : -c;
   }
 
+  /// Normalizes to local calendar midnight for comparing task vs sub-task **due dates**.
+  static DateTime? _landingCalendarDueDay(DateTime? d) {
+    if (d == null) return null;
+    return DateTime(d.year, d.month, d.day);
+  }
+
+  /// Ascending **Due date**: earliest calendar day among [Task.endDate] and all loaded sub-task dues.
+  DateTime? _effectiveDueSortMin(Task t) {
+    final taskDay = _landingCalendarDueDay(t.endDate);
+    if (!t.isSingularTableRow) return taskDay;
+    if (!_subtaskMaxDueByTaskId.containsKey(t.id)) return taskDay;
+    DateTime? best;
+    void pick(DateTime? d) {
+      final n = _landingCalendarDueDay(d);
+      if (n == null) return;
+      if (best == null || n.isBefore(best!)) best = n;
+    }
+    pick(t.endDate);
+    pick(_subtaskMinDueByTaskId[t.id]);
+    return best;
+  }
+
+  /// Descending **Due date**: latest calendar day among [Task.endDate] and all loaded sub-task dues.
+  DateTime? _effectiveDueSortMax(Task t) {
+    final taskDay = _landingCalendarDueDay(t.endDate);
+    if (!t.isSingularTableRow) return taskDay;
+    if (!_subtaskMaxDueByTaskId.containsKey(t.id)) return taskDay;
+    DateTime? best;
+    void pick(DateTime? d) {
+      final n = _landingCalendarDueDay(d);
+      if (n == null) return;
+      if (best == null || n.isAfter(best!)) best = n;
+    }
+    pick(t.endDate);
+    pick(_subtaskMaxDueByTaskId[t.id]);
+    return best;
+  }
+
   String _singularTaskIdsSignature(AppState state) {
     final ids = state.tasks
         .where((t) => t.isSingularTableRow)
@@ -559,9 +614,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     List<Task> deletedTasks,
   ) {
     if (!SupabaseConfig.isConfigured) return;
-    final needDue = _taskSortColumn == TaskListSortColumn.subtaskDueDate;
+    final needDue = _taskSortColumn == TaskListSortColumn.dueDate;
     final needBlob = _taskSearchController.text.trim().isNotEmpty;
-    if (!needDue && !needBlob) return;
+    final needOverdue = _filterOverdueOnly;
+    if (!needDue && !needBlob && !needOverdue) return;
     final seen = <String>{};
     final combined = <Task>[];
     for (final t in [...tasks, ...deletedTasks]) {
@@ -573,7 +629,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final idsToFetch = singularIds.where((id) {
       final missingDue = needDue && !_subtaskMaxDueByTaskId.containsKey(id);
       final missingBlob = needBlob && !_subtaskSearchBlobByTaskId.containsKey(id);
-      return missingDue || missingBlob;
+      final missingOverdue =
+          needOverdue && !_subtaskHasOverdueByTaskId.containsKey(id);
+      return missingDue || missingBlob || missingOverdue;
     }).toList();
     if (idsToFetch.isEmpty) return;
     unawaited(_loadSubtaskRowDataForTasks(idsToFetch));
@@ -588,21 +646,48 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final startGen = _subtaskFetchGeneration;
     for (final id in taskIds) {
       if (!mounted || startGen != _subtaskFetchGeneration) return;
-      DateTime? due;
+      DateTime? minDue;
+      DateTime? maxDue;
       var blob = '';
       try {
         final list = await SupabaseService.fetchSubtasksForTask(id);
         if (!mounted || startGen != _subtaskFetchGeneration) return;
-        due = TaskListCard.maxSubtaskDueForSort(list);
+        minDue = TaskListCard.minSubtaskDueForSort(list);
+        maxDue = TaskListCard.maxSubtaskDueForSort(list);
         blob = _subtaskSearchBlobFromList(list);
+        final todayHk = HkTime.todayDateOnlyHk();
+        var hasOverdueSub = false;
+        for (final st in list) {
+          if (st.isDeleted) continue;
+          final ss = st.status.trim().toLowerCase();
+          if (ss == 'completed' || ss == 'complete') continue;
+          final d = st.dueDate;
+          if (d == null) continue;
+          final day = DateTime(d.year, d.month, d.day);
+          if (day.isBefore(todayHk)) {
+            hasOverdueSub = true;
+            break;
+          }
+        }
+        if (!mounted || startGen != _subtaskFetchGeneration) return;
+        setState(() {
+          _subtaskMinDueByTaskId[id] = minDue;
+          _subtaskMaxDueByTaskId[id] = maxDue;
+          _subtaskSearchBlobByTaskId[id] = blob;
+          _subtaskHasOverdueByTaskId[id] = hasOverdueSub;
+        });
+        continue;
       } catch (_) {
-        due = null;
+        minDue = null;
+        maxDue = null;
         blob = '';
       }
       if (!mounted || startGen != _subtaskFetchGeneration) return;
       setState(() {
-        _subtaskMaxDueByTaskId[id] = due;
+        _subtaskMinDueByTaskId[id] = minDue;
+        _subtaskMaxDueByTaskId[id] = maxDue;
         _subtaskSearchBlobByTaskId[id] = blob;
+        _subtaskHasOverdueByTaskId[id] = false;
       });
     }
   }
@@ -636,14 +721,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           c = _cmpDateForSort(a.startDate, b.startDate, asc);
           break;
         case TaskListSortColumn.dueDate:
-          c = _cmpDateForSort(a.endDate, b.endDate, asc);
-          break;
-        case TaskListSortColumn.subtaskDueDate:
-          final aMax =
-              a.isSingularTableRow ? _subtaskMaxDueByTaskId[a.id] : null;
-          final bMax =
-              b.isSingularTableRow ? _subtaskMaxDueByTaskId[b.id] : null;
-          c = _cmpDateForSort(aMax, bMax, asc);
+          final aKey = asc ? _effectiveDueSortMin(a) : _effectiveDueSortMax(a);
+          final bKey = asc ? _effectiveDueSortMin(b) : _effectiveDueSortMax(b);
+          c = _cmpDateForSort(aKey, bKey, asc);
           break;
         case TaskListSortColumn.status:
           c = _cmpStrNullable(
@@ -688,6 +768,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _filterCreatorTeamController = ExpansibleController();
     _filterCreatorTeammateTileController = ExpansibleController();
     _filterStatusTileController = ExpansibleController();
+    _filterOverdueTileController = ExpansibleController();
     _filterSubmissionTileController = ExpansibleController();
     _taskSearchController.addListener(_onSearchTextChangedForPersist);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -786,6 +867,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _scheduleLandingSubtaskServerSearch();
     _taskSortColumn = TaskListSortColumn.fromStorage(data.sortColumn);
     _taskSortAscending = data.sortAscending;
+    _filterOverdueOnly = data.filterOverdueOnly;
   }
 
   void _applyTeamsAndAssigneesFromSaved(LandingTaskFilters data, AppState state) {
@@ -841,6 +923,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         assigneeIds: const [],
         statuses: _selectedTaskStatuses.toList(),
         submissionFilters: _selectedSubmissionFilters.toList(),
+        filterOverdueOnly: _filterOverdueOnly,
         search: _taskSearchController.text,
         sortColumn: _taskSortColumn?.storageKey,
         sortAscending: _taskSortAscending,
@@ -865,6 +948,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _filterCreatorTeamController.dispose();
     _filterCreatorTeammateTileController.dispose();
     _filterStatusTileController.dispose();
+    _filterOverdueTileController.dispose();
     _filterSubmissionTileController.dispose();
     _taskSearchController.dispose();
     super.dispose();
@@ -1112,7 +1196,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     if (singularSig != _cachedSingularTaskIdsSig) {
       _cachedSingularTaskIdsSig = singularSig;
       _subtaskFetchGeneration++;
+      _subtaskMinDueByTaskId.clear();
       _subtaskMaxDueByTaskId.clear();
+      _subtaskHasOverdueByTaskId.clear();
       _subtaskSearchBlobByTaskId.clear();
       _landingSubtaskServerSearchSeq++;
       _landingSubtaskServerSearchDebounce?.cancel();
@@ -1270,11 +1356,42 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           : [];
     }
 
+    bool taskEligibleForOverdueDue(Task t) {
+      if (singularDeleted(t)) return false;
+      if (t.isSingularTableRow) return !singularCompleted(t);
+      return t.status != TaskStatus.done;
+    }
+
+    bool taskDueCalendarOverdue(Task t) {
+      if (!taskEligibleForOverdueDue(t)) return false;
+      final due = t.endDate;
+      if (due == null) return false;
+      final day = DateTime(due.year, due.month, due.day);
+      return day.isBefore(HkTime.todayDateOnlyHk());
+    }
+
+    bool taskMatchesOverdueFilter(Task t) {
+      if (!_filterOverdueOnly) return true;
+      if (taskDueCalendarOverdue(t)) return true;
+      if (!t.isSingularTableRow) return false;
+      if (!_subtaskHasOverdueByTaskId.containsKey(t.id)) return false;
+      return _subtaskHasOverdueByTaskId[t.id] == true;
+    }
+
+    final tasksForSubtaskPrefetch = List<Task>.from(filteredTasks);
+    final deletedForSubtaskPrefetch = List<Task>.from(filteredDeletedTasks);
+    if (_filterOverdueOnly) {
+      filteredInitiatives = [];
+      filteredTasks = filteredTasks.where(taskMatchesOverdueFilter).toList();
+      filteredDeletedTasks =
+          filteredDeletedTasks.where(taskMatchesOverdueFilter).toList();
+    }
+
     filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
     // Run after this frame so [onChanged] blob invalidation (clear + generation bump) is applied
     // before we decide which task ids still need [fetchSubtasksForTask].
-    final prefetchTasks = List<Task>.from(filteredTasks);
-    final prefetchDeleted = List<Task>.from(filteredDeletedTasks);
+    final prefetchTasks = List<Task>.from(tasksForSubtaskPrefetch);
+    final prefetchDeleted = List<Task>.from(deletedForSubtaskPrefetch);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scheduleSubtaskRowDataPrefetch(prefetchTasks, prefetchDeleted);
@@ -1859,6 +1976,31 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               _collapseRosterFilterExpansionsAfterStatusOrSubmissionChange();
             },
             child: const Text('Deleted'),
+          ),
+        ],
+      ),
+      ExpansionTile(
+        controller: _filterOverdueTileController,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        title: Text('Overdue', style: titleStyle),
+        onExpansionChanged: (expanded) {
+          if (expanded) _onTopLevelFilterSectionExpanded('overdue');
+        },
+        children: [
+          CheckboxMenuButton(
+            closeOnActivate: false,
+            value: _filterOverdueOnly,
+            onChanged: (bool? v) {
+              if (v == null) return;
+              setState(() {
+                _filterOverdueOnly = v;
+                _tasksPageIndex = 0;
+                _deletedTasksPageIndex = 0;
+              });
+              _persistLandingFilters();
+              _collapseRosterFilterExpansionsAfterStatusOrSubmissionChange();
+            },
+            child: const Text('Show only overdue tasks'),
           ),
         ],
       ),

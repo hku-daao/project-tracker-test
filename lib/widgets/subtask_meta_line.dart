@@ -11,6 +11,9 @@ const double kLandingListCardFontSize = 14;
 /// Same green as **Accepted** / “Completed on” on list cards (`#298A00`).
 const Color kSubtaskCompletedOnMetaColor = Color(0xFF298A00);
 
+/// Due date text when calendar overdue (landing + task detail sub-task rows).
+const Color kOverdueDueDateColor = Color(0xFFD32F2F);
+
 String? _completedOnColoredSegment(SingularSubtask s) {
   final cd = s.completionDate;
   if (cd == null) return null;
@@ -62,9 +65,11 @@ class SubtaskMetaLine extends StatelessWidget {
     }
     final dueDay = DateTime(s.dueDate!.year, s.dueDate!.month, s.dueDate!.day);
     final st = s.status.trim().toLowerCase();
-    final blocked = st == 'completed' || st == 'deleted';
-    final overdue =
-        !blocked && HkTime.todayDateOnlyHk().isAfter(dueDay);
+    final blocked = s.isDeleted ||
+        st == 'completed' ||
+        st == 'complete' ||
+        st == 'deleted';
+    final overdue = !blocked && dueDay.isBefore(HkTime.todayDateOnlyHk());
     final dueStr = DateFormat('yyyy-MM-dd').format(s.dueDate!);
     if (!overdue) {
       if (greenSeg == null) {
@@ -89,7 +94,8 @@ class SubtaskMetaLine extends StatelessWidget {
             TextSpan(
               text: dueStr,
               style: baseStyle.copyWith(
-                color: Colors.red,
+                color: kOverdueDueDateColor,
+                fontWeight: FontWeight.w600,
                 fontSize: kLandingListCardFontSize,
               ),
             ),
@@ -105,7 +111,8 @@ class SubtaskMetaLine extends StatelessWidget {
           TextSpan(
             text: dueStr,
             style: baseStyle.copyWith(
-              color: Colors.red,
+              color: kOverdueDueDateColor,
+              fontWeight: FontWeight.w600,
               fontSize: kLandingListCardFontSize,
             ),
           ),

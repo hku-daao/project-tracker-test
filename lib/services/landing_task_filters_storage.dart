@@ -17,6 +17,7 @@ class LandingTaskFilters {
     this.filterAssigneeStaffIds = const [],
     this.filterCreatorTeamId,
     this.filterCreatorStaffIds = const [],
+    this.filterOverdueOnly = false,
   });
 
   final String filterType;
@@ -34,9 +35,13 @@ class LandingTaskFilters {
 
   /// `pending` | `submitted` | `accepted` | `returned` — empty = all submissions.
   final List<String> submissionFilters;
+
+  /// When true, landing task lists only rows that are overdue on the task due date and/or a sub-task due date (HK calendar day).
+  final bool filterOverdueOnly;
   final String search;
 
-  /// `creator` | `assignee` | `startDate` | `dueDate` | `subtaskDueDate` | `status` | `submission`, or null.
+  /// `creator` | `assignee` | `startDate` | `dueDate` | `status` | `submission`, or null.
+  /// [filterOverdueOnly] is stored separately as a bool.
   final String? sortColumn;
   final bool sortAscending;
 
@@ -46,6 +51,7 @@ class LandingTaskFilters {
         'assigneeIds': assigneeIds,
         'statuses': statuses,
         'submissionFilters': submissionFilters,
+        'filterOverdueOnly': filterOverdueOnly,
         'search': search,
         // Persist explicit null so clearing sort overwrites any previous column in storage.
         'sortColumn': sortColumn,
@@ -66,6 +72,7 @@ class LandingTaskFilters {
       submissionFilters: List<String>.from(
         j['submissionFilters'] as List? ?? const [],
       ),
+      filterOverdueOnly: j['filterOverdueOnly'] as bool? ?? false,
       search: j['search'] as String? ?? '',
       sortColumn: j['sortColumn'] as String?,
       sortAscending: j['sortAscending'] as bool? ?? true,
