@@ -1769,6 +1769,44 @@ class SupabaseService {
     );
   }
 
+  static bool _subtaskRowStatusNotDeleted(Map<String, dynamic> row) {
+    final s = (row['status'] as String? ?? '').trim().toLowerCase();
+    return s != 'deleted';
+  }
+
+  /// Parent singular [`task.id`] values that have at least one **non-deleted** subtask whose
+  /// `subtask_name` or `description` contains [tokenLower] (case-insensitive).
+  static Future<Set<String>> fetchTaskIdsHavingSubtaskToken(String tokenLower) async {
+    if (!_enabled || tokenLower.isEmpty) return {};
+    final pattern = '%$tokenLower%';
+    try {
+      final res1 = await Supabase.instance.client
+          .from('subtask')
+          .select('task_id,status')
+          .ilike('subtask_name', pattern);
+      final res2 = await Supabase.instance.client
+          .from('subtask')
+          .select('task_id,status')
+          .ilike('description', pattern);
+      final out = <String>{};
+      for (final raw in (res1 as List)) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        if (!_subtaskRowStatusNotDeleted(row)) continue;
+        final id = row['task_id']?.toString().trim();
+        if (id != null && id.isNotEmpty) out.add(id);
+      }
+      for (final raw in (res2 as List)) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        if (!_subtaskRowStatusNotDeleted(row)) continue;
+        final id = row['task_id']?.toString().trim();
+        if (id != null && id.isNotEmpty) out.add(id);
+      }
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
   /// Non-deleted subtasks for a parent [taskId], newest first.
   static Future<List<SingularSubtask>> fetchSubtasksForTask(
     String taskId,

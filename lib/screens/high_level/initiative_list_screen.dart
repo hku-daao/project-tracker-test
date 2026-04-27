@@ -121,6 +121,24 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   final Map<String, String> _subtaskSearchBlobByTaskId = {};
   String _cachedSingularTaskIdsSig = '';
 
+  /// Bumped when a new sub-task prefetch starts or caches clear; stale [Future]s skip [setState].
+  int _subtaskFetchGeneration = 0;
+
+  /// Last trimmed search string used for sub-task blob cache; when it changes, blobs are cleared
+  /// so a new [fetchSubtasksForTask] pass runs (avoids stale empty maps blocking matches).
+  String _lastSubtaskSearchQueryForBlob = '';
+
+  /// Normalized landing search string that [_subtaskServerSetsByToken] belongs to (see [_landingSearchNormalized]).
+  String _subtaskServerQueryNormalized = '';
+
+  /// Per search token: parent task ids with a non-deleted subtask matching that token in name/description.
+  /// Populated by debounced [SupabaseService.fetchTaskIdsHavingSubtaskToken] so landing search does not
+  /// depend only on sequential client-side sub-task prefetch.
+  Map<String, Set<String>>? _subtaskServerSetsByToken;
+
+  int _landingSubtaskServerSearchSeq = 0;
+  Timer? _landingSubtaskServerSearchDebounce;
+
   /// Per-user prefs: do not persist until first load finished (avoids clobbering saved teams).
   bool _landingFiltersPrefsReady = false;
 
@@ -259,6 +277,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       _taskSearchController.text.trim().isNotEmpty;
 
   void _clearTeamAndStatusFilters() {
+    _landingSubtaskServerSearchDebounce?.cancel();
     setState(() {
       _selectedTaskStatuses.clear();
       _selectedSubmissionFilters.clear();
@@ -267,6 +286,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       _filterCreatorMenuTeamId = null;
       _filterCreatorMenuStaffIds.clear();
       _taskSearchController.clear();
+      _lastSubtaskSearchQueryForBlob = '';
+      _subtaskSearchBlobByTaskId.clear();
+      _subtaskFetchGeneration++;
+      _landingSubtaskServerSearchSeq++;
+      _subtaskServerSetsByToken = null;
+      _subtaskServerQueryNormalized = '';
       _tasksPageIndex = 0;
       _deletedTasksPageIndex = 0;
     });
@@ -386,16 +411,75 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return parts.join(' · ');
   }
 
-  /// Each whitespace-separated keyword must appear in [Task.name], [Task.description],
-  /// or any non-deleted sub-task name/description (case-insensitive).
-  bool _taskMatchesLandingSearch(Task t, String query) {
-    final tokens = query
+  static String _landingSearchNormalized(String raw) {
+    return raw
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .join(' ');
+  }
+
+  static List<String> _landingSearchTokens(String raw) {
+    return raw
         .trim()
         .toLowerCase()
         .split(RegExp(r'\s+'))
         .where((s) => s.isNotEmpty)
         .toList();
+  }
+
+  void _scheduleLandingSubtaskServerSearch() {
+    _landingSubtaskServerSearchDebounce?.cancel();
+    final requestSeq = _landingSubtaskServerSearchSeq;
+    _landingSubtaskServerSearchDebounce = Timer(
+      const Duration(milliseconds: 320),
+      () async {
+        if (!mounted || requestSeq != _landingSubtaskServerSearchSeq) return;
+        final raw = _taskSearchController.text;
+        final norm = _landingSearchNormalized(raw);
+        if (!SupabaseConfig.isConfigured || norm.isEmpty) {
+          if (!mounted || requestSeq != _landingSubtaskServerSearchSeq) return;
+          setState(() {
+            _subtaskServerSetsByToken = null;
+            _subtaskServerQueryNormalized = '';
+          });
+          return;
+        }
+        final tokens = _landingSearchTokens(raw);
+        if (tokens.isEmpty) {
+          if (!mounted || requestSeq != _landingSubtaskServerSearchSeq) return;
+          setState(() {
+            _subtaskServerSetsByToken = null;
+            _subtaskServerQueryNormalized = '';
+          });
+          return;
+        }
+        final unique = tokens.toSet().toList();
+        final map = <String, Set<String>>{};
+        for (final tok in unique) {
+          if (!mounted || requestSeq != _landingSubtaskServerSearchSeq) return;
+          map[tok] = await SupabaseService.fetchTaskIdsHavingSubtaskToken(tok);
+        }
+        if (!mounted || requestSeq != _landingSubtaskServerSearchSeq) return;
+        if (_landingSearchNormalized(_taskSearchController.text) != norm) return;
+        setState(() {
+          _subtaskServerSetsByToken = map;
+          _subtaskServerQueryNormalized = norm;
+        });
+      },
+    );
+  }
+
+  /// Each whitespace-separated keyword must appear in [Task.name], [Task.description],
+  /// or any non-deleted sub-task’s `subtask_name` / `description` (case-insensitive).
+  bool _taskMatchesLandingSearch(Task t, String query) {
+    final tokens = _landingSearchTokens(query);
     if (tokens.isEmpty) return true;
+    final norm = _landingSearchNormalized(query);
+    final serverMap = _subtaskServerSetsByToken;
+    final serverReady =
+        serverMap != null && _subtaskServerQueryNormalized == norm;
     final name = t.name.toLowerCase();
     final desc = t.description.toLowerCase();
     final subBlob = t.isSingularTableRow
@@ -404,11 +488,14 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     for (final token in tokens) {
       final inTask = name.contains(token) || desc.contains(token);
       final inSub = subBlob.contains(token);
-      if (!inTask && !inSub) return false;
+      final inSubServer =
+          serverReady && (serverMap[token]?.contains(t.id) ?? false);
+      if (!inTask && !inSub && !inSubServer) return false;
     }
     return true;
   }
 
+  /// DB: `subtask.subtask_name`, `subtask.description` (via [SingularSubtask]).
   static String _subtaskSearchBlobFromList(List<SingularSubtask> list) {
     final parts = <String>[];
     for (final st in list) {
@@ -420,8 +507,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   }
 
   List<Task> _applyTaskSearch(List<Task> tasks) {
-    final raw = _taskSearchController.text.trim();
-    if (raw.isEmpty) return tasks;
+    final raw = _taskSearchController.text;
+    if (_landingSearchNormalized(raw).isEmpty) return tasks;
     return tasks.where((t) => _taskMatchesLandingSearch(t, raw)).toList();
   }
 
@@ -492,25 +579,32 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     unawaited(_loadSubtaskRowDataForTasks(idsToFetch));
   }
 
+  /// Loads sub-task rows per task; updates maps **per task** so search (e.g. sub-task name "HKU")
+  /// can match as soon as that task’s rows are loaded, not only after all tasks finish.
+  ///
+  /// [_subtaskFetchGeneration] is bumped when the singular-task id set changes so in-flight
+  /// work after a cache clear does not call [setState].
   Future<void> _loadSubtaskRowDataForTasks(List<String> taskIds) async {
-    final dueUpdates = <String, DateTime?>{};
-    final blobUpdates = <String, String>{};
+    final startGen = _subtaskFetchGeneration;
     for (final id in taskIds) {
-      if (!mounted) return;
+      if (!mounted || startGen != _subtaskFetchGeneration) return;
+      DateTime? due;
+      var blob = '';
       try {
         final list = await SupabaseService.fetchSubtasksForTask(id);
-        dueUpdates[id] = TaskListCard.maxSubtaskDueForSort(list);
-        blobUpdates[id] = _subtaskSearchBlobFromList(list);
+        if (!mounted || startGen != _subtaskFetchGeneration) return;
+        due = TaskListCard.maxSubtaskDueForSort(list);
+        blob = _subtaskSearchBlobFromList(list);
       } catch (_) {
-        dueUpdates[id] = null;
-        blobUpdates[id] = '';
+        due = null;
+        blob = '';
       }
+      if (!mounted || startGen != _subtaskFetchGeneration) return;
+      setState(() {
+        _subtaskMaxDueByTaskId[id] = due;
+        _subtaskSearchBlobByTaskId[id] = blob;
+      });
     }
-    if (!mounted) return;
-    setState(() {
-      _subtaskMaxDueByTaskId.addAll(dueUpdates);
-      _subtaskSearchBlobByTaskId.addAll(blobUpdates);
-    });
   }
 
   List<Task> _sortTasks(List<Task> tasks, AppState state) {
@@ -569,9 +663,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   }
 
   List<Initiative> _applyInitiativeNameSearch(List<Initiative> list) {
-    final q = _taskSearchController.text.trim().toLowerCase();
-    if (q.isEmpty) return list;
-    return list.where((i) => i.name.toLowerCase().contains(q)).toList();
+    final raw = _taskSearchController.text.trim().toLowerCase();
+    if (raw.isEmpty) return list;
+    return list.where((i) => i.name.toLowerCase().contains(raw)).toList();
   }
 
   String _emptyListMessage() {
@@ -679,9 +773,17 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _suppressFilterPersist = true;
     try {
       _taskSearchController.text = data.search;
+      _lastSubtaskSearchQueryForBlob = data.search.trim();
+      _subtaskSearchBlobByTaskId.clear();
+      _subtaskFetchGeneration++;
+      _landingSubtaskServerSearchSeq++;
+      _subtaskServerSetsByToken = null;
+      _subtaskServerQueryNormalized = '';
     } finally {
       _suppressFilterPersist = false;
     }
+    _landingSubtaskServerSearchDebounce?.cancel();
+    _scheduleLandingSubtaskServerSearch();
     _taskSortColumn = TaskListSortColumn.fromStorage(data.sortColumn);
     _taskSortAscending = data.sortAscending;
   }
@@ -752,6 +854,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   @override
   void dispose() {
+    _landingSubtaskServerSearchDebounce?.cancel();
     _searchPersistDebounce?.cancel();
     _taskSearchController.removeListener(_onSearchTextChangedForPersist);
     _appStateListenerRef?.removeListener(_onAppStateForDeferredTeamRestore);
@@ -943,15 +1046,24 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   Widget _buildLandingTaskSearchField() {
     return TextField(
       controller: _taskSearchController,
-      onChanged: (_) {
+      onChanged: (value) {
+        final q = value.trim();
+        if (q != _lastSubtaskSearchQueryForBlob) {
+          _lastSubtaskSearchQueryForBlob = q;
+          _subtaskSearchBlobByTaskId.clear();
+          _subtaskFetchGeneration++;
+        }
+        _landingSubtaskServerSearchSeq++;
+        _scheduleLandingSubtaskServerSearch();
         setState(() {
           _tasksPageIndex = 0;
           _deletedTasksPageIndex = 0;
         });
       },
       decoration: InputDecoration(
-        labelText: 'Search tasks',
-        hintText: 'Task name, description, sub-task name or description',
+        labelText: 'Search',
+        hintText:
+            'Search task, description, sub-task, sub-task description',
         border: const OutlineInputBorder(),
         isDense: true,
         prefixIcon: const Icon(Icons.search),
@@ -960,8 +1072,15 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 tooltip: 'Clear search',
                 icon: const Icon(Icons.clear),
                 onPressed: () {
+                  _landingSubtaskServerSearchDebounce?.cancel();
+                  _landingSubtaskServerSearchSeq++;
                   setState(() {
                     _taskSearchController.clear();
+                    _lastSubtaskSearchQueryForBlob = '';
+                    _subtaskSearchBlobByTaskId.clear();
+                    _subtaskFetchGeneration++;
+                    _subtaskServerSetsByToken = null;
+                    _subtaskServerQueryNormalized = '';
                     _tasksPageIndex = 0;
                     _deletedTasksPageIndex = 0;
                   });
@@ -992,8 +1111,17 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final singularSig = _singularTaskIdsSignature(state);
     if (singularSig != _cachedSingularTaskIdsSig) {
       _cachedSingularTaskIdsSig = singularSig;
+      _subtaskFetchGeneration++;
       _subtaskMaxDueByTaskId.clear();
       _subtaskSearchBlobByTaskId.clear();
+      _landingSubtaskServerSearchSeq++;
+      _landingSubtaskServerSearchDebounce?.cancel();
+      _subtaskServerSetsByToken = null;
+      _subtaskServerQueryNormalized = '';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scheduleLandingSubtaskServerSearch();
+      });
     }
 
     if (_filterAssigneeMenuStaffIds.isNotEmpty) {
@@ -1143,7 +1271,14 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     }
 
     filteredInitiatives = _applyInitiativeNameSearch(filteredInitiatives);
-    _scheduleSubtaskRowDataPrefetch(filteredTasks, filteredDeletedTasks);
+    // Run after this frame so [onChanged] blob invalidation (clear + generation bump) is applied
+    // before we decide which task ids still need [fetchSubtasksForTask].
+    final prefetchTasks = List<Task>.from(filteredTasks);
+    final prefetchDeleted = List<Task>.from(filteredDeletedTasks);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scheduleSubtaskRowDataPrefetch(prefetchTasks, prefetchDeleted);
+    });
     filteredTasks = _applyTaskSearch(filteredTasks);
     filteredDeletedTasks = _applyTaskSearch(filteredDeletedTasks);
     filteredTasks = _sortTasks(filteredTasks, state);
