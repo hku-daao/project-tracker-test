@@ -481,7 +481,21 @@ class SupabaseService {
       }
       return null;
     } catch (e) {
-      return e.toString();
+      final s = e.toString();
+      if (s.contains('attachment_task_id_uidx')) {
+        return '$s\n\n'
+            'The database still has a unique index on attachment(task_id) from an old schema. '
+            'Apply pending Supabase migrations (see 036, 043, or 049 in supabase/migrations), '
+            'or run: DROP INDEX IF EXISTS public.attachment_task_id_uidx; '
+            'then CREATE INDEX IF NOT EXISTS attachment_task_id_idx ON public.attachment (task_id);';
+      }
+      if (s.contains('subtask_attachment_subtask_uidx')) {
+        return '$s\n\n'
+            'The database still enforces one subtask attachment per subtask. '
+            'Apply migrations 036, 043, or 049, or drop subtask_attachment_subtask_uidx '
+            'and create subtask_attachment_subtask_id_idx on subtask_attachment (subtask_id).';
+      }
+      return s;
     }
   }
 

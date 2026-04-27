@@ -1185,9 +1185,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: filterWidth),
                       child: filterMenu,
-                    ),
-                  ),
-                ],
+                ),
+              ),
+            ],
               );
             },
           ),
