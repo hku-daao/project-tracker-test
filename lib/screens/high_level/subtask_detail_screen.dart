@@ -13,6 +13,7 @@ import '../../services/backend_api.dart';
 import '../../services/firebase_attachment_upload_service.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/attachment_save_reminder_snackbar.dart';
+import '../../utils/attachment_upload_loading_overlay.dart';
 import '../../utils/attachment_url_launch.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/due_span_policy.dart';
@@ -165,6 +166,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     final r = await FirebaseAttachmentUploadService.pickUploadForSubtask(
       widget.subtaskId,
       aclStaffKeys: _singularSubtaskAttachmentAclKeys(st),
+      onUploadPhaseStarted: () => showAttachmentUploadPleaseWait(context),
+      onUploadPhaseEnded: () => hideAttachmentUploadPleaseWait(context),
     );
     if (!mounted) return;
     if (r.error != null && r.error!.isNotEmpty) {
@@ -223,6 +226,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         return FirebaseAttachmentUploadService.pickUploadForSubtask(
           widget.subtaskId,
           aclStaffKeys: _singularSubtaskAttachmentAclKeys(st),
+          onUploadPhaseStarted: () => showAttachmentUploadPleaseWait(context),
+          onUploadPhaseEnded: () => hideAttachmentUploadPleaseWait(context),
         );
       },
     );

@@ -313,9 +313,13 @@ class FirebaseAttachmentUploadService {
   }
 
   /// Returns `(url, label)` on success, `error` on failure, all null if user cancelled pick.
+  ///
+  /// [onUploadPhaseStarted] / [onUploadPhaseEnded] wrap the Storage upload only (after pick).
   static Future<({String? url, String? label, String? error})> pickUploadForTask(
     String taskId, {
     required List<String?> aclStaffKeys,
+    void Function()? onUploadPhaseStarted,
+    void Function()? onUploadPhaseEnded,
   }) async {
     try {
       final tid = taskId.trim();
@@ -349,12 +353,17 @@ class FirebaseAttachmentUploadService {
         );
       }
 
-      return _putBytes(
-        storageRelativeFolder: 'task_attachments/$tid',
-        originalFilename: label,
-        bytes: bytes,
-        aclMetadata: acl,
-      );
+      try {
+        onUploadPhaseStarted?.call();
+        return await _putBytes(
+          storageRelativeFolder: 'task_attachments/$tid',
+          originalFilename: label,
+          bytes: bytes,
+          aclMetadata: acl,
+        );
+      } finally {
+        onUploadPhaseEnded?.call();
+      }
     } catch (e, st) {
       debugPrint('pickUploadForTask: $e\n$st');
       return (url: null, label: null, error: e.toString());
@@ -365,6 +374,8 @@ class FirebaseAttachmentUploadService {
   static Future<({String? url, String? label, String? error})> pickUploadForSubtask(
     String subtaskId, {
     required List<String?> aclStaffKeys,
+    void Function()? onUploadPhaseStarted,
+    void Function()? onUploadPhaseEnded,
   }) async {
     try {
       final sid = subtaskId.trim();
@@ -400,12 +411,17 @@ class FirebaseAttachmentUploadService {
         );
       }
 
-      return _putBytes(
-        storageRelativeFolder: 'subtask_attachments/$sid',
-        originalFilename: label,
-        bytes: bytes,
-        aclMetadata: acl,
-      );
+      try {
+        onUploadPhaseStarted?.call();
+        return await _putBytes(
+          storageRelativeFolder: 'subtask_attachments/$sid',
+          originalFilename: label,
+          bytes: bytes,
+          aclMetadata: acl,
+        );
+      } finally {
+        onUploadPhaseEnded?.call();
+      }
     } catch (e, st) {
       debugPrint('pickUploadForSubtask: $e\n$st');
       return (url: null, label: null, error: e.toString());

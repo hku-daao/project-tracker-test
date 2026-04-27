@@ -19,6 +19,7 @@ import '../services/backend_api.dart';
 import '../services/firebase_attachment_upload_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/attachment_save_reminder_snackbar.dart';
+import '../utils/attachment_upload_loading_overlay.dart';
 import '../utils/attachment_url_launch.dart';
 import '../utils/copyable_snackbar.dart';
 import '../utils/due_span_policy.dart';
@@ -742,6 +743,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final r = await FirebaseAttachmentUploadService.pickUploadForTask(
       widget.taskId,
       aclStaffKeys: _singularTaskAttachmentAclKeys(task),
+      onUploadPhaseStarted: () => showAttachmentUploadPleaseWait(context),
+      onUploadPhaseEnded: () => hideAttachmentUploadPleaseWait(context),
     );
     if (!mounted) return;
     if (r.error != null && r.error!.isNotEmpty) {
@@ -797,6 +800,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
         return FirebaseAttachmentUploadService.pickUploadForTask(
           widget.taskId,
           aclStaffKeys: _singularTaskAttachmentAclKeys(task),
+          onUploadPhaseStarted: () => showAttachmentUploadPleaseWait(context),
+          onUploadPhaseEnded: () => hideAttachmentUploadPleaseWait(context),
         );
       },
     );

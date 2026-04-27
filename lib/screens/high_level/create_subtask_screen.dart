@@ -8,6 +8,7 @@ import '../../models/task.dart';
 import '../../priority.dart';
 import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
+import '../../utils/attachment_upload_loading_overlay.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/home_navigation.dart';
 import '../../utils/due_span_policy.dart';
@@ -205,7 +206,9 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       );
       return;
     }
+    if (_submitting) return;
     setState(() => _submitting = true);
+    if (mounted) showAttachmentUploadPleaseWait(context);
     try {
       final slots = <String?>[];
       for (final aid in assigneeIds.take(10)) {
@@ -274,6 +277,10 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
         }
       } catch (_) {}
       if (!mounted) return;
+      hideAttachmentUploadPleaseWait(context);
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 4),
@@ -283,7 +290,10 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       );
       Navigator.of(context).pop(true);
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted && _submitting) {
+        hideAttachmentUploadPleaseWait(context);
+        setState(() => _submitting = false);
+      }
     }
   }
 
@@ -316,9 +326,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
         title: const Text('Create sub-task'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Stack(
-        children: [
-          AbsorbPointer(
+      body: AbsorbPointer(
             absorbing: _submitting,
             child: Opacity(
               opacity: _submitting ? 0.55 : 1,
@@ -554,17 +562,6 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
               ),
             ),
           ),
-          if (_submitting)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Material(
-                  color: Colors.black.withOpacity(0.12),
-                  child: const Center(child: CircularProgressIndicator()),
-                ),
-              ),
-            ),
-        ],
-      ),
       ),
     );
   }

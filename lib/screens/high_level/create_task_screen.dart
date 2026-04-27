@@ -10,6 +10,7 @@ import '../../models/team.dart';
 import '../../priority.dart';
 import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
+import '../../utils/attachment_upload_loading_overlay.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
@@ -287,8 +288,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       return;
     }
     if (_submitting) return;
-    setState(() => _submitting = true);
-    try {
     final state = context.read<AppState>();
     final useServer = state.assignableStaffFromServer.isNotEmpty;
     final teams = state.teams;
@@ -385,6 +384,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       picKey = _picAssigneeId!;
     }
 
+    setState(() => _submitting = true);
+    if (mounted) showAttachmentUploadPleaseWait(context);
+    try {
     final localId = state.addTask(
       name: name,
       description: description,
@@ -554,7 +556,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       if (mounted) context.read<AppState>().requestSwitchToTasksTab();
     }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        hideAttachmentUploadPleaseWait(context);
+        setState(() => _submitting = false);
+      }
     }
   }
 
@@ -587,9 +592,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
 
     super.build(context);
 
-    return Stack(
-      children: [
-        AbsorbPointer(
+    return AbsorbPointer(
           absorbing: _submitting,
           child: Opacity(
             opacity: _submitting ? 0.55 : 1,
@@ -957,19 +960,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
               ),
             ),
           ),
-        ),
-        if (_submitting)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Material(
-                color: Colors.black.withOpacity(0.12),
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

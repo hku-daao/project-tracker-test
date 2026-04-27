@@ -2067,7 +2067,16 @@ class SupabaseService {
       }
       return null;
     } catch (e) {
-      return e.toString();
+      final s = e.toString();
+      if (s.contains('subtask_attachment_task_id_idx')) {
+        return '$s\n\n'
+            'The index on subtask_attachment(task_id) must not be UNIQUE: several '
+            'attachments for one sub-task share the same parent task_id. Apply migration '
+            '050_subtask_attachment_task_id_non_unique.sql (drop index, recreate non-unique), '
+            'or run: DROP INDEX IF EXISTS public.subtask_attachment_task_id_idx; '
+            'CREATE INDEX IF NOT EXISTS subtask_attachment_task_id_idx ON public.subtask_attachment (task_id);';
+      }
+      return s;
     }
   }
 
