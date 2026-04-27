@@ -12,6 +12,14 @@ import 'attachment_open_bytes.dart';
 import 'attachment_storage_new_tab.dart';
 import 'copyable_snackbar.dart';
 
+/// True when [raw] is an `https://firebasestorage.googleapis.com/...` URL for this app’s
+/// Storage bucket (typically an uploaded file saved in Supabase `attachment.content`).
+bool isAppFirebaseStorageAttachmentUrl(String raw) {
+  final uri = Uri.tryParse(raw.trim());
+  if (uri == null) return false;
+  return _isAppFirebaseStorageObjectUrl(uri);
+}
+
 /// True when [uri] is an object URL under this app’s Firebase Storage bucket.
 bool _isAppFirebaseStorageObjectUrl(Uri uri) {
   if (uri.scheme.toLowerCase() != 'https') return false;

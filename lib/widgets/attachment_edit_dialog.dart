@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../utils/attachment_url_launch.dart';
 import '../utils/copyable_snackbar.dart';
 
 typedef AttachmentPickUpload = Future<({String? url, String? label, String? error})> Function();
@@ -14,6 +15,8 @@ Future<({String description, String url})?> showAttachmentEditDialog(
 }) {
   final descCtrl = TextEditingController(text: initialDescription);
   final linkCtrl = TextEditingController(text: initialUrl);
+  final hideAttachmentLinkField =
+      isAppFirebaseStorageAttachmentUrl(initialUrl);
   return showDialog<({String description, String url})>(
     context: context,
     builder: (ctx) {
@@ -36,59 +39,62 @@ Future<({String description, String url})?> showAttachmentEditDialog(
                     textCapitalization: TextCapitalization.sentences,
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: linkCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Attachment link',
-                      hintText: 'https://…',
-                      border: OutlineInputBorder(),
-                      isDense: true,
+                  if (!hideAttachmentLinkField) ...[
+                    TextField(
+                      controller: linkCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Attachment link or website',
+                        hintText: 'https://…',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      autocorrect: false,
+                      minLines: 1,
+                      maxLines: 4,
                     ),
-                    autocorrect: false,
-                    minLines: 1,
-                    maxLines: 4,
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.upload_file_outlined, size: 20),
-                    label: const Text('Replace with file from device'),
-                    onPressed: () async {
-                      // Let the dialog finish any tap handling before presenting the
-                      // system document picker (iOS is strict about nested presentations).
-                      if (!kIsWeb) {
-                        await Future<void>.delayed(
-                          const Duration(milliseconds: 50),
-                        );
-                      }
-                      if (!ctx.mounted) return;
-                      final r = await pickReplaceFromDevice();
-                      if (!ctx.mounted) return;
-                      if (r.error != null && r.error!.isNotEmpty) {
-                        showCopyableSnackBar(
-                          ctx,
-                          r.error!,
-                          backgroundColor: Colors.orange,
-                        );
-                        return;
-                      }
-                      if (r.url == null) return;
-                      setLocal(() {
-                        linkCtrl.text = r.url!;
-                        if (descCtrl.text.trim().isEmpty &&
-                            (r.label ?? '').trim().isNotEmpty) {
-                          descCtrl.text = (r.label ?? '').trim();
+                    const SizedBox(height: 12),
+                  ],
+                  if (hideAttachmentLinkField)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.upload_file_outlined, size: 20),
+                      label: const Text('Replace with file from device'),
+                      onPressed: () async {
+                        // Let the dialog finish any tap handling before presenting the
+                        // system document picker (iOS is strict about nested presentations).
+                        if (!kIsWeb) {
+                          await Future<void>.delayed(
+                            const Duration(milliseconds: 50),
+                          );
                         }
-                      });
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          duration: const Duration(seconds: 4),
-                          content: const Text(
-                            'File is uploaded. Press Save to apply, then Update on the page to persist',
+                        if (!ctx.mounted) return;
+                        final r = await pickReplaceFromDevice();
+                        if (!ctx.mounted) return;
+                        if (r.error != null && r.error!.isNotEmpty) {
+                          showCopyableSnackBar(
+                            ctx,
+                            r.error!,
+                            backgroundColor: Colors.orange,
+                          );
+                          return;
+                        }
+                        if (r.url == null) return;
+                        setLocal(() {
+                          linkCtrl.text = r.url!;
+                          if (descCtrl.text.trim().isEmpty &&
+                              (r.label ?? '').trim().isNotEmpty) {
+                            descCtrl.text = (r.label ?? '').trim();
+                          }
+                        });
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            duration: const Duration(seconds: 4),
+                            content: const Text(
+                              'File is uploaded. Press Save to apply, then Update on the page to persist',
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
