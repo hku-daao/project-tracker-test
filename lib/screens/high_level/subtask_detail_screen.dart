@@ -1812,7 +1812,6 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                           : () {
                               showAttachmentSourceBottomSheet(
                                 context: context,
-                                showPickFromDevice: false,
                                 onPickFromDevice: () {
                                   if (!mounted) return;
                                   _addSubtaskAttachmentFromDevice();

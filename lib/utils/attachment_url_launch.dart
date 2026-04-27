@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/backend_api.dart';
 import '../services/firebase_attachment_upload_service.dart';
 import 'attachment_storage_new_tab.dart';
 import 'copyable_snackbar.dart';
@@ -109,6 +110,75 @@ Future<String> _effectiveLaunchUrl(String raw) async {
   return raw.trim();
 }
 
+Future<void> _openHttpsLaunchUri(BuildContext context, Uri launch) async {
+  final user = _firebaseUserIfAvailable();
+  if (_isAppFirebaseStorageObjectUrl(launch) &&
+      user != null &&
+      Firebase.apps.isNotEmpty) {
+    final objectPath = _objectPathFromFirebaseStorageApiUrl(launch);
+    if (objectPath != null && objectPath.isNotEmpty) {
+      try {
+        final idToken = await user.getIdToken();
+        if (idToken != null && idToken.isNotEmpty) {
+          final proxy = await BackendApi().createAttachmentProxyStreamUrl(
+            idToken: idToken,
+            objectPath: objectPath,
+          );
+          if (proxy != null && proxy.isNotEmpty) {
+            final u = Uri.tryParse(proxy);
+            if (u != null && u.hasScheme) {
+              if (kIsWeb && tryOpenUrlInNewTab(proxy)) {
+                return;
+              }
+              final ok = await launchUrl(
+                u,
+                mode: LaunchMode.externalApplication,
+              );
+              if (ok) {
+                return;
+              }
+            }
+          }
+          if (kIsWeb) {
+            if (!context.mounted) return;
+            showCopyableSnackBar(
+              context,
+              'Could not open this attachment through a secure link. '
+              'Ensure the app backend is deployed and try again.',
+              backgroundColor: Colors.orange,
+            );
+            return;
+          }
+        }
+      } catch (e, st) {
+        debugPrint('openAttachmentUrl proxy: $e\n$st');
+        if (kIsWeb) {
+          if (!context.mounted) return;
+          showCopyableSnackBar(
+            context,
+            'Could not open attachment: $e',
+            backgroundColor: Colors.orange,
+          );
+          return;
+        }
+      }
+    }
+  }
+  if (kIsWeb && _isFirebaseStorageMediaDownloadUrl(launch)) {
+    if (tryOpenUrlInNewTab(launch.toString())) {
+      return;
+    }
+  }
+  final ok = await launchUrl(launch, mode: LaunchMode.externalApplication);
+  if (!ok && context.mounted) {
+    showCopyableSnackBar(
+      context,
+      'Could not open the link',
+      backgroundColor: Colors.orange,
+    );
+  }
+}
+
 /// Opens [raw] in the browser / default handler when it looks like `http` / `https`.
 ///
 /// Firebase Storage links for this project require a **signed-in** Firebase user so
@@ -173,24 +243,8 @@ Future<void> openAttachmentUrl(BuildContext context, String raw) async {
       );
       return;
     }
-    // On web, prefer [window.open] for Firebase Storage media URLs. Some deployments
-    // saw `ClientException: Failed to fetch` from the stack around `launchUrl` even
-    // when the link was valid; direct navigation avoids that path.
-    if (kIsWeb && _isFirebaseStorageMediaDownloadUrl(launch)) {
-      if (tryOpenUrlInNewTab(launch.toString())) {
-        return;
-      }
-    }
-    // Use navigation (`launchUrl`) for other links. In-app `http.get` to Storage
-    // hits browser CORS and fails with "Failed to fetch" on many origins.
-    final ok = await launchUrl(launch, mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) {
-      showCopyableSnackBar(
-        context,
-        'Could not open the link',
-        backgroundColor: Colors.orange,
-      );
-    }
+    if (!context.mounted) return;
+    await _openHttpsLaunchUri(context, launch);
   } catch (e) {
     if (!context.mounted) return;
     showCopyableSnackBar(

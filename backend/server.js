@@ -1,4 +1,5 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const http = require('http');
 const cron = require('node-cron');
 const { createClient } = require('@supabase/supabase-js');
@@ -260,10 +261,177 @@ async function verifyFirebaseToken(authHeader) {
   const idToken = authHeader.slice(7);
   try {
     const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
-    return { uid: decoded.uid, email: (decoded.email || '').toLowerCase() };
+    const sk = decoded.staffKey;
+    const staffKey =
+      typeof sk === 'string' && sk.trim() ? sk.trim() : null;
+    return {
+      uid: decoded.uid,
+      email: (decoded.email || '').toLowerCase(),
+      staffKey,
+    };
   } catch (_) {
     return null;
   }
+}
+
+/** One-time attachment streams: sessionId -> { objectPath, contentType, expiresAt } */
+const attachmentDownloadSessions = new Map();
+const ATTACHMENT_SESSION_TTL_MS = 120000;
+
+function getFirebaseStorageBucketName() {
+  const fromEnv = (process.env.FIREBASE_STORAGE_BUCKET || '').trim();
+  if (fromEnv) return fromEnv;
+  if (FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+      const sa = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON);
+      if (sa.project_id) return `${sa.project_id}.firebasestorage.app`;
+    } catch (_) {}
+  }
+  return '';
+}
+
+function isAllowedProjectAttachmentObjectPath(p) {
+  const s = String(p || '').trim().replace(/^\/+/, '');
+  if (!s || s.includes('..')) return false;
+  return /^project_tracker\/users\/[^/]+\/(task_attachments|subtask_attachments)\/[^/]+\/.+$/i.test(
+    s,
+  );
+}
+
+function extractUploaderUidFromAttachmentPath(objectPath) {
+  const m = String(objectPath || '')
+    .trim()
+    .match(/^project_tracker\/users\/([^/]+)\//i);
+  return m ? m[1] : null;
+}
+
+function metadataMatchesStaffKey(gcsMetadata, staffKey) {
+  if (!staffKey) return false;
+  const nested = gcsMetadata && gcsMetadata.metadata;
+  const custom =
+    nested && typeof nested === 'object' ? nested : {};
+  for (let i = 0; i < 10; i++) {
+    const k = `m${i}`;
+    const v = custom[k];
+    if (typeof v === 'string' && v === staffKey) return true;
+  }
+  return false;
+}
+
+function canReadAttachmentObject(sessionUid, staffKey, objectPath, gcsMetadata) {
+  const uploaderUid = extractUploaderUidFromAttachmentPath(objectPath);
+  if (!uploaderUid) return false;
+  if (sessionUid === uploaderUid) return true;
+  return metadataMatchesStaffKey(gcsMetadata, staffKey);
+}
+
+function sweepExpiredAttachmentSessions() {
+  const now = Date.now();
+  for (const [k, v] of attachmentDownloadSessions) {
+    if (v.expiresAt < now) attachmentDownloadSessions.delete(k);
+  }
+}
+
+async function handleAttachmentOpenSession(req, res) {
+  sweepExpiredAttachmentSessions();
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  if (!firebaseAdmin) {
+    sendJson(req, res, 503, { error: 'Firebase Admin not configured' });
+    return;
+  }
+  const bucketName = getFirebaseStorageBucketName();
+  if (!bucketName) {
+    sendJson(req, res, 503, { error: 'FIREBASE_STORAGE_BUCKET or project_id missing' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (_) {
+    sendJson(req, res, 400, { error: 'Invalid JSON' });
+    return;
+  }
+  const objectPath = String(body.objectPath || '')
+    .trim()
+    .replace(/^\/+/, '');
+  if (!isAllowedProjectAttachmentObjectPath(objectPath)) {
+    sendJson(req, res, 400, { error: 'Invalid object path' });
+    return;
+  }
+  const bucket = firebaseAdmin.storage().bucket(bucketName);
+  let meta;
+  try {
+    [meta] = await bucket.file(objectPath).getMetadata();
+  } catch (e) {
+    sendJson(req, res, 404, { error: 'Not found' });
+    return;
+  }
+  if (!canReadAttachmentObject(session.uid, session.staffKey, objectPath, meta)) {
+    sendJson(req, res, 403, { error: 'Forbidden' });
+    return;
+  }
+  const sessionId = crypto.randomBytes(32).toString('base64url');
+  const contentType =
+    (meta.contentType && String(meta.contentType).trim()) ||
+    'application/octet-stream';
+  attachmentDownloadSessions.set(sessionId, {
+    objectPath,
+    contentType,
+    expiresAt: Date.now() + ATTACHMENT_SESSION_TTL_MS,
+  });
+  sendJson(req, res, 200, {
+    path: `/api/attachment/stream/${sessionId}`,
+    expiresInSec: Math.floor(ATTACHMENT_SESSION_TTL_MS / 1000),
+  });
+}
+
+async function handleAttachmentStream(req, res) {
+  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const m = url.pathname.match(/^\/api\/attachment\/stream\/([^/]+)$/);
+  if (!m || req.method !== 'GET') {
+    sendJson(req, res, 404, { error: 'Not found' });
+    return;
+  }
+  if (!firebaseAdmin) {
+    sendJson(req, res, 503, { error: 'Firebase Admin not configured' });
+    return;
+  }
+  const bucketName = getFirebaseStorageBucketName();
+  if (!bucketName) {
+    sendJson(req, res, 503, { error: 'Storage bucket not configured' });
+    return;
+  }
+  const sessionId = m[1];
+  const sess = attachmentDownloadSessions.get(sessionId);
+  attachmentDownloadSessions.delete(sessionId);
+  if (!sess || Date.now() > sess.expiresAt) {
+    sendJson(req, res, 410, { error: 'Link expired or already used' });
+    return;
+  }
+  const bucket = firebaseAdmin.storage().bucket(bucketName);
+  const file = bucket.file(sess.objectPath);
+  const readStream = file.createReadStream();
+  const headers = {
+    'Content-Type': sess.contentType || 'application/octet-stream',
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  res.writeHead(200, { ...buildCorsHeaders(req), ...headers });
+  readStream.on('error', (err) => {
+    console.error('attachment stream:', err);
+    if (!res.writableEnded) {
+      res.destroy();
+    }
+  });
+  readStream.pipe(res);
 }
 
 async function fetchProfileByEmail(email) {
@@ -5142,6 +5310,14 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/api/cron/due-today-reminders' && req.method === 'POST') {
     await handleCronDueTodayOnly(req, res);
+    return;
+  }
+  if (path === '/api/attachment/open-session' && req.method === 'POST') {
+    await handleAttachmentOpenSession(req, res);
+    return;
+  }
+  if (path.startsWith('/api/attachment/stream/') && req.method === 'GET') {
+    await handleAttachmentStream(req, res);
     return;
   }
   if (path === '/health' || path === '/') {

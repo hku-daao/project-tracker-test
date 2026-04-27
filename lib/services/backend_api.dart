@@ -117,6 +117,45 @@ class BackendApi {
   static const String notifySubtaskUpdatedBackendNotDeployed =
       'NOTIFY_SUBTASK_UPDATED_BACKEND_NOT_DEPLOYED';
 
+  /// Creates a one-time Railway URL that streams the file (no Firebase `token=` in the address bar).
+  ///
+  /// Requires [BackendApi] deployment with `POST /api/attachment/open-session` and
+  /// `GET /api/attachment/stream/:id`. Server enforces the same rules as [storage.rules]
+  /// (uploader or `staffKey` claim vs object `m0`…`m9` metadata).
+  Future<String?> createAttachmentProxyStreamUrl({
+    required String idToken,
+    required String objectPath,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/attachment/open-session'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'objectPath': objectPath}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        debugPrint(
+          'BackendApi.createAttachmentProxyStreamUrl: HTTP ${response.statusCode} ${response.body}',
+        );
+        return null;
+      }
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final p = json['path'] as String?;
+      if (p == null || p.isEmpty) return null;
+      final base = _baseUrl.endsWith('/')
+          ? _baseUrl.substring(0, _baseUrl.length - 1)
+          : _baseUrl;
+      return p.startsWith('/') ? '$base$p' : '$base/$p';
+    } catch (e) {
+      debugPrint('BackendApi.createAttachmentProxyStreamUrl: $e');
+      return null;
+    }
+  }
+
   /// Get current user profile and assignable staff (server-enforced). Requires Firebase ID token.
   Future<UserProfileResult?> getMe(String idToken) async {
     try {
