@@ -1427,6 +1427,21 @@ function taskStatusBlocksUrgentReminder(statusRaw) {
   return s === 'completed' || s === 'deleted';
 }
 
+/**
+ * AssigneeOverdueReminder / Subtask_AssigneeOverdueReminder (HK calendar past due_date):
+ * send daily (same cron as other HK 09:00 jobs) only while submission is Pending or Returned;
+ * stop when submission is Submitted.
+ */
+function submissionAllowsAssigneeOverdueReminder(submissionRaw) {
+  if (submissionRaw == null || String(submissionRaw).trim() === '') {
+    return true;
+  }
+  const s = String(submissionRaw).trim().toLowerCase();
+  if (s === 'submitted') return false;
+  if (s === 'pending' || s === 'returned') return true;
+  return false;
+}
+
 /** Today's calendar date (YYYY-MM-DD) in Asia/Hong_Kong. */
 function hkTodayYyyyMmDd() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -3053,6 +3068,7 @@ async function runCreatorOverdueTaskReminderJob() {
 
 /**
  * HK calendar: today > due_date. AssigneeOverdueReminder → each non-empty assignee_01..10 (per slot / day).
+ * Runs daily at 09:00 Asia/Hong_Kong (internal cron). Pending or Returned → send; Submitted → do not send.
  */
 async function runAssigneeOverdueTaskReminderJob() {
   const todayYmd = hkTodayYyyyMmDd();
@@ -3090,6 +3106,7 @@ async function runAssigneeOverdueTaskReminderJob() {
   for (const taskRow of list) {
     if (taskStatusBlocksUrgentReminder(taskRow.status)) continue;
     if (!isCalendarPastDue(todayYmd, taskRow.due_date)) continue;
+    if (!submissionAllowsAssigneeOverdueReminder(taskRow.submission)) continue;
 
     const taskId = String(taskRow.id || '').trim();
     const taskName = String(taskRow.task_name || '').trim() || '(no title)';
@@ -3302,6 +3319,7 @@ async function runCreatorOverdueSubtaskReminderJob() {
 
 /**
  * HK calendar: today > subtask.due_date. Subtask_AssigneeOverdueReminder → each assignee slot (per slot / day).
+ * Runs daily at 09:00 Asia/Hong_Kong (internal cron). Pending or Returned → send; Submitted → do not send.
  */
 async function runAssigneeOverdueSubtaskReminderJob() {
   const todayYmd = hkTodayYyyyMmDd();
@@ -3339,6 +3357,7 @@ async function runAssigneeOverdueSubtaskReminderJob() {
   for (const row of list) {
     if (subtaskStatusBlocksUrgentReminder(row.status)) continue;
     if (!isCalendarPastDue(todayYmd, row.due_date)) continue;
+    if (!submissionAllowsAssigneeOverdueReminder(row.submission)) continue;
 
     const subtaskId = String(row.id || '').trim();
     const subtaskName = String(row.subtask_name || '').trim() || '(no title)';
