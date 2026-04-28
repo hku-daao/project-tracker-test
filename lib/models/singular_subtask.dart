@@ -22,6 +22,8 @@ class SingularSubtask {
     this.updateDate,
     this.updateByStaffName,
     this.changeDueReason,
+    this.overdueDay = 0,
+    this.overdue = 'No',
   });
 
   final String id;
@@ -62,6 +64,12 @@ class SingularSubtask {
   /// When start→due span exceeds policy (`subtask.change_due_reason`).
   final String? changeDueReason;
 
+  /// HK calendar days past due (`subtask.overdue_day`).
+  final int overdueDay;
+
+  /// `Yes` / `No` (`subtask.overdue`).
+  final String overdue;
+
   bool get isDeleted => status.trim().toLowerCase() == 'deleted';
 
   /// Comma-separated staff names (same order as `assignee_01`… in DB).
@@ -99,6 +107,8 @@ class SingularSubtask {
     DateTime? updateDate,
     String? updateByStaffName,
     Object? changeDueReason = _unsetChangeDueReason,
+    int? overdueDay,
+    String? overdue,
   }) {
     return SingularSubtask(
       id: id ?? this.id,
@@ -124,6 +134,8 @@ class SingularSubtask {
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
           : changeDueReason as String?,
+      overdueDay: overdueDay ?? this.overdueDay,
+      overdue: overdue ?? this.overdue,
     );
   }
 }

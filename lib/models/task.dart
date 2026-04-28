@@ -63,6 +63,12 @@ class Task {
   /// When start→due span exceeds policy for priority (`task.change_due_reason`).
   final String? changeDueReason;
 
+  /// HK calendar days past due from DB (`task.overdue_day`); 0 when not overdue.
+  final int overdueDay;
+
+  /// `Yes` / `No` from DB (`task.overdue`); aligns with [overdueDay] > 0.
+  final String overdue;
+
   const Task({
     required this.id,
     this.teamId,
@@ -88,6 +94,8 @@ class Task {
     this.submitDate,
     this.completionDate,
     this.changeDueReason,
+    this.overdueDay = 0,
+    this.overdue = 'No',
   });
 
   Task copyWith({
@@ -117,6 +125,8 @@ class Task {
     DateTime? completionDate,
     bool clearCompletionDate = false,
     Object? changeDueReason = _unsetChangeDueReason,
+    int? overdueDay,
+    String? overdue,
   }) {
     return Task(
       id: id ?? this.id,
@@ -147,6 +157,8 @@ class Task {
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
           : changeDueReason as String?,
+      overdueDay: overdueDay ?? this.overdueDay,
+      overdue: overdue ?? this.overdue,
     );
   }
 

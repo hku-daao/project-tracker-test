@@ -611,7 +611,16 @@ class SupabaseService {
       submitDate: _parseDateTimeNullable(row['submit_date']),
       completionDate: _parseDateTimeNullable(row['completion_date']),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
+      overdueDay: (row['overdue_day'] as num?)?.toInt() ?? 0,
+      overdue: _overdueYnFromRow(row['overdue']),
     );
+  }
+
+  /// DB stores `Yes` / `No` for singular task/subtask overdue flags.
+  static String _overdueYnFromRow(dynamic v) {
+    final s = v?.toString().trim() ?? '';
+    if (s == 'Yes' || s == 'No') return s;
+    return 'No';
   }
 
   static String? _nullableTrimmedString(dynamic v) {
@@ -1804,6 +1813,8 @@ class SupabaseService {
       updateDate: _parseDateTimeNullable(row['update_date']),
       updateByStaffName: _updateByDisplayName(row, staffUuidToName),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
+      overdueDay: (row['overdue_day'] as num?)?.toInt() ?? 0,
+      overdue: _overdueYnFromRow(row['overdue']),
     );
   }
 

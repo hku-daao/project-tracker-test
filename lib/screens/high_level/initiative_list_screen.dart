@@ -646,6 +646,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     var hasOverdueSub = false;
     for (final st in list) {
       if (st.isDeleted) continue;
+      if (st.overdue == 'Yes') {
+        hasOverdueSub = true;
+        break;
+      }
       final ss = st.status.trim().toLowerCase();
       if (ss == 'completed' || ss == 'complete') continue;
       final d = st.dueDate;
@@ -1384,10 +1388,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
     bool taskMatchesOverdueFilter(Task t) {
       if (!_filterOverdueOnly) return true;
-      if (taskDueCalendarOverdue(t)) return true;
-      if (!t.isSingularTableRow) return false;
-      if (!_subtaskHasOverdueByTaskId.containsKey(t.id)) return false;
-      return _subtaskHasOverdueByTaskId[t.id] == true;
+      if (t.isSingularTableRow) {
+        if (t.overdue == 'Yes') return true;
+        if (!_subtaskHasOverdueByTaskId.containsKey(t.id)) return false;
+        return _subtaskHasOverdueByTaskId[t.id] == true;
+      }
+      return taskDueCalendarOverdue(t);
     }
 
     final tasksForSubtaskPrefetch = List<Task>.from(filteredTasks);
@@ -2012,7 +2018,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               _persistLandingFilters();
               _collapseRosterFilterExpansionsAfterStatusOrSubmissionChange();
             },
-            child: const Text('Show only overdue tasks'),
+            child: const Text('Show only overdue tasks/ sub-tasks'),
           ),
         ],
       ),
