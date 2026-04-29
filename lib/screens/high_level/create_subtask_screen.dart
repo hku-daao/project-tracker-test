@@ -13,6 +13,7 @@ import '../../utils/copyable_snackbar.dart';
 import '../../utils/home_navigation.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
+import '../../utils/singular_workflow_guards.dart';
 
 /// Warn before leaving [CreateSubtaskScreen] while a draft exists (back button / system back).
 Future<bool> _confirmLeaveCreateSubtaskDraft(BuildContext context) async {
@@ -172,6 +173,14 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (!task.isSingularTableRow) {
       showCopyableSnackBar(context, 'Sub-tasks are only for cloud tasks');
+      return;
+    }
+    if (singularTaskStatusIsCompleted(task)) {
+      showCopyableSnackBar(
+        context,
+        'Cannot create sub-tasks while the task is completed.',
+        backgroundColor: Colors.orange,
+      );
       return;
     }
     final assigneeIds = task.assigneeIds;

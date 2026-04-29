@@ -25,6 +25,7 @@ import '../utils/attachment_url_launch.dart';
 import '../utils/copyable_snackbar.dart';
 import '../utils/due_span_policy.dart';
 import '../utils/hk_time.dart';
+import '../utils/singular_workflow_guards.dart';
 import '../utils/subtask_list_sort.dart';
 import '../web_deep_link.dart';
 import '../widgets/attachment_add_link_dialog.dart';
@@ -1780,6 +1781,16 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       return;
     }
     if (_saving) return;
+    await _loadSubtasks();
+    if (!mounted) return;
+    if (_subtasks.any(subtaskPreventsParentTaskSubmission)) {
+      showCopyableSnackBar(
+        context,
+        'Complete all sub-tasks before submitting the task.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final errAttach = await SupabaseService.replaceAttachmentsForTask(
@@ -2933,7 +2944,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: OutlinedButton.icon(
-                            onPressed: _saving
+                            onPressed: (_saving ||
+                                    singularTaskStatusIsCompleted(task))
                                 ? null
                                 : () async {
                                     final created = await Navigator.of(
@@ -3099,7 +3111,9 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                           _canPicSubmit(task)) ...[
                         const SizedBox(height: 12),
                         FilledButton(
-                          onPressed: _saving
+                          onPressed: (_saving ||
+                                  _subtasks
+                                      .any(subtaskPreventsParentTaskSubmission))
                               ? null
                               : () => _submitForReview(state, task),
                           style: FilledButton.styleFrom(
