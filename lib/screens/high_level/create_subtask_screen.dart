@@ -10,6 +10,7 @@ import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/home_navigation.dart';
+import '../../widgets/flow_navigation_bar.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
 import '../../utils/singular_workflow_guards.dart';
@@ -136,38 +137,17 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
     if (mounted && leave) Navigator.of(context).pop();
   }
 
-  Future<void> _handleBackToProject() async {
-    if (!_hasUnsavedDraft()) {
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      return;
+  Future<void> _flowHome() async {
+    if (_submitting) return;
+    if (_hasUnsavedDraft()) {
+      final leave = await _confirmLeaveCreateSubtaskDraft(context);
+      if (!mounted || !leave) return;
     }
-    final leave = await _confirmLeaveCreateSubtaskDraft(context);
-    if (!mounted || !leave) return;
-    Navigator.of(context).pop();
-    if (!mounted) return;
-    Navigator.of(context).pop();
+    await navigateToPinnedHomeFromDrawer(context);
   }
 
-  Future<void> _handleBackToHome() async {
-    if (!_hasUnsavedDraft()) {
-      if (!mounted) return;
-      if (widget.openedFromOverview) {
-        popUntilOverviewOrHome(context);
-      } else {
-        navigateToHomeTasksTab(context);
-      }
-      return;
-    }
-    final leave = await _confirmLeaveCreateSubtaskDraft(context);
-    if (!mounted || !leave) return;
-    if (widget.openedFromOverview) {
-      popUntilOverviewOrHome(context);
-    } else {
-      navigateToHomeTasksTab(context);
-    }
+  Future<void> _flowBack() async {
+    await _handlePopRequest();
   }
 
   DateTime _defaultDueForPriority(int priority) {
@@ -366,7 +346,12 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
             child: Opacity(
               opacity: _submitting ? 0.55 : 1,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  24 + kFlowNavBarScrollBottomPadding,
+                ),
                 child: FocusTraversalGroup(
                   policy: OrderedTraversalPolicy(),
                   child: Form(
@@ -374,6 +359,11 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                      Text(
+                        'Project: ${task.projectName?.trim().isNotEmpty == true ? task.projectName!.trim() : '—'}',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
                       Text(
                         'Parent: ${task.name}',
                         style: Theme.of(context).textTheme.titleSmall,
@@ -584,29 +574,6 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
                           ),
                         ),
                       ),
-                      if (widget.openedFromProjectDetail) ...[
-                        const SizedBox(height: 8),
-                        TextButton(
-                          onPressed:
-                              _submitting ? null : () => _handleBackToProject(),
-                          child: const Text('Back to project'),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      TextButton(
-                        onPressed:
-                            _submitting ? null : () => _handlePopRequest(),
-                        child: const Text('Back to task'),
-                      ),
-                      TextButton(
-                        onPressed:
-                            _submitting ? null : () => _handleBackToHome(),
-                        child: Text(
-                          widget.openedFromOverview
-                              ? 'Back to Overview'
-                              : 'Back to home',
-                        ),
-                      ),
                     ],
                     ),
                   ),
@@ -636,6 +603,15 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
             ),
           ),
         ],
+      ),
+      bottomNavigationBar: FlowHomeBackBar(
+        onBack: () {
+          _flowBack();
+        },
+        onHome: () {
+          _flowHome();
+        },
+        enabled: !_submitting,
       ),
       ),
     );

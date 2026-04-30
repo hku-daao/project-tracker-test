@@ -10,8 +10,32 @@ import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/hk_time.dart';
 import '../../utils/home_navigation.dart';
+import '../../widgets/flow_navigation_bar.dart';
 import '../../widgets/staff_assignee_picker_panel.dart';
 import 'project_detail_screen.dart';
+
+Future<bool> _confirmLeaveCreateProjectDraft(BuildContext context) async {
+  final r = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Unsaved project'),
+      content: const Text(
+        'Press Create project to save. If you leave now, nothing will be saved.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Stay'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Leave anyway'),
+        ),
+      ],
+    ),
+  );
+  return r == true;
+}
 
 /// Create flow opened from landing (`openedFromOverview == false`) or Overview.
 class CreateProjectScreen extends StatefulWidget {
@@ -188,6 +212,39 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     }
   }
 
+  bool _hasUnsavedDraft() {
+    if (_nameController.text.trim().isNotEmpty) return true;
+    if (_descController.text.trim().isNotEmpty) return true;
+    if (_selectedAssigneeIds.isNotEmpty) return true;
+    return false;
+  }
+
+  Future<void> _flowHome() async {
+    if (_submitting) return;
+    if (_hasUnsavedDraft()) {
+      final leave = await _confirmLeaveCreateProjectDraft(context);
+      if (!mounted || !leave) return;
+    }
+    await navigateToPinnedHomeFromDrawer(context);
+  }
+
+  Future<void> _flowBack() async {
+    if (_submitting) return;
+    if (_hasUnsavedDraft()) {
+      final leave = await _confirmLeaveCreateProjectDraft(context);
+      if (!mounted || !leave) return;
+    }
+    if (!mounted) return;
+    if (widget.openedFromOverview) {
+      Navigator.of(context).popUntil((route) {
+        final n = route.settings.name;
+        return n == kOverviewDashboardRouteName || route.isFirst;
+      });
+    } else {
+      navigateToHomeTasksTab(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -198,19 +255,25 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
 
     return Stack(
       children: [
-        AbsorbPointer(
-          absorbing: _submitting,
-          child: Opacity(
-            opacity: _submitting ? 0.55 : 1,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: FocusTraversalGroup(
-            policy: OrderedTraversalPolicy(),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+        Scaffold(
+          body: AbsorbPointer(
+            absorbing: _submitting,
+            child: Opacity(
+              opacity: _submitting ? 0.55 : 1,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  24 + kFlowNavBarScrollBottomPadding,
+                ),
+                child: FocusTraversalGroup(
+                  policy: OrderedTraversalPolicy(),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                 if (_pickerLoading) ...[
                   const LinearProgressIndicator(),
                   const SizedBox(height: 8),
@@ -329,33 +392,22 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                     child: Text(_submitting ? 'Creating…' : 'Create project'),
                   ),
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _submitting
-                      ? null
-                      : () {
-                          if (widget.openedFromOverview) {
-                            Navigator.of(context).popUntil((route) {
-                              final n = route.settings.name;
-                              return n == kOverviewDashboardRouteName ||
-                                  route.isFirst;
-                            });
-                          } else {
-                            navigateToHomeTasksTab(context);
-                          }
-                        },
-                  child: Text(
-                    widget.openedFromOverview
-                        ? 'Back to Overview'
-                        : 'Back to home',
+              ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
-        ),
+          bottomNavigationBar: FlowHomeBackBar(
+            onBack: () {
+              _flowBack();
+            },
+            onHome: () {
+              _flowHome();
+            },
+            enabled: !_submitting,
+          ),
         ),
         if (_submitting)
           Positioned.fill(

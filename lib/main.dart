@@ -13,6 +13,8 @@ import 'firebase_options.dart';
 import 'navigator_keys.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/app_bootstrap.dart';
+import 'screens/home_screen.dart';
+import 'utils/pinned_dashboard_registry.dart';
 import 'web_startup.dart';
 
 void main() async {
@@ -41,6 +43,10 @@ void main() async {
     initError = e.toString();
     debugPrint('Init error: $e\n$st');
   }
+  registerPinnedHomeDashboardPages(
+    overview: () => const CustomizedDashboardPage(),
+    project: () => const ProjectDashboardPage(),
+  );
   runApp(MyApp(initError: initError));
 }
 

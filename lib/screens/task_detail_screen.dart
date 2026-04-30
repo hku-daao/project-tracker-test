@@ -34,6 +34,7 @@ import '../widgets/attachment_source_bottom_sheet.dart';
 import '../widgets/outlook_attachment_chip.dart';
 import '../widgets/singular_subtask_row_card.dart';
 import '../widgets/staff_assignee_picker_panel.dart';
+import '../widgets/flow_navigation_bar.dart';
 import '../widgets/subtask_meta_line.dart';
 import '../widgets/subtask_sort_column_chip.dart';
 
@@ -47,6 +48,9 @@ class TaskDetailScreen extends StatefulWidget {
   /// When opened under [ProjectDetailScreen], show **Back to project** under Delete.
   final bool openedFromProjectDetail;
 
+  /// Opened from Project dashboard FAB flow (create task / navigate).
+  final bool openedFromProjectDashboard;
+
   /// Parent project id for navigation label (optional).
   final String? projectIdForBack;
 
@@ -56,6 +60,7 @@ class TaskDetailScreen extends StatefulWidget {
     this.commentAuthorAssigneeId,
     this.openedFromOverview = false,
     this.openedFromProjectDetail = false,
+    this.openedFromProjectDashboard = false,
     this.projectIdForBack,
   });
 
@@ -96,6 +101,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         commentAuthorAssigneeId: widget.commentAuthorAssigneeId,
         openedFromOverview: widget.openedFromOverview,
         openedFromProjectDetail: widget.openedFromProjectDetail,
+        openedFromProjectDashboard: widget.openedFromProjectDashboard,
         projectIdForBack: widget.projectIdForBack,
       );
     }
@@ -126,6 +132,7 @@ class SingularTaskDetailView extends StatefulWidget {
   final String? commentAuthorAssigneeId;
   final bool openedFromOverview;
   final bool openedFromProjectDetail;
+  final bool openedFromProjectDashboard;
   final String? projectIdForBack;
 
   const SingularTaskDetailView({
@@ -134,6 +141,7 @@ class SingularTaskDetailView extends StatefulWidget {
     this.commentAuthorAssigneeId,
     this.openedFromOverview = false,
     this.openedFromProjectDetail = false,
+    this.openedFromProjectDashboard = false,
     this.projectIdForBack,
   });
 
@@ -1016,6 +1024,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       _dueDate,
       _localPriority,
     );
+  }
+
+  String _taskProjectDisplayLine(Task task) {
+    final n = task.projectName?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    return '—';
   }
 
   /// Display for `task.create_by` (resolved name when available).
@@ -2157,7 +2171,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             child: Opacity(
               opacity: _saving ? 0.55 : 1,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  16 + kFlowNavBarScrollBottomPadding,
+                ),
                 child: Form(
                   key: _formKey,
                   child: FocusTraversalGroup(
@@ -2174,6 +2193,18 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  Text(
+                                    'Project: ${_taskProjectDisplayLine(task)}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 8),
                                   Text(
                                     'Task creator: ${_taskCreatorDisplayLine(task, state)}',
                                     style: Theme.of(context)
@@ -3059,6 +3090,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                                           widget.openedFromOverview,
                                       openedFromProjectDetail:
                                           widget.openedFromProjectDetail,
+                                      openedFromProjectDashboard:
+                                          widget.openedFromProjectDashboard,
                                     ),
                                   ),
                                 );
@@ -3211,33 +3244,6 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                             foregroundColor: Colors.red.shade800,
                           ),
                         ),
-                      const SizedBox(height: 24),
-                      if (widget.openedFromProjectDetail)
-                        TextButton(
-                          onPressed: _saving
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                          child: const Text('Back to project'),
-                        )
-                      else
-                        TextButton(
-                          onPressed: _saving
-                              ? null
-                              : () {
-                                  if (widget.openedFromOverview) {
-                                    popUntilOverviewOrHome(context);
-                                  } else {
-                                    Navigator.of(context).popUntil(
-                                      (route) => route.isFirst,
-                                    );
-                                  }
-                                },
-                          child: Text(
-                            widget.openedFromOverview
-                                ? 'Back to Overview'
-                                : 'Back to home',
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -3256,7 +3262,32 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
             ),
         ],
       ),
+      bottomNavigationBar: FlowHomeBackBar(
+        onBack: _singularFlowBack,
+        onHome: () {
+          _singularFlowHome();
+        },
+        enabled: !_saving,
+      ),
     );
+  }
+
+  void _singularFlowBack() {
+    if (_saving) return;
+    if (widget.openedFromProjectDetail) {
+      Navigator.of(context).pop();
+    } else if (widget.openedFromProjectDashboard) {
+      popUntilProjectDashboardOrHome(context);
+    } else if (widget.openedFromOverview) {
+      popUntilOverviewOrHome(context);
+    } else {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  Future<void> _singularFlowHome() async {
+    if (_saving) return;
+    await navigateToPinnedHomeFromDrawer(context);
   }
 }
 

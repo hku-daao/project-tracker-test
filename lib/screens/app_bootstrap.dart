@@ -9,6 +9,7 @@ import '../services/staff_team_lookup_service.dart';
 import '../services/supabase_service.dart';
 import '../services/startup_view_storage.dart';
 import '../utils/home_navigation.dart';
+import '../utils/pinned_dashboard_registry.dart';
 import '../web_deep_link.dart';
 import 'high_level/subtask_detail_screen.dart';
 import 'home_screen.dart';
@@ -238,25 +239,33 @@ class _StartupShellState extends State<_StartupShell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenPinnedCustomized());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenPinnedView());
   }
 
-  Future<void> _maybeOpenPinnedCustomized() async {
+  Future<void> _maybeOpenPinnedView() async {
     final subId = readSubtaskIdFromUrlOrSession();
     final taskId = readTaskIdFromUrlOrSession();
     if (subId != null && subId.isNotEmpty) return;
     if (taskId != null && taskId.isNotEmpty) return;
 
-    final pinned = await StartupViewStorage.isCustomizedPinned();
-    if (!mounted || !pinned) return;
-    if (!context.mounted) return;
+    final tag = await StartupViewStorage.getPreferredViewTag();
+    if (!mounted || !context.mounted) return;
     if (Navigator.of(context).canPop()) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: kOverviewDashboardRouteName),
-        builder: (context) => const CustomizedDashboardPage(),
-      ),
-    );
+    if (tag == StartupViewStorage.viewOverview) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: kOverviewDashboardRouteName),
+          builder: (context) => buildOverviewDashboardPage(),
+        ),
+      );
+    } else if (tag == StartupViewStorage.viewProject) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: kProjectDashboardRouteName),
+          builder: (context) => buildProjectDashboardPage(),
+        ),
+      );
+    }
   }
 
   @override

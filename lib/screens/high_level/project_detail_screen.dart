@@ -12,6 +12,7 @@ import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/hk_time.dart';
 import '../../utils/home_navigation.dart';
+import '../../widgets/flow_navigation_bar.dart';
 import '../../utils/project_task_sort.dart';
 import '../../widgets/staff_assignee_picker_panel.dart';
 import '../../widgets/task_list_card.dart';
@@ -436,7 +437,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     final p = _project!;
     final creator = _isCreator(p);
     final assigneeViewer = _viewerIsProjectAssignee();
-    final canCreateTask = creator || assigneeViewer;
+    final canCreateTask = creator;
     final ymd = DateFormat('yyyy-MM-dd');
     final effectiveStatus = _draftStatus ?? p.status;
     final sortedTasks = ProjectTaskSort.sortTasks(
@@ -455,7 +456,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: Text('Project: ${p.name}')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + kFlowNavBarScrollBottomPadding,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -751,34 +757,35 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: _saving
-                  ? null
-                  : () {
-                      if (widget.openedFromOverview) {
-                        Navigator.of(context).popUntil((route) {
-                          final n = route.settings.name;
-                          return n == kOverviewDashboardRouteName ||
-                              route.isFirst;
-                        });
-                      } else if (widget.openedFromLanding) {
-                        navigateToHomeTasksTab(context);
-                      } else {
-                        Navigator.of(context).pop();
-                      }
-                    },
-              child: Text(
-                widget.openedFromOverview
-                    ? 'Back to Overview'
-                    : widget.openedFromLanding
-                        ? 'Back to home'
-                        : 'Back',
-              ),
-            ),
           ],
         ),
       ),
+      bottomNavigationBar: FlowHomeBackBar(
+        onBack: _projectDetailFlowBack,
+        onHome: () {
+          _projectDetailFlowHome();
+        },
+        enabled: !_saving,
+      ),
     );
+  }
+
+  void _projectDetailFlowBack() {
+    if (_saving) return;
+    if (widget.openedFromOverview) {
+      Navigator.of(context).popUntil((route) {
+        final n = route.settings.name;
+        return n == kOverviewDashboardRouteName || route.isFirst;
+      });
+    } else if (widget.openedFromLanding) {
+      navigateToHomeTasksTab(context);
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _projectDetailFlowHome() async {
+    if (_saving) return;
+    await navigateToPinnedHomeFromDrawer(context);
   }
 }

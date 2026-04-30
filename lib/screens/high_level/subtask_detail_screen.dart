@@ -15,6 +15,7 @@ import '../../services/supabase_service.dart';
 import '../../utils/attachment_save_reminder_snackbar.dart';
 import '../../utils/attachment_upload_loading_overlay.dart';
 import '../../utils/home_navigation.dart';
+import '../../widgets/flow_navigation_bar.dart';
 import '../../utils/attachment_url_launch.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/due_span_policy.dart';
@@ -48,6 +49,7 @@ class SubtaskDetailScreen extends StatefulWidget {
     this.replaceWithParentTaskOnBack = false,
     this.openedFromOverview = false,
     this.openedFromProjectDetail = false,
+    this.openedFromProjectDashboard = false,
   });
 
   final String subtaskId;
@@ -61,6 +63,9 @@ class SubtaskDetailScreen extends StatefulWidget {
 
   /// Under [ProjectDetailScreen] flow — **Back to project** below Delete.
   final bool openedFromProjectDetail;
+
+  /// Opened from task detail when parent task was reached from Project dashboard flow.
+  final bool openedFromProjectDashboard;
 
   @override
   State<SubtaskDetailScreen> createState() => _SubtaskDetailScreenState();
@@ -141,6 +146,7 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
           builder: (_) => TaskDetailScreen(
             taskId: tid,
             openedFromOverview: widget.openedFromOverview,
+            openedFromProjectDashboard: widget.openedFromProjectDashboard,
           ),
         ),
       );
@@ -1491,7 +1497,12 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       body: Stack(
         children: [
           SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              16 + kFlowNavBarScrollBottomPadding,
+            ),
             child: FocusTraversalGroup(
               policy: OrderedTraversalPolicy(),
               child: Column(
@@ -1503,6 +1514,11 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        Text(
+                          'Project: ${parent.projectName?.trim().isNotEmpty == true ? parent.projectName!.trim() : '—'}',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
                         Text(
                           'Parent: ${parent.name}',
                           style: Theme.of(context).textTheme.titleSmall,
@@ -2156,31 +2172,6 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                     ),
                   ),
                 ],
-                if (widget.openedFromProjectDetail) ...[
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed:
-                        _saving ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Back to project'),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                TextButton(
-                  onPressed: _saving ? null : _onBackToTask,
-                  child: const Text('Back to task'),
-                ),
-                TextButton(
-                  onPressed: _saving
-                      ? null
-                      : () => widget.openedFromOverview
-                          ? popUntilOverviewOrHome(context)
-                          : navigateToHomeTasksTab(context),
-                  child: Text(
-                    widget.openedFromOverview
-                        ? 'Back to Overview'
-                        : 'Back to home',
-                  ),
-                ),
               ],
             ),
             ),
@@ -2196,6 +2187,23 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
             ),
         ],
       ),
+      bottomNavigationBar: FlowHomeBackBar(
+        onBack: _subtaskFlowBack,
+        onHome: () {
+          _subtaskFlowHome();
+        },
+        enabled: !_saving,
+      ),
     );
+  }
+
+  void _subtaskFlowBack() {
+    if (_saving) return;
+    _onBackToTask();
+  }
+
+  Future<void> _subtaskFlowHome() async {
+    if (_saving) return;
+    await navigateToPinnedHomeFromDrawer(context);
   }
 }

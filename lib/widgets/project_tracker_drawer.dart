@@ -1,14 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-/// Navigation drawer shared by [HomeScreen] and the Overview dashboard route.
+/// Navigation drawer shared by [HomeScreen], Overview, and Project views.
 class ProjectTrackerDrawer extends StatelessWidget {
   const ProjectTrackerDrawer({
     super.key,
     required this.welcomeName,
     required this.onHome,
-    /// Home: close drawer then push Overview. Overview route: typically close drawer only.
-    required this.onDashboardCustomized,
+    required this.onViewDefault,
+    required this.onViewOverview,
+    required this.onViewProject,
     required this.onFeedback,
     required this.onImportantNotice,
     required this.onSignOut,
@@ -17,7 +18,16 @@ class ProjectTrackerDrawer extends StatelessWidget {
 
   final String welcomeName;
   final VoidCallback onHome;
-  final VoidCallback onDashboardCustomized;
+
+  /// Views → Default (landing).
+  final VoidCallback onViewDefault;
+
+  /// Views → Overview.
+  final VoidCallback onViewOverview;
+
+  /// Views → Project (projects-only dashboard).
+  final VoidCallback onViewProject;
+
   final VoidCallback onFeedback;
   final VoidCallback onImportantNotice;
   final VoidCallback onSignOut;
@@ -64,13 +74,23 @@ class ProjectTrackerDrawer extends StatelessWidget {
               onTap: onHome,
             ),
             ExpansionTile(
-              leading: const Icon(Icons.dashboard_outlined),
-              title: const Text('Dashboards'),
+              leading: const Icon(Icons.view_list),
+              title: const Text('Views'),
               children: [
+                ListTile(
+                  title: const Text('Default'),
+                  contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                  onTap: onViewDefault,
+                ),
                 ListTile(
                   title: const Text('Overview'),
                   contentPadding: const EdgeInsets.only(left: 72, right: 16),
-                  onTap: onDashboardCustomized,
+                  onTap: onViewOverview,
+                ),
+                ListTile(
+                  title: const Text('Project'),
+                  contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                  onTap: onViewProject,
                 ),
               ],
             ),

@@ -997,6 +997,12 @@ class SupabaseService {
     return null;
   }
 
+  /// Staff `id` (uuid) → `staff.app_id` for assignee/creator matching on project rows.
+  static Future<Map<String, String>> fetchStaffUuidToAppIdMap() async {
+    final m = await _loadMaps();
+    return m?.staffUuidToAppId ?? {};
+  }
+
   static Future<
     ({
       Map<String, String> teamUuidToAppId,

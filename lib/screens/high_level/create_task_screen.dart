@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../config/supabase_config.dart';
 import '../../models/assignee.dart';
+import '../../models/project_record.dart';
 import '../../models/staff_for_assignment.dart';
 import '../../models/task.dart';
 import '../../models/team.dart';
@@ -14,14 +15,53 @@ import '../../utils/copyable_snackbar.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
 import '../../utils/home_navigation.dart';
+import '../../widgets/flow_navigation_bar.dart';
 import '../../widgets/staff_assignee_picker_panel.dart';
 import '../task_detail_screen.dart';
+
+Future<bool> _confirmLeaveCreateTaskDraftLocal(BuildContext context) async {
+  final r = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Unsaved task'),
+      content: Text.rich(
+        TextSpan(
+          style: Theme.of(ctx).textTheme.bodyLarge,
+          children: const [
+            TextSpan(text: 'Press '),
+            TextSpan(
+              text: 'Create task',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            TextSpan(
+              text:
+                  ' to save your task. If you leave now, nothing will be saved.',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Stay'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Leave anyway'),
+        ),
+      ],
+    ),
+  );
+  return r == true;
+}
 
 /// Where the user opened **Create task** (for back navigation).
 enum CreateTaskEntryPoint {
   landing,
   overview,
   projectDetail,
+  /// FAB on Project dashboard (projects-only view).
+  projectDashboard,
 }
 
 class CreateTaskScreen extends StatefulWidget {
@@ -29,12 +69,16 @@ class CreateTaskScreen extends StatefulWidget {
     super.key,
     this.projectId,
     this.entryPoint = CreateTaskEntryPoint.landing,
+    this.showProjectPicker = false,
   });
 
   /// When set, new task rows get [`task.project_id`].
   final String? projectId;
 
   final CreateTaskEntryPoint entryPoint;
+
+  /// When true (FAB flows), user picks one of their created projects from a dropdown.
+  final bool showProjectPicker;
 
   @override
   State<CreateTaskScreen> createState() => _CreateTaskScreenState();
@@ -63,12 +107,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
   final Map<String, String> _staffAssigneeToTeamId = {};
   bool _submitting = false;
 
+  String? _selectedProjectId;
+  List<ProjectRecord> _myCreatedProjects = [];
+  bool _myProjectsLoading = false;
+  String? _projectNameFromDetail;
+
   @override
   bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+    if (widget.projectId != null && widget.projectId!.trim().isNotEmpty) {
+      _selectedProjectId = widget.projectId!.trim();
+    }
     _anchorCreateDate = HkTime.todayDateOnlyHk();
     _startDate = _anchorCreateDate;
     _endDate = _defaultDueForPriority(_priority);
@@ -76,7 +128,185 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       if (!mounted) return;
       _loadSupabaseAssigneePicker();
       context.read<AppState>().setCreateTaskDraftChecker(_hasUnsavedDraft);
+      if (widget.entryPoint == CreateTaskEntryPoint.projectDetail &&
+          widget.projectId != null &&
+          widget.projectId!.trim().isNotEmpty) {
+        _loadProjectNameForDetail();
+      }
+      if (widget.showProjectPicker) {
+        _loadMyCreatedProjects();
+      }
     });
+  }
+
+  Future<void> _loadProjectNameForDetail() async {
+    if (!SupabaseConfig.isConfigured) return;
+    final id = widget.projectId?.trim();
+    if (id == null || id.isEmpty) return;
+    final p = await SupabaseService.fetchProjectById(id);
+    if (!mounted) return;
+    setState(() => _projectNameFromDetail = p?.name.trim());
+  }
+
+  Future<void> _loadMyCreatedProjects() async {
+    if (!SupabaseConfig.isConfigured) return;
+    setState(() => _myProjectsLoading = true);
+    try {
+      final all = await SupabaseService.fetchAllProjectsFromSupabase();
+      if (!mounted) return;
+      final appId = context.read<AppState>().userStaffAppId?.trim();
+      if (appId == null || appId.isEmpty) {
+        setState(() {
+          _myProjectsLoading = false;
+          _myCreatedProjects = [];
+        });
+        return;
+      }
+      final uuid = await SupabaseService.resolveStaffRowIdForAssigneeKey(appId);
+      final me = uuid?.trim();
+      if (me == null || me.isEmpty) {
+        setState(() {
+          _myProjectsLoading = false;
+          _myCreatedProjects = [];
+        });
+        return;
+      }
+      bool eligible(ProjectRecord p) {
+        final s = p.status.trim();
+        return s == 'Not started' || s == 'In progress';
+      }
+
+      final created = all
+          .where((p) => p.createByStaffUuid?.trim() == me)
+          .where(eligible)
+          .toList()
+        ..sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+      if (!mounted) return;
+      final selected = _selectedProjectId?.trim();
+      final selectedStillValid = selected == null ||
+          selected.isEmpty ||
+          created.any((p) => p.id == selected);
+      setState(() {
+        _myProjectsLoading = false;
+        _myCreatedProjects = created;
+        if (!selectedStillValid) {
+          _selectedProjectId = null;
+        }
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _myProjectsLoading = false;
+          _myCreatedProjects = [];
+        });
+      }
+    }
+  }
+
+  String? _projectIdForSubmit() {
+    if (widget.entryPoint == CreateTaskEntryPoint.projectDetail) {
+      final p = widget.projectId?.trim();
+      return p != null && p.isNotEmpty ? p : null;
+    }
+    if (widget.showProjectPicker) {
+      final p = _selectedProjectId?.trim();
+      return p != null && p.isNotEmpty ? p : null;
+    }
+    final p = widget.projectId?.trim();
+    return p != null && p.isNotEmpty ? p : null;
+  }
+
+  Future<void> _onFlowHome() async {
+    if (_submitting) return;
+    if (_hasUnsavedDraft()) {
+      final leave = await _confirmLeaveCreateTaskDraftLocal(context);
+      if (!mounted || !leave) return;
+    }
+    await navigateToPinnedHomeFromDrawer(context);
+  }
+
+  Future<void> _onFlowBack() async {
+    if (_submitting) return;
+    if (_hasUnsavedDraft()) {
+      final leave = await _confirmLeaveCreateTaskDraftLocal(context);
+      if (!mounted || !leave) return;
+    }
+    if (!mounted) return;
+    switch (widget.entryPoint) {
+      case CreateTaskEntryPoint.projectDetail:
+        Navigator.of(context).pop();
+        break;
+      case CreateTaskEntryPoint.overview:
+        Navigator.of(context).popUntil((route) {
+          final n = route.settings.name;
+          return n == kOverviewDashboardRouteName || route.isFirst;
+        });
+        break;
+      case CreateTaskEntryPoint.projectDashboard:
+        popUntilProjectDashboardOrHome(context);
+        break;
+      case CreateTaskEntryPoint.landing:
+        Navigator.of(context).pop();
+        break;
+    }
+  }
+
+  Widget _buildProjectContextSection(BuildContext context) {
+    if (widget.entryPoint == CreateTaskEntryPoint.projectDetail &&
+        widget.projectId != null &&
+        widget.projectId!.trim().isNotEmpty) {
+      final name = _projectNameFromDetail?.trim().isNotEmpty == true
+          ? _projectNameFromDetail!.trim()
+          : '(loading…)';
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Text(
+          'Project: $name',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      );
+    }
+    if (widget.showProjectPicker) {
+      if (_myProjectsLoading) {
+        return const Padding(
+          padding: EdgeInsets.only(bottom: 16),
+          child: LinearProgressIndicator(),
+        );
+      }
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: DropdownButtonFormField<String?>(
+          value: _selectedProjectId,
+          decoration: const InputDecoration(
+            labelText: 'Project',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('— No project —'),
+            ),
+            ..._myCreatedProjects.map(
+              (p) => DropdownMenuItem<String?>(
+                value: p.id,
+                child: Text(
+                  p.name.trim().isNotEmpty ? p.name.trim() : p.id,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+          onChanged: _submitting
+              ? null
+              : (v) => setState(() => _selectedProjectId = v),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   /// True if the user has started a task (text, teams, assignees, or non-default options).
@@ -435,7 +665,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
         picStaffLookupKey: picKey,
         changeDueReason:
             needsDueReason ? _changeDueReasonController.text.trim() : null,
-        projectId: widget.projectId,
+        projectId: _projectIdForSubmit(),
       );
       cloudErr = ins.error;
       insertedTaskId = ins.taskId;
@@ -579,6 +809,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
               openedFromOverview:
                   widget.entryPoint == CreateTaskEntryPoint.overview,
               openedFromProjectDetail: false,
+              openedFromProjectDashboard:
+                  widget.entryPoint == CreateTaskEntryPoint.projectDashboard,
             ),
           ),
         );
@@ -631,19 +863,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
 
     return Stack(
       children: [
-        AbsorbPointer(
-          absorbing: _submitting,
-          child: Opacity(
-            opacity: _submitting ? 0.55 : 1,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: FocusTraversalGroup(
-                policy: OrderedTraversalPolicy(),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+        Scaffold(
+          body: AbsorbPointer(
+            absorbing: _submitting,
+            child: Opacity(
+              opacity: _submitting ? 0.55 : 1,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  24 + kFlowNavBarScrollBottomPadding,
+                ),
+                child: FocusTraversalGroup(
+                  policy: OrderedTraversalPolicy(),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+            _buildProjectContextSection(context),
             if (SupabaseConfig.isConfigured) ...[
               if (_pickerLoading) ...[
                 const LinearProgressIndicator(),
@@ -1000,36 +1239,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
                 child: Text(_submitting ? 'Creating…' : 'Create task'),
               ),
             ),
-            if (widget.entryPoint == CreateTaskEntryPoint.projectDetail) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-                child: const Text('Back to project'),
-              ),
-            ],
-            if (widget.entryPoint == CreateTaskEntryPoint.landing) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _submitting
-                    ? null
-                    : () => navigateToHomeTasksTab(context),
-                child: const Text('Back to home'),
-              ),
-            ],
-            if (widget.entryPoint == CreateTaskEntryPoint.overview) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _submitting
-                    ? null
-                    : () {
-                        Navigator.of(context).popUntil((route) {
-                          final n = route.settings.name;
-                          return n == kOverviewDashboardRouteName || route.isFirst;
-                        });
-                      },
-                child: const Text('Back to Overview'),
-              ),
-            ],
           ],
                     ),
                   ),
@@ -1037,6 +1246,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
               ),
             ),
           ),
+          bottomNavigationBar: FlowHomeBackBar(
+            onBack: _onFlowBack,
+            onHome: _onFlowHome,
+            enabled: !_submitting,
+          ),
+        ),
         if (_submitting)
           Positioned.fill(
             child: AbsorbPointer(
