@@ -4686,7 +4686,6 @@ async function handleNotifySubtaskUpdated(req, res) {
       (updaterStaff.email || '').trim()
     ).trim();
     const updaterNameForBody =
-      (updaterStaff.display_name || '').trim() ||
       (updaterStaff.name || '').trim() ||
       updaterReplyTo ||
       sessionEmail ||
