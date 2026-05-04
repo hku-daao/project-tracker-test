@@ -2230,6 +2230,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     final pickerTeamsForRole = _pickerTeamsForRole();
     final useSupabasePicker =
         SupabaseConfig.isConfigured && pickerStaffForRole.isNotEmpty;
+    final hasLinkedProject =
+        task.projectId != null && task.projectId!.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -3379,10 +3381,12 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       ),
       bottomNavigationBar: FlowBottomNavThree(
         onBack: _barBack,
-        midLabel: 'Project',
-        midIcon: const Icon(Icons.folder_outlined, size: 18),
-        onMid: () => _barOpenProject(task),
         onHome: _singularFlowHome,
+        midLabel: hasLinkedProject ? 'Project' : null,
+        midIcon: hasLinkedProject
+            ? const Icon(Icons.folder_outlined, size: 18)
+            : null,
+        onMid: hasLinkedProject ? () => _barOpenProject(task) : null,
         enabled: !_saving,
       ),
     );

@@ -345,19 +345,19 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     );
   }
 
-  /// Tasks I created — task icon on "My created..." / "My created tasks".
+  /// Tasks I created — same icon as the task flow bottom bar.
   Widget _myCreatedTasksFilterIcon(bool selected) {
     return Icon(
-      Icons.task_alt,
+      Icons.assignment_outlined,
       size: 18,
       color: selected ? Colors.black87 : Colors.lightBlue.shade800,
     );
   }
 
-  /// Projects I created — folder icon on "My created projects".
+  /// Projects I created — same icon as the project flow bottom bar.
   Widget _myCreatedProjectsFilterIcon(bool selected) {
     return Icon(
-      Icons.folder_special_outlined,
+      Icons.folder_outlined,
       size: 18,
       color: selected ? Colors.black87 : Colors.lightBlue.shade800,
     );

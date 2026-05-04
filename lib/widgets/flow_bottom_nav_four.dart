@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
 
-/// Three-slot bottom bar: **Back**, one middle action, **Home**.
+/// Bottom bar: **Back**, optional middle action, **Home**.
 class FlowBottomNavThree extends StatelessWidget {
   const FlowBottomNavThree({
     super.key,
     required this.onBack,
-    required this.midLabel,
-    required this.midIcon,
-    required this.onMid,
     required this.onHome,
+    this.midLabel,
+    this.midIcon,
+    this.onMid,
     this.enabled = true,
   });
 
   final VoidCallback onBack;
-  final String midLabel;
-  final Widget midIcon;
-  final VoidCallback? onMid;
   final VoidCallback onHome;
+  /// When null (or [midIcon] null), the middle slot is omitted (e.g. no linked project).
+  final String? midLabel;
+  final Widget? midIcon;
+  final VoidCallback? onMid;
   final bool enabled;
+
+  bool get _showMid =>
+      midIcon != null &&
+      midLabel != null &&
+      midLabel!.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -68,13 +74,14 @@ class FlowBottomNavThree extends StatelessWidget {
                   'Back',
                 ),
               ),
-              Expanded(
-                child: slot(
-                  enabled ? onMid : null,
-                  midIcon,
-                  midLabel,
+              if (_showMid)
+                Expanded(
+                  child: slot(
+                    enabled ? onMid : null,
+                    midIcon!,
+                    midLabel!.trim(),
+                  ),
                 ),
-              ),
               Expanded(
                 child: slot(
                   enabled ? onHome : null,
@@ -90,7 +97,7 @@ class FlowBottomNavThree extends StatelessWidget {
   }
 }
 
-/// Four-slot bottom bar: **Back**, two middle actions, **Home** (task/sub-task flows).
+/// Bottom bar: **Back**, **Task**, optional **Project**, **Home**.
 class FlowBottomNavFour extends StatelessWidget {
   const FlowBottomNavFour({
     super.key,
@@ -98,10 +105,10 @@ class FlowBottomNavFour extends StatelessWidget {
     required this.mid1Label,
     required this.mid1Icon,
     required this.onMid1,
-    required this.mid2Label,
-    required this.mid2Icon,
-    required this.onMid2,
     required this.onHome,
+    this.mid2Label,
+    this.mid2Icon,
+    this.onMid2,
     this.enabled = true,
   });
 
@@ -109,11 +116,17 @@ class FlowBottomNavFour extends StatelessWidget {
   final String mid1Label;
   final Widget mid1Icon;
   final VoidCallback? onMid1;
-  final String mid2Label;
-  final Widget mid2Icon;
+  /// When null (or [mid2Icon] null), the Project slot is omitted.
+  final String? mid2Label;
+  final Widget? mid2Icon;
   final VoidCallback? onMid2;
   final VoidCallback onHome;
   final bool enabled;
+
+  bool get _showMid2 =>
+      mid2Icon != null &&
+      mid2Label != null &&
+      mid2Label!.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -171,13 +184,14 @@ class FlowBottomNavFour extends StatelessWidget {
                   mid1Label,
                 ),
               ),
-              Expanded(
-                child: slot(
-                  enabled ? onMid2 : null,
-                  mid2Icon,
-                  mid2Label,
+              if (_showMid2)
+                Expanded(
+                  child: slot(
+                    enabled ? onMid2 : null,
+                    mid2Icon!,
+                    mid2Label!.trim(),
+                  ),
                 ),
-              ),
               Expanded(
                 child: slot(
                   enabled ? onHome : null,

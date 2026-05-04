@@ -1561,6 +1561,8 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         _picEditKey != null && parent.assigneeIds.contains(_picEditKey)
         ? _picEditKey
         : null;
+    final hasLinkedProject =
+        parent.projectId != null && parent.projectId!.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -2300,9 +2302,11 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
         mid1Label: 'Task',
         mid1Icon: const Icon(Icons.assignment_outlined, size: 18),
         onMid1: _barOpenParentTask,
-        mid2Label: 'Project',
-        mid2Icon: const Icon(Icons.folder_outlined, size: 18),
-        onMid2: _barOpenProject,
+        mid2Label: hasLinkedProject ? 'Project' : null,
+        mid2Icon: hasLinkedProject
+            ? const Icon(Icons.folder_outlined, size: 18)
+            : null,
+        onMid2: hasLinkedProject ? _barOpenProject : null,
         onHome: _subtaskFlowHome,
         enabled: !_saving,
       ),
