@@ -2594,7 +2594,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                             ),
                       ),
                       const SizedBox(height: 8),
-                      const PicTeamColorLegend(),
+                      const PicTeamColorLegend(
+                        caption:
+                            "Project background colour reflect the assignee's team.",
+                      ),
                     ],
                   ),
                 ),

@@ -1906,7 +1906,28 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     }
   }
 
-  Future<void> _acceptSubmission(AppState state, Task task) async {
+  bool _canCreatorMarkTaskComplete(Task task) {
+    final db = task.dbStatus?.trim() ?? '';
+    if (db == 'Deleted') return false;
+    if (task.status == TaskStatus.done || db == 'Completed') return false;
+    if (task.submission?.trim() == 'Submitted') return false;
+    return true;
+  }
+
+  /// Creator-only: set task to Completed + submission Accepted (same persistence as **Accept**).
+  Future<void> _markTaskCompletedByCreator(AppState state, Task task) async {
+    await _acceptSubmission(
+      state,
+      task,
+      successMessage: 'Task is completed',
+    );
+  }
+
+  Future<void> _acceptSubmission(
+    AppState state,
+    Task task, {
+    String successMessage = 'Task accepted',
+  }) async {
     if (!SupabaseConfig.isConfigured) {
       showCopyableSnackBar(context, 'Supabase not configured');
       return;
@@ -1964,7 +1985,7 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       );
       showCopyableSnackBar(
         context,
-        'Task accepted',
+        successMessage,
         backgroundColor: Colors.green,
       );
     } finally {
@@ -3157,6 +3178,24 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                           ),
                           child: Text(_saving ? 'Saving…' : 'Update'),
                         ),
+                      if (_isCreator(state, task) &&
+                          _canCreatorMarkTaskComplete(task)) ...[
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _saving
+                              ? null
+                              : () => _markTaskCompletedByCreator(
+                                    state,
+                                    task,
+                                  ),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: const Color(0xFF298A00),
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Mark as Completed'),
+                        ),
+                      ],
                       if (_isCommentOnlyAssignee(state, task)) ...[
                         const SizedBox(height: 12),
                         FilledButton(

@@ -1085,7 +1085,32 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
     }
   }
 
-  Future<void> _accept(AppState state, SingularSubtask st) async {
+  bool _canCreatorMarkSubtaskComplete(SingularSubtask st) {
+    if (st.isDeleted) return false;
+    if (st.status.trim().toLowerCase() == 'completed') return false;
+    if (st.submission?.trim().toLowerCase() == 'submitted') {
+      return false;
+    }
+    return true;
+  }
+
+  /// Creator-only: set sub-task to Completed + submission Accepted (same as **Accept**).
+  Future<void> _markSubtaskCompletedByCreator(
+    AppState state,
+    SingularSubtask st,
+  ) async {
+    await _accept(
+      state,
+      st,
+      successMessage: 'Sub-task is completed',
+    );
+  }
+
+  Future<void> _accept(
+    AppState state,
+    SingularSubtask st, {
+    String successMessage = 'Accepted',
+  }) async {
     setState(() => _saving = true);
     try {
       final completedAt = st.submitDate ?? DateTime.now().toUtc();
@@ -1125,7 +1150,11 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       } catch (_) {}
       await _load(rebindAttachments: false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(duration: const Duration(seconds: 4), content: Text('Accepted'), backgroundColor: Colors.green),
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: Text(successMessage),
+          backgroundColor: Colors.green,
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2118,6 +2147,19 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
                         },
                   child: Text(_saving ? 'Saving…' : 'Update'),
                 ),
+                if (creator && _canCreatorMarkSubtaskComplete(st)) ...[
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _saving
+                        ? null
+                        : () => _markSubtaskCompletedByCreator(state, st),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF298A00),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Mark as Completed'),
+                  ),
+                ],
                 if (pic && _canPicSubmit(st)) ...[
                   const SizedBox(height: 12),
                   FilledButton(

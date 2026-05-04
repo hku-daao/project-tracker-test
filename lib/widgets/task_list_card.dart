@@ -57,9 +57,16 @@ const List<PicTeamColorEntry> kPicTeamColorEntries = [
   ),
 ];
 
-/// Legend for Home / Tasks: explains PIC team background colours on [TaskListCard].
+/// Legend for list screens: explains team tint swatches ([TaskListCard], project rows).
 class PicTeamColorLegend extends StatelessWidget {
-  const PicTeamColorLegend({super.key});
+  const PicTeamColorLegend({
+    super.key,
+    this.caption =
+        "Task and sub-task background colour reflect the PIC's team.",
+  });
+
+  /// Short line above the colour chips (Overview vs Project dashboard wording differs).
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +75,7 @@ class PicTeamColorLegend extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          "Task background colour reflect the PIC's team.",
+          caption,
           style: (theme.textTheme.bodyMedium ?? const TextStyle()).copyWith(
             fontSize: kLandingListCardFontSize - 2,
             color: theme.colorScheme.onSurfaceVariant,

@@ -1619,8 +1619,8 @@ ${landing}`;
 
 /**
  * Due-today (HK) — sub-task creator only ([subtask_creator_due_today_reminder_sent_on]).
- * @param {string} recipientDisplayName — creator (`create_by` → staff.display_name)
- * @param {string} picDisplayName — PIC (`subtask.pic` → staff.display_name)
+ * @param {string} recipientDisplayName — creator greeting (`create_by` → staff.display_name, else name)
+ * @param {string} picDisplayName — PIC line (`subtask.pic` → staff.display_name, else name)
  */
 function buildCreatorDueTodaySubtaskReminderEmail(
   recipientDisplayName,
@@ -1634,12 +1634,11 @@ function buildCreatorDueTodaySubtaskReminderEmail(
   const safeTitle = escapeHtml(subtaskName);
   const safeUrl = escapeHtml(subtaskUrl);
   const safeDue = escapeHtml(dueYmd);
-  const landing = `${String(PROJECT_TRACKER_LANDING_URL || 'https://projecttracker.hku.hk').replace(/\/$/, '')}/`;
-  const safeLanding = escapeHtml(landing);
-  const html = `Hi ${safeRecipient},<br><br>
+  const safeLanding = escapeHtml(SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF);
+  const html = `Hi ${safeRecipient}, <br><br>
 ${safePic} has sub-task due today.<br><br>
 <b><u><a href="${safeUrl}" style="color:#1565C0;">${safeTitle}</a></u></b><br><br>
-Due Date: ${safeDue} (format: yyyy-mm-dd) <br><br>
+Due Date: ${safeDue}<br><br>
 <a href="${safeLanding}" style="color:#1565C0;">Project Tracker</a>`;
   const text = `Hi ${recipientDisplayName},
 
@@ -1648,10 +1647,10 @@ ${picDisplayName} has sub-task due today.
 ${subtaskName}
 ${subtaskUrl}
 
-Due Date: ${dueYmd} (format: yyyy-mm-dd)
+Due Date: ${dueYmd}
 
 Project Tracker
-${landing}`;
+${SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF}`;
   return { html, text };
 }
 
@@ -2156,6 +2155,7 @@ async function runCreatorUrgentSubtaskReminderJob() {
 
   for (const row of list) {
     if (subtaskStatusBlocksUrgentReminder(row.status)) continue;
+    // HK due date = today: only runCreatorDueTodaySubtaskReminderJob (not this urgent job).
     if (isCalendarDueToday(todayYmd, row.due_date)) continue;
     if (!isCalendarStrictlyBeforeDue(todayYmd, row.due_date)) continue;
     if (!hasReachedEightyPercentWindow(row.start_date, row.due_date, nowMs)) {
