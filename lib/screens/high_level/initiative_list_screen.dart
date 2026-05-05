@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -193,11 +193,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Task landing / Overview floating filters header height.
   final GlobalKey _taskDashboardFiltersMeasureKey = GlobalKey();
-  double _taskDashboardFiltersSliverExtent = 380;
+  double _taskDashboardFiltersSliverExtent = 460;
 
   /// Project dashboard floating filters header height.
   final GlobalKey _projectDashboardFiltersMeasureKey = GlobalKey();
-  double _projectDashboardFiltersSliverExtent = 400;
+  double _projectDashboardFiltersSliverExtent = 440;
 
   /// "Filter by assignee" submenu: roster team, then multi-select teammates (tasks/initiatives).
   String? _filterAssigneeMenuTeamId;
@@ -1966,13 +1966,20 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     ];
   }
 
+  /// [SliverPersistentHeader] uses a fixed [extent]. Measuring [RenderBox.size]
+  /// alone fails when content is taller than that extent: layout is clipped to
+  /// the header max height, so [size.height] never grows and the search field
+  /// stays squashed. [getMaxIntrinsicHeight] returns the full natural height.
   void _measureTaskDashboardFiltersSliverExtent() {
     final box =
         _taskDashboardFiltersMeasureKey.currentContext?.findRenderObject()
             as RenderBox?;
     if (box == null || !box.hasSize) return;
-    final h = box.size.height;
-    if (h <= 0) return;
+    final maxW = box.constraints.maxWidth;
+    if (maxW <= 0 || !maxW.isFinite) return;
+    final intrinsic = box.getMaxIntrinsicHeight(maxW);
+    final h = max(box.size.height, intrinsic);
+    if (h <= 0 || !h.isFinite) return;
     if ((h - _taskDashboardFiltersSliverExtent).abs() < 0.5) return;
     setState(() => _taskDashboardFiltersSliverExtent = h);
   }
@@ -1982,8 +1989,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         _projectDashboardFiltersMeasureKey.currentContext?.findRenderObject()
             as RenderBox?;
     if (box == null || !box.hasSize) return;
-    final h = box.size.height;
-    if (h <= 0) return;
+    final maxW = box.constraints.maxWidth;
+    if (maxW <= 0 || !maxW.isFinite) return;
+    final intrinsic = box.getMaxIntrinsicHeight(maxW);
+    final h = max(box.size.height, intrinsic);
+    if (h <= 0 || !h.isFinite) return;
     if ((h - _projectDashboardFiltersSliverExtent).abs() < 0.5) return;
     setState(() => _projectDashboardFiltersSliverExtent = h);
   }
