@@ -32,9 +32,15 @@ String? _completedOnDateYmd(SingularSubtask s) {
 
 /// Priority · status · Start · Due (red if overdue) · ‧ Completed on … — list + task-detail sub-task rows.
 class SubtaskMetaLine extends StatelessWidget {
-  const SubtaskMetaLine({super.key, required this.subtask});
+  const SubtaskMetaLine({
+    super.key,
+    required this.subtask,
+    /// Overview: `yyyy-MM-dd` from sub-task update vs comment activity.
+    this.overviewLastUpdatedYmd,
+  });
 
   final SingularSubtask subtask;
+  final String? overviewLastUpdatedYmd;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +63,13 @@ class SubtaskMetaLine extends StatelessWidget {
         ? ' · Start ${DateFormat('yyyy-MM-dd').format(s.startDate!)}'
         : '';
     final ymd = DateFormat('yyyy-MM-dd');
+    String? resolvedOverviewLu = overviewLastUpdatedYmd;
+    if (resolvedOverviewLu == null || resolvedOverviewLu.isEmpty) {
+      final lu = s.lastUpdated;
+      if (lu != null) {
+        resolvedOverviewLu = ymd.format(lu.toLocal());
+      }
+    }
     final completedYmd = _completedOnDateYmd(s);
     final completedSuffix = completedYmd == null
         ? const <InlineSpan>[]
@@ -82,11 +95,31 @@ class SubtaskMetaLine extends StatelessWidget {
       ];
     }
 
+    List<InlineSpan> overviewLastUpdatedSpans() {
+      final y = resolvedOverviewLu;
+      if (y == null || y.isEmpty) return const <InlineSpan>[];
+      return [
+        TextSpan(text: ' $kSubtaskCompletedOnBullet ', style: baseStyle),
+        TextSpan(text: 'Last updated $y', style: baseStyle),
+      ];
+    }
+
     if (s.dueDate == null) {
       if (completedYmd == null) {
-        return Text(
-          '$prefix$startPart',
-          style: baseStyle,
+        if (resolvedOverviewLu == null || resolvedOverviewLu.isEmpty) {
+          return Text(
+            '$prefix$startPart',
+            style: baseStyle,
+          );
+        }
+        return Text.rich(
+          TextSpan(
+            style: baseStyle,
+            children: [
+              TextSpan(text: '$prefix$startPart'),
+              ...overviewLastUpdatedSpans(),
+            ],
+          ),
         );
       }
       return Text.rich(
@@ -95,6 +128,7 @@ class SubtaskMetaLine extends StatelessWidget {
           children: [
             TextSpan(text: '$prefix$startPart'),
             ...overdueDaySpans(),
+            ...overviewLastUpdatedSpans(),
             ...completedSuffix,
           ],
         ),
@@ -117,6 +151,7 @@ class SubtaskMetaLine extends StatelessWidget {
             children: [
               TextSpan(text: '$prefix$startPart · Due $dueStr'),
               ...overdueDaySpans(),
+              ...overviewLastUpdatedSpans(),
             ],
           ),
         );
@@ -127,6 +162,7 @@ class SubtaskMetaLine extends StatelessWidget {
           children: [
             TextSpan(text: '$prefix$startPart · Due $dueStr'),
             ...overdueDaySpans(),
+            ...overviewLastUpdatedSpans(),
             ...completedSuffix,
           ],
         ),
@@ -147,6 +183,7 @@ class SubtaskMetaLine extends StatelessWidget {
               ),
             ),
             ...overdueDaySpans(),
+            ...overviewLastUpdatedSpans(),
           ],
         ),
       );
@@ -165,6 +202,7 @@ class SubtaskMetaLine extends StatelessWidget {
             ),
           ),
           ...overdueDaySpans(),
+          ...overviewLastUpdatedSpans(),
           ...completedSuffix,
         ],
       ),

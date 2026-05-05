@@ -134,6 +134,8 @@ class TaskListCard extends StatefulWidget {
     /// Prefix title with **Task:** (Customized dashboard).
     this.showCustomizedTaskTitle = false,
     this.openedFromOverview = false,
+    /// Overview meta line: `yyyy-MM-dd` from task update vs comment activity.
+    this.overviewLastUpdatedYmd,
     this.onTaskTap,
   });
 
@@ -141,6 +143,9 @@ class TaskListCard extends StatefulWidget {
 
   /// When set, called instead of pushing [TaskDetailScreen] (e.g. project detail).
   final VoidCallback? onTaskTap;
+
+  /// See [buildTaskMetaLine] — set with [taskOnly] + Overview flat list.
+  final String? overviewLastUpdatedYmd;
 
   /// Sub-tasks shown inline without tapping expand ([flatSubtasksAlwaysVisible]) — landing uses `false`.
   final bool flatSubtasksAlwaysVisible;
@@ -198,8 +203,24 @@ class TaskListCard extends StatefulWidget {
   /// Hyphenation point (U+2027) before “Completed on …” — default colour, not green.
   static const String kCompletedOnBullet = '\u2027';
 
+  /// Optional **Last updated** suffix (Overview flat list; [ymd] is `yyyy-MM-dd`).
+  static List<InlineSpan> _overviewTaskLastUpdatedSpans(
+    String? ymd,
+    TextStyle baseStyle,
+  ) {
+    if (ymd == null || ymd.isEmpty) return const <InlineSpan>[];
+    return [
+      TextSpan(text: ' $kCompletedOnBullet ', style: baseStyle),
+      TextSpan(text: 'Last updated $ymd', style: baseStyle),
+    ];
+  }
+
   /// Priority · status · Start · Due (red if overdue) · ‧ Completed on … (single line).
-  static Widget buildTaskMetaLine(BuildContext context, Task t) {
+  static Widget buildTaskMetaLine(
+    BuildContext context,
+    Task t, {
+    String? overviewLastUpdatedYmd,
+  }) {
     final theme = Theme.of(context);
     final baseStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
         .copyWith(fontSize: kLandingListCardFontSize);
@@ -224,6 +245,14 @@ class TaskListCard extends StatefulWidget {
     final dueStr = due != null ? ymd.format(due) : null;
     final showTaskOverdue =
         t.isSingularTableRow && t.overdueDay > 0;
+
+    String? resolvedLastUpdatedYmd = overviewLastUpdatedYmd;
+    if (resolvedLastUpdatedYmd == null || resolvedLastUpdatedYmd.isEmpty) {
+      final lu = t.lastUpdated;
+      if (lu != null) {
+        resolvedLastUpdatedYmd = ymd.format(lu.toLocal());
+      }
+    }
 
     List<InlineSpan> dueSpans() {
       if (due == null || dueStr == null) return const <InlineSpan>[];
@@ -265,10 +294,24 @@ class TaskListCard extends StatefulWidget {
       ];
     }
 
+    List<InlineSpan> overviewLu() =>
+        _overviewTaskLastUpdatedSpans(resolvedLastUpdatedYmd, baseStyle);
+
     if (!showCompleted) {
       if (due == null) {
         if (!showTaskOverdue) {
-          return Text(prefix, style: baseStyle);
+          if (resolvedLastUpdatedYmd == null || resolvedLastUpdatedYmd.isEmpty) {
+            return Text(prefix, style: baseStyle);
+          }
+          return Text.rich(
+            TextSpan(
+              style: baseStyle,
+              children: [
+                TextSpan(text: prefix),
+                ...overviewLu(),
+              ],
+            ),
+          );
         }
         return Text.rich(
           TextSpan(
@@ -276,6 +319,7 @@ class TaskListCard extends StatefulWidget {
             children: [
               TextSpan(text: prefix),
               ...taskOverdueSpans(),
+              ...overviewLu(),
             ],
           ),
         );
@@ -287,6 +331,7 @@ class TaskListCard extends StatefulWidget {
             TextSpan(text: prefix),
             ...dueSpans(),
             ...taskOverdueSpans(),
+            ...overviewLu(),
           ],
         ),
       );
@@ -298,6 +343,7 @@ class TaskListCard extends StatefulWidget {
           TextSpan(text: prefix),
           ...dueSpans(),
           ...taskOverdueSpans(),
+          ...overviewLu(),
           ...completedOnSpans(),
         ],
       ),
@@ -463,15 +509,30 @@ class _TaskListCardState extends State<TaskListCard> {
 
   /// `null` = default order: [SingularSubtask.createDate] descending (newest first).
   SubtaskListSortColumn? _activeSubtaskSort;
-  bool _subtaskSortAscending = true;
+  /// For **Created date (default)** (`_activeSubtaskSort == null`): `false` = descending (newest first).
+  bool _subtaskSortAscending = false;
 
   @override
   void initState() {
     super.initState();
+    SupabaseService.addSubtaskCacheInvalidateListener(_onSubtaskCacheInvalidated);
     _cardDataFuture = _loadCardData();
     if (widget.flatSubtasksAlwaysVisible && !widget.taskOnly) {
       _subtasksExpanded = true;
     }
+  }
+
+  void _onSubtaskCacheInvalidated(String taskId) {
+    if (taskId != widget.task.id || !mounted) return;
+    setState(() {
+      _cardDataFuture = _loadCardData();
+    });
+  }
+
+  @override
+  void dispose() {
+    SupabaseService.removeSubtaskCacheInvalidateListener(_onSubtaskCacheInvalidated);
+    super.dispose();
   }
 
   @override
@@ -482,7 +543,7 @@ class _TaskListCardState extends State<TaskListCard> {
       _subtasksExpanded =
           widget.flatSubtasksAlwaysVisible && !widget.taskOnly;
       _activeSubtaskSort = null;
-      _subtaskSortAscending = true;
+      _subtaskSortAscending = false;
     }
     if (!oldWidget.flatSubtasksAlwaysVisible &&
         widget.flatSubtasksAlwaysVisible &&
@@ -510,23 +571,6 @@ class _TaskListCardState extends State<TaskListCard> {
     final picTeam =
         await SupabaseService.fetchStaffTeamBusinessIdForAssigneeKey(picKey);
     return (names, picTeam, subtasks);
-  }
-
-  void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
-    setState(() {
-      if (v == 'clear') {
-        if (_activeSubtaskSort == column) {
-          _activeSubtaskSort = null;
-          _subtaskSortAscending = true;
-        }
-      } else if (v == 'asc') {
-        _activeSubtaskSort = column;
-        _subtaskSortAscending = true;
-      } else if (v == 'desc') {
-        _activeSubtaskSort = column;
-        _subtaskSortAscending = false;
-      }
-    });
   }
 
   Future<void> _reloadAfterSubtaskReturn() async {
@@ -690,7 +734,11 @@ class _TaskListCardState extends State<TaskListCard> {
                                   style: listTextVariant,
                                 ),
                               ),
-                            TaskListCard.buildTaskMetaLine(context, t),
+                            TaskListCard.buildTaskMetaLine(
+                              context,
+                              t,
+                              overviewLastUpdatedYmd: widget.overviewLastUpdatedYmd,
+                            ),
                             if (subtasks.isNotEmpty) ...[
                               const SizedBox(height: 4),
                               earliestSubDue == null
@@ -786,27 +834,18 @@ class _TaskListCardState extends State<TaskListCard> {
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Text(
-                                'Sort',
-                                style: subtasksHeaderStyle,
-                              ),
-                            ),
-                            for (final col in SubtaskListSortColumn.values)
-                              SubtaskSortColumnChip(
-                                column: col,
-                                active: _activeSubtaskSort == col,
-                                ascending: _subtaskSortAscending,
-                                onMenuSelected: (v) =>
-                                    _onSubtaskSortMenu(col, v),
-                              ),
-                          ],
-                        ),
+                      child: SubtaskSortDropdown(
+                        sortColumn: _activeSubtaskSort,
+                        ascending: _subtaskSortAscending,
+                        sortLabelStyle: subtasksHeaderStyle,
+                        onSortColumnChanged: (v) {
+                          setState(() => _activeSubtaskSort = v);
+                        },
+                        onToggleAscending: () {
+                          setState(
+                            () => _subtaskSortAscending = !_subtaskSortAscending,
+                          );
+                        },
                       ),
                     ),
                   ),

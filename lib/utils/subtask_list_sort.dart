@@ -101,7 +101,17 @@ class SubtaskListSort {
   }) {
     final out = List<SingularSubtask>.from(raw);
     if (activeColumn == null) {
-      out.sort((a, b) => _tieBreakCreateDateDesc(a, b));
+      final asc = ascending;
+      out.sort((a, b) {
+        final c = cmpDateNullable(
+          a.createDate,
+          b.createDate,
+          asc,
+          dateOnly: false,
+        );
+        if (c != 0) return c;
+        return _tieBreakCreateDateDesc(a, b);
+      });
       return out;
     }
 

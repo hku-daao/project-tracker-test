@@ -19,6 +19,8 @@ class SingularSubtaskRowCard extends StatelessWidget {
     this.showCustomizedLayout = false,
     this.parentTaskName,
     this.parentProjectName,
+    /// Overview flat list: `yyyy-MM-dd` from sub-task update vs comment activity.
+    this.overviewLastUpdatedYmd,
   });
 
   final SingularSubtask subtask;
@@ -29,6 +31,7 @@ class SingularSubtaskRowCard extends StatelessWidget {
   final bool showCustomizedLayout;
   final String? parentTaskName;
   final String? parentProjectName;
+  final String? overviewLastUpdatedYmd;
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +147,10 @@ class SingularSubtaskRowCard extends StatelessWidget {
               ),
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: SubtaskMetaLine(subtask: s),
+              child: SubtaskMetaLine(
+                subtask: s,
+                overviewLastUpdatedYmd: overviewLastUpdatedYmd,
+              ),
             ),
           ],
         ),

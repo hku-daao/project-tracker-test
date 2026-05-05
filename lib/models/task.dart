@@ -51,6 +51,9 @@ class Task {
   /// Last update time from singular `task.update_date`.
   final DateTime? updateDate;
 
+  /// Denormalized last activity: task row updates vs `comment` (Supabase `task.last_updated`).
+  final DateTime? lastUpdated;
+
   /// PIC/creator workflow: `Submitted`, `Accepted`, `Returned`, or null.
   final String? submission;
 
@@ -99,6 +102,7 @@ class Task {
     this.createByAssigneeKey,
     this.pic,
     this.updateDate,
+    this.lastUpdated,
     this.submission,
     this.submitDate,
     this.completionDate,
@@ -131,6 +135,8 @@ class Task {
     String? createByAssigneeKey,
     String? pic,
     DateTime? updateDate,
+    DateTime? lastUpdated,
+    bool clearLastUpdated = false,
     String? submission,
     DateTime? submitDate,
     bool clearSubmitDate = false,
@@ -165,6 +171,8 @@ class Task {
       createByAssigneeKey: createByAssigneeKey ?? this.createByAssigneeKey,
       pic: pic ?? this.pic,
       updateDate: updateDate ?? this.updateDate,
+      lastUpdated:
+          clearLastUpdated ? null : (lastUpdated ?? this.lastUpdated),
       submission: submission ?? this.submission,
       submitDate: clearSubmitDate ? null : (submitDate ?? this.submitDate),
       completionDate: clearCompletionDate

@@ -1,79 +1,110 @@
 import 'package:flutter/material.dart';
 
 import '../utils/subtask_list_sort.dart';
-import 'subtask_meta_line.dart';
 
-/// Popup chip: Ascending / Descending / Clear — matches landing [TaskListCard] sub-task sort.
-class SubtaskSortColumnChip extends StatelessWidget {
-  const SubtaskSortColumnChip({
+/// Dropdown + direction toggle for sub-task lists (landing task cards, task detail).
+class SubtaskSortDropdown extends StatelessWidget {
+  const SubtaskSortDropdown({
     super.key,
-    required this.column,
-    required this.active,
+    required this.sortColumn,
     required this.ascending,
-    required this.onMenuSelected,
+    required this.onSortColumnChanged,
+    required this.onToggleAscending,
+    required this.sortLabelStyle,
   });
 
-  final SubtaskListSortColumn column;
-  final bool active;
+  final SubtaskListSortColumn? sortColumn;
   final bool ascending;
-  final ValueChanged<String> onMenuSelected;
+  final ValueChanged<SubtaskListSortColumn?> onSortColumnChanged;
+  final VoidCallback onToggleAscending;
+  final TextStyle sortLabelStyle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final chipLabelStyle = (theme.textTheme.bodyMedium ?? const TextStyle())
-        .copyWith(
-      fontSize: kLandingListCardFontSize,
-      fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-    );
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        tooltip: 'Sort by ${subtaskListSortColumnLabel(column)}',
-        onSelected: onMenuSelected,
-        itemBuilder: (context) => [
-          const PopupMenuItem(value: 'asc', child: Text('Ascending')),
-          const PopupMenuItem(value: 'desc', child: Text('Descending')),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'clear',
-            enabled: active,
-            child: const Text('Clear sort'),
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
+    final hasColumn = sortColumn != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Text('Sort', style: sortLabelStyle),
+        ),
+        IntrinsicWidth(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: hasColumn
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outlineVariant,
+              ),
+            ),
+            child: DropdownButton<SubtaskListSortColumn?>(
+              value: sortColumn,
+              isDense: true,
+              isExpanded: false,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(8),
+              style: theme.textTheme.labelLarge,
+              items: [
+                DropdownMenuItem<SubtaskListSortColumn?>(
+                  value: null,
+                  child: Text(
+                    'Created date (default)',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: sortColumn == null
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                for (final c in SubtaskListSortColumn.values)
+                  DropdownMenuItem<SubtaskListSortColumn?>(
+                    value: c,
+                    child: Text(
+                      subtaskListSortColumnLabel(c),
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight:
+                            sortColumn == c ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: onSortColumnChanged,
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                subtaskListSortColumnLabel(column),
-                maxLines: 1,
-                softWrap: false,
-                style: chipLabelStyle,
-              ),
-              if (active) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  ascending ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 18,
-                ),
-              ],
-            ],
+        ),
+        const SizedBox(width: 2),
+        Tooltip(
+          message: sortColumn == null
+              ? (ascending
+                  ? 'Created date: oldest first — tap for newest first'
+                  : 'Created date: newest first — tap for oldest first')
+              : (ascending
+                  ? 'Ascending — tap for descending'
+                  : 'Descending — tap for ascending'),
+          child: IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 36,
+              minHeight: 36,
+            ),
+            icon: Icon(
+              ascending ? Icons.arrow_upward : Icons.arrow_downward,
+              size: 22,
+              color: theme.colorScheme.primary,
+            ),
+            onPressed: onToggleAscending,
           ),
         ),
-      ),
+      ],
     );
   }
 }

@@ -71,9 +71,17 @@ abstract final class ProjectTaskSort {
     bool ascending,
     AppState state,
   ) {
-    if (column == null) return tasks;
-    final col = column;
     final asc = ascending;
+    if (column == null) {
+      final out = List<Task>.from(tasks);
+      out.sort((a, b) {
+        final c = cmpDateForSort(a.createdAt, b.createdAt, asc);
+        if (c != 0) return c;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return out;
+    }
+    final col = column;
     final out = List<Task>.from(tasks);
     out.sort((a, b) {
       int c;

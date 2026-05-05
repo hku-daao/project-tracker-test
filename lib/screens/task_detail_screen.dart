@@ -186,7 +186,8 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
 
   /// `null` = default: [SingularSubtask.createDate] descending (same as landing [TaskListCard]).
   SubtaskListSortColumn? _subtaskSortColumn;
-  bool _subtaskSortAscending = true;
+  /// For **Created date (default)** (`_subtaskSortColumn == null`): `false` = descending (newest first).
+  bool _subtaskSortAscending = false;
 
   String? _myStaffUuid;
   bool _myStaffUuidRequested = false;
@@ -363,28 +364,11 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.taskId != widget.taskId) {
       _subtaskSortColumn = null;
-      _subtaskSortAscending = true;
+      _subtaskSortAscending = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadSubtasks();
       });
     }
-  }
-
-  void _onSubtaskSortMenu(SubtaskListSortColumn column, String v) {
-    setState(() {
-      if (v == 'clear') {
-        if (_subtaskSortColumn == column) {
-          _subtaskSortColumn = null;
-          _subtaskSortAscending = true;
-        }
-      } else if (v == 'asc') {
-        _subtaskSortColumn = column;
-        _subtaskSortAscending = true;
-      } else if (v == 'desc') {
-        _subtaskSortColumn = column;
-        _subtaskSortAscending = false;
-      }
-    });
   }
 
   Future<void> _loadSubtasks() async {
@@ -3297,35 +3281,26 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Align(
                               alignment: Alignment.centerLeft,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 8),
-                                      child: Text(
-                                        'Sort',
-                                        style: (Theme.of(context)
-                                                    .textTheme
-                                                    .bodyMedium ??
-                                                const TextStyle())
-                                            .copyWith(
-                                          fontSize: kLandingListCardFontSize,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                    for (final col
-                                        in SubtaskListSortColumn.values)
-                                      SubtaskSortColumnChip(
-                                        column: col,
-                                        active: _subtaskSortColumn == col,
-                                        ascending: _subtaskSortAscending,
-                                        onMenuSelected: (v) =>
-                                            _onSubtaskSortMenu(col, v),
-                                      ),
-                                  ],
+                              child: SubtaskSortDropdown(
+                                sortColumn: _subtaskSortColumn,
+                                ascending: _subtaskSortAscending,
+                                sortLabelStyle: (Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium ??
+                                        const TextStyle())
+                                    .copyWith(
+                                  fontSize: kLandingListCardFontSize,
+                                  fontWeight: FontWeight.w600,
                                 ),
+                                onSortColumnChanged: (v) {
+                                  setState(() => _subtaskSortColumn = v);
+                                },
+                                onToggleAscending: () {
+                                  setState(
+                                    () => _subtaskSortAscending =
+                                        !_subtaskSortAscending,
+                                  );
+                                },
                               ),
                             ),
                           ),

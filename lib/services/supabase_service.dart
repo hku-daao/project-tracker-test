@@ -82,11 +82,27 @@ class SupabaseService {
   /// Clears [_subtaskListMemoryCache] (e.g. when [AppState] singular task ids change).
   static void clearSubtaskListMemoryCache() => _subtaskListMemoryCache.clear();
 
+  /// Optional listeners when [invalidateSubtasksCacheForTask] runs so list cards can reload without a full screen refresh.
+  static final List<void Function(String taskId)> _subtaskCacheInvalidateListeners = [];
+
+  static void addSubtaskCacheInvalidateListener(void Function(String taskId) listener) {
+    if (!_subtaskCacheInvalidateListeners.contains(listener)) {
+      _subtaskCacheInvalidateListeners.add(listener);
+    }
+  }
+
+  static void removeSubtaskCacheInvalidateListener(void Function(String taskId) listener) {
+    _subtaskCacheInvalidateListeners.remove(listener);
+  }
+
   /// Drops the cached sub-task list for [taskId] so the next [fetchSubtasksForTask] loads from the server.
   static void invalidateSubtasksCacheForTask(String taskId) {
     final tid = taskId.trim();
     if (tid.isEmpty) return;
     _subtaskListMemoryCache.remove(tid);
+    for (final f in List<void Function(String)>.from(_subtaskCacheInvalidateListeners)) {
+      f(tid);
+    }
   }
 
   static void _storeSubtaskListMemoryCache(
@@ -647,6 +663,7 @@ class SupabaseService {
       createByAssigneeKey: _createByAssigneeKey(row, staffUuidToAppId),
       pic: _picAssigneeKey(row, staffUuidToAppId),
       updateDate: _parseDateTimeNullable(row['update_date']),
+      lastUpdated: _parseDateTimeNullable(row['last_updated']),
       submission: _submissionFromRow(row['submission']),
       submitDate: _parseDateTimeNullable(row['submit_date']),
       completionDate: _parseDateTimeNullable(row['completion_date']),
@@ -2161,6 +2178,7 @@ class SupabaseService {
         row['create_date'] ?? row['created_at'],
       ),
       updateDate: _parseDateTimeNullable(row['update_date']),
+      lastUpdated: _parseDateTimeNullable(row['last_updated']),
       updateByStaffName: _updateByDisplayName(row, staffUuidToName),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
       overdueDay: (row['overdue_day'] as num?)?.toInt() ?? 0,
@@ -2805,5 +2823,79 @@ class SupabaseService {
     } catch (_) {
       return [];
     }
+  }
+
+  /// Max of `(update_date ?? create_date)` per `task_id` from [`comment`] (landing Overview).
+  static Future<Map<String, DateTime?>> fetchMaxTaskCommentActivityByTaskIds(
+    List<String> taskIds,
+  ) async {
+    final out = <String, DateTime?>{};
+    if (!_enabled || taskIds.isEmpty) return out;
+    final ids =
+        taskIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList()
+          ..sort();
+    const chunkSize = 80;
+    final client = Supabase.instance.client;
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final end = min(i + chunkSize, ids.length);
+      final chunk = ids.sublist(i, end);
+      try {
+        final res = await client
+            .from('comment')
+            .select('task_id,create_date,update_date')
+            .inFilter('task_id', chunk);
+        for (final raw in (res as List)) {
+          final m = Map<String, dynamic>.from(raw as Map);
+          final tid = m['task_id']?.toString().trim();
+          if (tid == null || tid.isEmpty) continue;
+          final u = _parseDateTimeNullable(m['update_date']);
+          final c = _parseDateTimeNullable(m['create_date']);
+          final eff = u ?? c;
+          if (eff == null) continue;
+          final prev = out[tid];
+          if (prev == null || eff.isAfter(prev)) out[tid] = eff;
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// Max of `(update_date ?? create_date)` per `subtask_id` from [`subtask_comment`].
+  static Future<Map<String, DateTime?>>
+      fetchMaxSubtaskCommentActivityBySubtaskIds(
+    List<String> subtaskIds,
+  ) async {
+    final out = <String, DateTime?>{};
+    if (!_enabled || subtaskIds.isEmpty) return out;
+    final ids = subtaskIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    const chunkSize = 80;
+    final client = Supabase.instance.client;
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final end = min(i + chunkSize, ids.length);
+      final chunk = ids.sublist(i, end);
+      try {
+        final res = await client
+            .from('subtask_comment')
+            .select('subtask_id,create_date,update_date')
+            .inFilter('subtask_id', chunk);
+        for (final raw in (res as List)) {
+          final m = Map<String, dynamic>.from(raw as Map);
+          final sid = m['subtask_id']?.toString().trim();
+          if (sid == null || sid.isEmpty) continue;
+          final u = _parseDateTimeNullable(m['update_date']);
+          final c = _parseDateTimeNullable(m['create_date']);
+          final eff = u ?? c;
+          if (eff == null) continue;
+          final prev = out[sid];
+          if (prev == null || eff.isAfter(prev)) out[sid] = eff;
+        }
+      } catch (_) {}
+    }
+    return out;
   }
 }

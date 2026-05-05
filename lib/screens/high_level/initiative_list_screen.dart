@@ -32,6 +32,7 @@ enum TaskListSortColumn {
   pic('pic'),
   startDate('startDate'),
   dueDate('dueDate'),
+  lastUpdated('lastUpdated'),
   status('status'),
   submission('submission');
 
@@ -60,6 +61,8 @@ enum TaskListSortColumn {
         return 'Start date';
       case TaskListSortColumn.dueDate:
         return 'Due date';
+      case TaskListSortColumn.lastUpdated:
+        return 'Last updated';
       case TaskListSortColumn.status:
         return 'Status';
       case TaskListSortColumn.submission:
@@ -176,7 +179,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Single-column sort for task lists on the landing page (null = default order).
   TaskListSortColumn? _taskSortColumn;
-  bool _taskSortAscending = true;
+  /// For **Created date (default)** (`_taskSortColumn == null`): `false` = descending (newest first).
+  bool _taskSortAscending = false;
 
   /// Projects-only dashboard: `staff.id` → `staff.app_id` (from Supabase maps).
   Map<String, String> _staffUuidToAppId = {};
@@ -186,7 +190,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   final Set<String> _selectedProjectStatusFilters = {};
 
   ProjectListSortColumn? _projectSortColumn;
-  bool _projectSortAscending = true;
+  /// For **Created date (default)** (`_projectSortColumn == null`): `false` = descending (newest first).
+  bool _projectSortAscending = false;
 
   /// Client-side paging for [TaskListCard] lists (search/filter unchanged; slice after).
   static const List<int> _landingTaskPageSizes = [25, 50, 100, 200];
@@ -204,6 +209,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   final Map<String, bool> _subtaskHasOverdueByTaskId = {};
   /// Lowercased sub-task names + descriptions per parent task id (singular only); used for landing search.
   final Map<String, String> _subtaskSearchBlobByTaskId = {};
+  /// Max `(comment.update_date ?? comment.create_date)` per task id ([comment] table).
+  final Map<String, DateTime?> _taskCommentActivityByTaskId = {};
+  /// Max `(subtask_comment.update_date ?? create_date)` per sub-task id.
+  final Map<String, DateTime?> _subtaskCommentActivityBySubtaskId = {};
   String _cachedSingularTaskIdsSig = '';
 
   /// Bumped when a new sub-task prefetch starts or caches clear; stale [Future]s skip [setState].
@@ -672,10 +681,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             : '…';
         final b =
             _filterCreateDateEnd != null ? fmt.format(_filterCreateDateEnd!) : '…';
-        parts.add('Create date: $a – $b');
+        parts.add('Created date: $a – $b');
       } else {
         parts.add(
-          'Create date: ${_defaultCreateDateRangeSummary(fmt)} (default)',
+          'Created date: ${_defaultCreateDateRangeSummary(fmt)} (default)',
         );
       }
     }
@@ -918,7 +927,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final needDue = _taskSortColumn == TaskListSortColumn.dueDate;
     final needBlob = _taskSearchController.text.trim().isNotEmpty;
     final needOverdue = _filterOverdueOnly;
-    if (!needDue && !needBlob && !needOverdue) return;
+    final needLastUpdated =
+        !widget.customizedFlat && _taskSortColumn == TaskListSortColumn.lastUpdated;
+    if (!needDue && !needBlob && !needOverdue && !needLastUpdated) return;
     final seen = <String>{};
     final combined = <Task>[];
     for (final t in [...tasks, ...deletedTasks]) {
@@ -934,8 +945,28 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           needOverdue && !_subtaskHasOverdueByTaskId.containsKey(id);
       return missingDue || missingBlob || missingOverdue;
     }).toList();
+    final idsForCommentActivity = singularIds.where((id) {
+      return needLastUpdated && !_taskCommentActivityByTaskId.containsKey(id);
+    }).toList();
+    if (idsForCommentActivity.isNotEmpty) {
+      unawaited(_loadTaskCommentActivityForTasks(idsForCommentActivity));
+    }
     if (idsToFetch.isEmpty) return;
     unawaited(_loadSubtaskRowDataForTasks(idsToFetch));
+  }
+
+  Future<void> _loadTaskCommentActivityForTasks(List<String> taskIds) async {
+    if (taskIds.isEmpty) return;
+    try {
+      final m =
+          await SupabaseService.fetchMaxTaskCommentActivityByTaskIds(taskIds);
+      if (!mounted) return;
+      setState(() {
+        for (final e in m.entries) {
+          _taskCommentActivityByTaskId[e.key] = e.value;
+        }
+      });
+    } catch (_) {}
   }
 
   /// Writes aggregated sub-task fields for one parent task id into landing caches.
@@ -999,9 +1030,17 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   }
 
   List<Task> _sortTasks(List<Task> tasks, AppState state) {
-    if (_taskSortColumn == null) return tasks;
-    final col = _taskSortColumn!;
     final asc = _taskSortAscending;
+    if (_taskSortColumn == null) {
+      final out = List<Task>.from(tasks);
+      out.sort((a, b) {
+        final c = _cmpDateForSort(a.createdAt, b.createdAt, asc);
+        if (c != 0) return c;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return out;
+    }
+    final col = _taskSortColumn!;
     final out = List<Task>.from(tasks);
     out.sort((a, b) {
       int c;
@@ -1030,6 +1069,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           final aKey = asc ? _effectiveDueSortMin(a) : _effectiveDueSortMax(a);
           final bKey = asc ? _effectiveDueSortMin(b) : _effectiveDueSortMax(b);
           c = _cmpDateForSort(aKey, bKey, asc);
+          break;
+        case TaskListSortColumn.lastUpdated:
+          c = _cmpDateForSort(
+            _taskLastActivityInstant(a),
+            _taskLastActivityInstant(b),
+            asc,
+          );
           break;
         case TaskListSortColumn.status:
           c = _cmpStrNullable(
@@ -1101,7 +1147,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return _subtaskCreatedWithinLastMonth(sub);
   }
 
-  Future<Map<String, List<SingularSubtask>>> _futureGroupedForCustomized(
+  /// Sub-tasks for Overview flat list plus comment-activity maps for **Last updated** sort + meta line.
+  Future<
+      ({
+        Map<String, List<SingularSubtask>> grouped,
+        Map<String, DateTime?> taskCommentActivity,
+        Map<String, DateTime?> subtaskCommentActivity,
+      })> _futureGroupedForCustomized(
     List<Task> active,
     List<Task> deleted,
   ) async {
@@ -1112,8 +1164,88 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     for (final t in deleted) {
       if (t.isSingularTableRow) ids.add(t.id);
     }
-    if (ids.isEmpty) return {};
-    return SupabaseService.fetchSubtasksGroupedForLandingPrefetch(ids.toList());
+    if (ids.isEmpty) {
+      return (
+        grouped: <String, List<SingularSubtask>>{},
+        taskCommentActivity: <String, DateTime?>{},
+        subtaskCommentActivity: <String, DateTime?>{},
+      );
+    }
+    final idList = ids.toList();
+    final grouped =
+        await SupabaseService.fetchSubtasksGroupedForLandingPrefetch(idList);
+    final subIds = <String>[];
+    for (final list in grouped.values) {
+      for (final s in list) {
+        subIds.add(s.id);
+      }
+    }
+    subIds.sort();
+    final taskCommentActivity =
+        await SupabaseService.fetchMaxTaskCommentActivityByTaskIds(idList);
+    final subtaskCommentActivity =
+        await SupabaseService.fetchMaxSubtaskCommentActivityBySubtaskIds(
+      subIds,
+    );
+    return (
+      grouped: grouped,
+      taskCommentActivity: taskCommentActivity,
+      subtaskCommentActivity: subtaskCommentActivity,
+    );
+  }
+
+  /// Prefer DB [`task.last_updated`]; else max of [Task.updateDate] and comment activity.
+  DateTime? _taskLastActivityInstant(
+    Task t, {
+    Map<String, DateTime?>? taskCommentActivityOverride,
+  }) {
+    final lu = t.lastUpdated;
+    if (lu != null) return lu;
+    final tu = t.updateDate;
+    final ca = taskCommentActivityOverride != null
+        ? taskCommentActivityOverride[t.id]
+        : _taskCommentActivityByTaskId[t.id];
+    DateTime? best = tu;
+    if (ca != null && (best == null || ca.isAfter(best))) best = ca;
+    return best;
+  }
+
+  /// Prefer DB [`subtask.last_updated`]; else max of [SingularSubtask.updateDate] and comment activity.
+  DateTime? _subtaskLastActivityInstant(
+    SingularSubtask s, {
+    Map<String, DateTime?>? subtaskCommentActivityOverride,
+  }) {
+    final lu = s.lastUpdated;
+    if (lu != null) return lu;
+    final su = s.updateDate;
+    final ca = subtaskCommentActivityOverride != null
+        ? subtaskCommentActivityOverride[s.id]
+        : _subtaskCommentActivityBySubtaskId[s.id];
+    DateTime? best = su;
+    if (ca != null && (best == null || ca.isAfter(best))) best = ca;
+    return best;
+  }
+
+  String? _lastUpdatedYmdFromInstant(DateTime? i) {
+    if (i == null) return null;
+    return DateFormat('yyyy-MM-dd').format(i.toLocal());
+  }
+
+  DateTime? _customizedLastUpdatedSortKey(
+    _CustomizedFlatEntry e, {
+    required Map<String, DateTime?> taskCommentActivity,
+    required Map<String, DateTime?> subtaskCommentActivity,
+  }) {
+    if (e.isTaskRow) {
+      return _taskLastActivityInstant(
+        e.task,
+        taskCommentActivityOverride: taskCommentActivity,
+      );
+    }
+    return _subtaskLastActivityInstant(
+      e.sub!,
+      subtaskCommentActivityOverride: subtaskCommentActivity,
+    );
   }
 
   List<_CustomizedFlatEntry> _buildCustomizedFlatEntries(
@@ -1276,8 +1408,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   List<_CustomizedFlatEntry> _sortCustomizedFlatEntries(
     List<_CustomizedFlatEntry> rows,
-    AppState state,
-  ) {
+    AppState state, {
+    required Map<String, DateTime?> taskCommentActivity,
+    required Map<String, DateTime?> subtaskCommentActivity,
+  }) {
     if (rows.isEmpty) return rows;
     final col = _taskSortColumn;
     final asc = _taskSortAscending;
@@ -1285,7 +1419,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     out.sort((a, b) {
       int c;
       if (col == null) {
-        c = _customizedCreateInstant(b).compareTo(_customizedCreateInstant(a));
+        c = _cmpDateForSort(
+          _customizedCreateInstant(a),
+          _customizedCreateInstant(b),
+          asc,
+        );
       } else {
         switch (col) {
           case TaskListSortColumn.creator:
@@ -1323,6 +1461,21 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               asc,
             );
             break;
+          case TaskListSortColumn.lastUpdated:
+            c = _cmpDateForSort(
+              _customizedLastUpdatedSortKey(
+                a,
+                taskCommentActivity: taskCommentActivity,
+                subtaskCommentActivity: subtaskCommentActivity,
+              ),
+              _customizedLastUpdatedSortKey(
+                b,
+                taskCommentActivity: taskCommentActivity,
+                subtaskCommentActivity: subtaskCommentActivity,
+              ),
+              asc,
+            );
+            break;
           case TaskListSortColumn.status:
             c = _cmpStrNullable(
               _customizedStatusKey(a),
@@ -1348,18 +1501,27 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   Widget _customizedEntryTile(
     BuildContext context,
     AppState state,
-    _CustomizedFlatEntry e,
-  ) {
+    _CustomizedFlatEntry e, {
+    required Map<String, DateTime?> taskCommentActivity,
+    required Map<String, DateTime?> subtaskCommentActivity,
+  }) {
     if (e.isTaskRow) {
+      final lu = _lastUpdatedYmdFromInstant(
+        _taskLastActivityInstant(
+          e.task,
+          taskCommentActivityOverride: taskCommentActivity,
+        ),
+      );
       return TaskListCard(
         task: e.task,
         taskOnly: true,
         showCustomizedTaskTitle: true,
         openedFromOverview: true,
+        overviewLastUpdatedYmd: lu,
       );
     }
     final s = e.sub!;
-    final resolveName = (String id) => state.assigneeById(id)?.name ?? id;
+    String resolveName(String id) => state.assigneeById(id)?.name ?? id;
     final picKey = s.pic?.trim();
     return FutureBuilder<String?>(
       future: (picKey == null || picKey.isEmpty)
@@ -1367,6 +1529,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           : SupabaseService.fetchStaffTeamBusinessIdForAssigneeKey(picKey),
       builder: (context, snap) {
         final tint = TaskListCard.cardColorForPicTeam(snap.data);
+        final lu = _lastUpdatedYmdFromInstant(
+          _subtaskLastActivityInstant(
+            s,
+            subtaskCommentActivityOverride: subtaskCommentActivity,
+          ),
+        );
         return SingularSubtaskRowCard(
           subtask: s,
           resolveName: resolveName,
@@ -1375,6 +1543,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           showCustomizedLayout: true,
           parentTaskName: e.task.name,
           parentProjectName: e.task.projectName,
+          overviewLastUpdatedYmd: lu,
           onTap: () async {
             final changed = await Navigator.of(context).push<bool>(
               MaterialPageRoute<bool>(
@@ -1401,7 +1570,12 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     List<Task> filteredTasks,
     List<Task> filteredDeletedTasks,
   ) {
-    return FutureBuilder<Map<String, List<SingularSubtask>>>(
+    return FutureBuilder<
+        ({
+          Map<String, List<SingularSubtask>> grouped,
+          Map<String, DateTime?> taskCommentActivity,
+          Map<String, DateTime?> subtaskCommentActivity,
+        })>(
       key: ValueKey(
         '${filteredTasks.map((t) => t.id).join('|')}'
         '_${filteredDeletedTasks.map((t) => t.id).join('|')}'
@@ -1417,19 +1591,32 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final grouped = snapshot.data ?? {};
+        final payload = snapshot.data;
+        final grouped = payload?.grouped ?? {};
+        final taskCommentActivity = payload?.taskCommentActivity ?? {};
+        final subtaskCommentActivity = payload?.subtaskCommentActivity ?? {};
         var activeEntries = _buildCustomizedFlatEntries(
           filteredTasks,
           grouped,
           _taskSearchController.text,
         );
-        activeEntries = _sortCustomizedFlatEntries(activeEntries, state);
+        activeEntries = _sortCustomizedFlatEntries(
+          activeEntries,
+          state,
+          taskCommentActivity: taskCommentActivity,
+          subtaskCommentActivity: subtaskCommentActivity,
+        );
         var delEntries = _buildCustomizedFlatEntries(
           filteredDeletedTasks,
           grouped,
           _taskSearchController.text,
         );
-        delEntries = _sortCustomizedFlatEntries(delEntries, state);
+        delEntries = _sortCustomizedFlatEntries(
+          delEntries,
+          state,
+          taskCommentActivity: taskCommentActivity,
+          subtaskCommentActivity: subtaskCommentActivity,
+        );
 
         if (activeEntries.isEmpty && delEntries.isEmpty) {
           return Center(
@@ -1437,7 +1624,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               padding: const EdgeInsets.all(24),
               child: Text(
                 'No tasks or sub-tasks match your filters '
-                '(search, create date, and other filters).',
+                '(search, created date, and other filters).',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
@@ -1484,7 +1671,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                           child: PicTeamColorLegend(),
                         ),
                         ...pagedActive.map(
-                          (e) => _customizedEntryTile(context, state, e),
+                          (e) => _customizedEntryTile(
+                            context,
+                            state,
+                            e,
+                            taskCommentActivity: taskCommentActivity,
+                            subtaskCommentActivity: subtaskCommentActivity,
+                          ),
                         ),
                       ],
                       if (filteredDeletedTasks.isNotEmpty) ...[
@@ -1508,7 +1701,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                           ),
                       ],
                       ...pagedDel.map(
-                        (e) => _customizedEntryTile(context, state, e),
+                        (e) => _customizedEntryTile(
+                          context,
+                          state,
+                          e,
+                          taskCommentActivity: taskCommentActivity,
+                          subtaskCommentActivity: subtaskCommentActivity,
+                        ),
                       ),
                     ],
                   ),
@@ -1713,6 +1912,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _scheduleLandingSubtaskServerSearch();
     _taskSortColumn = TaskListSortColumn.fromStorage(data.sortColumn);
     _taskSortAscending = data.sortAscending;
+    if (_taskSortColumn == null) {
+      _taskSortAscending = false;
+    }
     _filterOverdueOnly = data.filterOverdueOnly;
     _filterCreateDateStart = data.filterCreateDateStartMs != null
         ? DateTime.fromMillisecondsSinceEpoch(data.filterCreateDateStartMs!)
@@ -1827,78 +2029,107 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     super.dispose();
   }
 
-  Widget _buildSortColumnControl(TaskListSortColumn column) {
-    final active = _taskSortColumn == column;
+  /// Landing + Overview: single dropdown for sort column + direction toggle.
+  Widget _buildTaskSortDropdown() {
     final theme = Theme.of(context);
+    final hasColumn = _taskSortColumn != null;
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        tooltip: 'Sort by ${column.label}',
-        onSelected: (v) {
-          setState(() {
-            if (v == 'clear') {
-              if (_taskSortColumn == column) {
-                _taskSortColumn = null;
-                _taskSortAscending = true;
-              }
-            } else if (v == 'asc') {
-              _taskSortColumn = column;
-              _taskSortAscending = true;
-            } else if (v == 'desc') {
-              _taskSortColumn = column;
-              _taskSortAscending = false;
-            }
-            _tasksPageIndex = 0;
-            _deletedTasksPageIndex = 0;
-          });
-          _persistLandingFilters();
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(value: 'asc', child: Text('Ascending')),
-          const PopupMenuItem(value: 'desc', child: Text('Descending')),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'clear',
-            enabled: active,
-            child: const Text('Clear sort'),
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                column.label,
-                maxLines: 1,
-                softWrap: false,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          IntrinsicWidth(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: hasColumn
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
                 ),
               ),
-              if (active) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  _taskSortAscending
-                      ? Icons.arrow_upward
-                      : Icons.arrow_downward,
-                  size: 18,
-                ),
-              ],
-            ],
+              child: DropdownButton<TaskListSortColumn?>(
+                value: _taskSortColumn,
+                isDense: true,
+                isExpanded: false,
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(8),
+                style: theme.textTheme.labelLarge,
+                items: [
+                  DropdownMenuItem<TaskListSortColumn?>(
+                    value: null,
+                    child: Text(
+                      'Created date (default)',
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: _taskSortColumn == null
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  for (final c in TaskListSortColumn.values)
+                    DropdownMenuItem<TaskListSortColumn?>(
+                      value: c,
+                      child: Text(
+                        c.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: _taskSortColumn == c
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                ],
+                onChanged: (v) {
+                  setState(() {
+                    _taskSortColumn = v;
+                    _tasksPageIndex = 0;
+                    _deletedTasksPageIndex = 0;
+                  });
+                  _persistLandingFilters();
+                },
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 2),
+          Tooltip(
+            message: _taskSortColumn == null
+                ? (_taskSortAscending
+                    ? 'Created date: oldest first — tap for newest first'
+                    : 'Created date: newest first — tap for oldest first')
+                : (_taskSortAscending
+                    ? 'Ascending — tap for descending'
+                    : 'Descending — tap for ascending'),
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 36,
+                minHeight: 36,
+              ),
+              icon: Icon(
+                _taskSortAscending
+                    ? Icons.arrow_upward
+                    : Icons.arrow_downward,
+                size: 22,
+                color: theme.colorScheme.primary,
+              ),
+              onPressed: () {
+                setState(() {
+                  _taskSortAscending = !_taskSortAscending;
+                  _tasksPageIndex = 0;
+                  _deletedTasksPageIndex = 0;
+                });
+                _persistLandingFilters();
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2075,11 +2306,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           : '…';
       final b =
           _filterCreateDateEnd != null ? fmt.format(_filterCreateDateEnd!) : '…';
-      parts.add('Create date: $a – $b');
+      parts.add('Created date: $a – $b');
     } else {
       final r = _defaultCreateDateRangeHk();
       parts.add(
-        'Create date: ${fmt.format(r.$1)} – ${fmt.format(r.$2)} (default)',
+        'Created date: ${fmt.format(r.$1)} – ${fmt.format(r.$2)} (default)',
       );
     }
     if (_selectedProjectStatusFilters.isEmpty) {
@@ -2178,9 +2409,18 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     List<ProjectRecord> projects,
     AppState state,
   ) {
-    if (_projectSortColumn == null) return projects;
-    final col = _projectSortColumn!;
     final asc = _projectSortAscending;
+    if (_projectSortColumn == null) {
+      final out = List<ProjectRecord>.from(projects);
+      out.sort((a, b) {
+        final c =
+            ProjectTaskSort.cmpDateForSort(a.createDate, b.createDate, asc);
+        if (c != 0) return c;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return out;
+    }
+    final col = _projectSortColumn!;
     final out = List<ProjectRecord>.from(projects);
     String assigneeLine(ProjectRecord p) {
       final keys = p.assigneeKeys(_staffUuidToAppId);
@@ -2224,74 +2464,103 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     return out;
   }
 
-  Widget _buildProjectSortColumnControl(ProjectListSortColumn column) {
-    final active = _projectSortColumn == column;
+  /// Project dashboard: sort column dropdown + direction toggle.
+  Widget _buildProjectSortDropdown() {
     final theme = Theme.of(context);
+    final hasColumn = _projectSortColumn != null;
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        tooltip: 'Sort by ${column.label}',
-        onSelected: (v) {
-          setState(() {
-            if (v == 'clear') {
-              if (_projectSortColumn == column) {
-                _projectSortColumn = null;
-                _projectSortAscending = true;
-              }
-            } else if (v == 'asc') {
-              _projectSortColumn = column;
-              _projectSortAscending = true;
-            } else if (v == 'desc') {
-              _projectSortColumn = column;
-              _projectSortAscending = false;
-            }
-          });
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(value: 'asc', child: Text('Ascending')),
-          const PopupMenuItem(value: 'desc', child: Text('Descending')),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'clear',
-            enabled: active,
-            child: const Text('Clear sort'),
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                column.label,
-                maxLines: 1,
-                softWrap: false,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          IntrinsicWidth(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: hasColumn
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
                 ),
               ),
-              if (active) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  _projectSortAscending
-                      ? Icons.arrow_upward
-                      : Icons.arrow_downward,
-                  size: 18,
-                ),
-              ],
-            ],
+              child: DropdownButton<ProjectListSortColumn?>(
+                value: _projectSortColumn,
+                isDense: true,
+                isExpanded: false,
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(8),
+                style: theme.textTheme.labelLarge,
+                items: [
+                  DropdownMenuItem<ProjectListSortColumn?>(
+                    value: null,
+                    child: Text(
+                      'Created date (default)',
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: _projectSortColumn == null
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  for (final c in ProjectListSortColumn.values)
+                    DropdownMenuItem<ProjectListSortColumn?>(
+                      value: c,
+                      child: Text(
+                        c.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: _projectSortColumn == c
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                ],
+                onChanged: (v) {
+                  setState(() {
+                    _projectSortColumn = v;
+                    _tasksPageIndex = 0;
+                  });
+                },
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 2),
+          Tooltip(
+            message: _projectSortColumn == null
+                ? (_projectSortAscending
+                    ? 'Created date: oldest first — tap for newest first'
+                    : 'Created date: newest first — tap for oldest first')
+                : (_projectSortAscending
+                    ? 'Ascending — tap for descending'
+                    : 'Descending — tap for ascending'),
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 36,
+                minHeight: 36,
+              ),
+              icon: Icon(
+                _projectSortAscending
+                    ? Icons.arrow_upward
+                    : Icons.arrow_downward,
+                size: 22,
+                color: theme.colorScheme.primary,
+              ),
+              onPressed: () {
+                setState(() {
+                  _projectSortAscending = !_projectSortAscending;
+                  _tasksPageIndex = 0;
+                });
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2587,8 +2856,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                           ),
                     ),
                   ),
-                  for (final col in ProjectListSortColumn.values)
-                    _buildProjectSortColumnControl(col),
+                  _buildProjectSortDropdown(),
                 ],
               ),
             ),
@@ -2752,6 +3020,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       _subtaskMaxDueByTaskId.clear();
       _subtaskHasOverdueByTaskId.clear();
       _subtaskSearchBlobByTaskId.clear();
+      _taskCommentActivityByTaskId.clear();
+      _subtaskCommentActivityBySubtaskId.clear();
       SupabaseService.clearSubtaskListMemoryCache();
       _landingSubtaskServerSearchSeq++;
       _landingSubtaskServerSearchDebounce?.cancel();
@@ -3178,10 +3448,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 bandFiltersLeft(
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: double.infinity,
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
+                        primary: false,
+                        physics: const ClampingScrollPhysics(),
+                        padding: const EdgeInsets.only(right: 12),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -3242,8 +3515,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                                     ),
                               ),
                             ),
-                            for (final col in TaskListSortColumn.values)
-                              _buildSortColumnControl(col),
+                            _buildTaskSortDropdown(),
                           ],
                         ),
                       ),
@@ -3551,7 +3823,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     );
   }
 
-  /// Create date range — below Creator; applies to task/sub-task create dates on Customized,
+  /// Created date range — below Creator; applies to task/sub-task create dates on Customized,
   /// and to task `createdAt` on the landing list.
   List<Widget> _landingCreateDateSection(BuildContext context) {
     final titleStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -3610,7 +3882,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       ExpansionTile(
         controller: _filterCreateDateTileController,
         tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-        title: Text('Create date', style: titleStyle),
+        title: Text('Created date', style: titleStyle),
         onExpansionChanged: (expanded) {
           if (expanded) _onTopLevelFilterSectionExpanded('createDate');
         },
@@ -3649,7 +3921,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: TextButton(
               onPressed: _filterCreateDateEngaged ? clearCreateDate : null,
-              child: const Text('Clear create date range'),
+              child: const Text('Clear created date range'),
             ),
           ),
         ],

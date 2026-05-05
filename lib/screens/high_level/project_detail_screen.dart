@@ -46,7 +46,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   bool _saving = false;
 
   ProjectDetailTaskSortColumn? _taskSortColumn;
-  bool _taskSortAscending = true;
+  /// For **Created date (default)** (`_taskSortColumn == null`): `false` = descending (newest first).
+  bool _taskSortAscending = false;
 
   List<TeamOptionRow> _pickerTeams = [];
   List<StaffForAssignment> _pickerStaff = [];
@@ -356,76 +357,96 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     return 'Last updated: ${HkTime.formatInstantAsHk(u, 'yyyy-MM-dd HH:mm')}';
   }
 
-  Widget _buildProjectSortColumnControl(ProjectDetailTaskSortColumn column) {
-    final active = _taskSortColumn == column;
+  Widget _buildProjectDetailTaskSortDropdown() {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, bottom: 8),
-      child: PopupMenuButton<String>(
-        padding: EdgeInsets.zero,
-        tooltip: 'Sort by ${column.label}',
-        onSelected: (v) {
-          setState(() {
-            if (v == 'clear') {
-              if (_taskSortColumn == column) {
-                _taskSortColumn = null;
-                _taskSortAscending = true;
-              }
-            } else if (v == 'asc') {
-              _taskSortColumn = column;
-              _taskSortAscending = true;
-            } else if (v == 'desc') {
-              _taskSortColumn = column;
-              _taskSortAscending = false;
-            }
-          });
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(value: 'asc', child: Text('Ascending')),
-          const PopupMenuItem(value: 'desc', child: Text('Descending')),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'clear',
-            enabled: active,
-            child: const Text('Clear sort'),
-          ),
-        ],
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outlineVariant,
+    final hasColumn = _taskSortColumn != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        IntrinsicWidth(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: hasColumn
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outlineVariant,
+              ),
+            ),
+            child: DropdownButton<ProjectDetailTaskSortColumn?>(
+              value: _taskSortColumn,
+              isDense: true,
+              isExpanded: false,
+              underline: const SizedBox.shrink(),
+              borderRadius: BorderRadius.circular(8),
+              style: theme.textTheme.labelLarge,
+              items: [
+                DropdownMenuItem<ProjectDetailTaskSortColumn?>(
+                  value: null,
+                  child: Text(
+                    'Created date (default)',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: _taskSortColumn == null
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                for (final c in ProjectDetailTaskSortColumn.values)
+                  DropdownMenuItem<ProjectDetailTaskSortColumn?>(
+                    value: c,
+                    child: Text(
+                      c.label,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: _taskSortColumn == c
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                setState(() {
+                  _taskSortColumn = v;
+                });
+              },
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                column.label,
-                maxLines: 1,
-                softWrap: false,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-              if (active) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  _taskSortAscending
-                      ? Icons.arrow_upward
-                      : Icons.arrow_downward,
-                  size: 18,
-                ),
-              ],
-            ],
+        ),
+        const SizedBox(width: 2),
+        Tooltip(
+          message: _taskSortColumn == null
+              ? (_taskSortAscending
+                  ? 'Created date: oldest first — tap for newest first'
+                  : 'Created date: newest first — tap for oldest first')
+              : (_taskSortAscending
+                  ? 'Ascending — tap for descending'
+                  : 'Descending — tap for ascending'),
+          child: IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 36,
+              minHeight: 36,
+            ),
+            icon: Icon(
+              _taskSortAscending
+                  ? Icons.arrow_upward
+                  : Icons.arrow_downward,
+              size: 22,
+              color: theme.colorScheme.primary,
+            ),
+            onPressed: () {
+              setState(() => _taskSortAscending = !_taskSortAscending);
+            },
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -727,12 +748,22 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
-                child: Wrap(
-                  alignment: WrapAlignment.start,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: ProjectDetailTaskSortColumn.values
-                      .map(_buildProjectSortColumnControl)
-                      .toList(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        'Sort',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    _buildProjectDetailTaskSortDropdown(),
+                  ],
                 ),
               ),
             ],

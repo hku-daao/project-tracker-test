@@ -20,6 +20,7 @@ class SingularSubtask {
     this.pic,
     this.createDate,
     this.updateDate,
+    this.lastUpdated,
     this.updateByStaffName,
     this.changeDueReason,
     this.overdueDay = 0,
@@ -57,6 +58,9 @@ class SingularSubtask {
   final String? pic;
   final DateTime? createDate;
   final DateTime? updateDate;
+
+  /// Denormalized activity instant (`subtask.last_updated` in Supabase).
+  final DateTime? lastUpdated;
 
   /// Resolved from `subtask.update_by` → `staff.name`.
   final String? updateByStaffName;
@@ -105,6 +109,8 @@ class SingularSubtask {
     String? pic,
     DateTime? createDate,
     DateTime? updateDate,
+    DateTime? lastUpdated,
+    bool clearLastUpdated = false,
     String? updateByStaffName,
     Object? changeDueReason = _unsetChangeDueReason,
     int? overdueDay,
@@ -130,6 +136,8 @@ class SingularSubtask {
       pic: pic ?? this.pic,
       createDate: createDate ?? this.createDate,
       updateDate: updateDate ?? this.updateDate,
+      lastUpdated:
+          clearLastUpdated ? null : (lastUpdated ?? this.lastUpdated),
       updateByStaffName: updateByStaffName ?? this.updateByStaffName,
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
