@@ -8,6 +8,7 @@ import '../../models/staff_team_lookup.dart';
 import '../../config/admin_config.dart';
 import '../../config/environment_config.dart';
 import '../../config/supabase_config.dart';
+import '../../navigator_keys.dart';
 import '../../utils/home_navigation.dart';
 import '../../web_deep_link.dart';
 import '../../widgets/project_tracker_drawer.dart';
@@ -65,6 +66,13 @@ const String _kImportantNoticeBody =
     'or "update alumni engagement plan", and link to the appropriate secure system—'
     'such as the institutional CRM or advancement intelligence platform—where the '
     'actual information is maintained.';
+
+/// Removes routes pushed above [AuthGate] (dashboards, details). Without this,
+/// [FirebaseAuth.signOut] rebuilds only the bottom route to [LoginScreen] while
+/// the top route (e.g. Overview) stays visible until a full page refresh (web).
+void _popRootNavigatorForSignOut() {
+  rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+}
 
 Future<void> _openFeedbackForm(BuildContext context) async {
   final uri = Uri.parse(_kFeedbackFormUrl);
@@ -303,6 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final leave = await _confirmLeaveCreateTaskDraft(context);
         if (!mounted || !leave) return;
       }
+      _popRootNavigatorForSignOut();
       if (kIsWeb) {
         syncWebLocationForLanding();
       }
@@ -632,6 +641,7 @@ class _CustomizedDashboardPageState extends State<CustomizedDashboardPage> {
               final leave = await _confirmLeaveCreateTaskDraft(context);
               if (!context.mounted || !leave) return;
             }
+            _popRootNavigatorForSignOut();
             if (kIsWeb) {
               syncWebLocationForLanding();
             }
@@ -896,6 +906,7 @@ class _ProjectDashboardPageState extends State<ProjectDashboardPage> {
               final leave = await _confirmLeaveCreateTaskDraft(context);
               if (!context.mounted || !leave) return;
             }
+            _popRootNavigatorForSignOut();
             if (kIsWeb) {
               syncWebLocationForLanding();
             }
