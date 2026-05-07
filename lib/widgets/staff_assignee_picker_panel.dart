@@ -60,6 +60,10 @@ class _StaffAssigneePickerPanelState extends State<StaffAssigneePickerPanel> {
     widget.onSelectionChanged(next);
   }
 
+  /// Matches Team dropdown vertical size to the search [TextField] (outline + dense).
+  static const EdgeInsets _fieldContentPadding =
+      EdgeInsets.symmetric(horizontal: 12, vertical: 12);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -76,61 +80,61 @@ class _StaffAssigneePickerPanelState extends State<StaffAssigneePickerPanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Assignees (multiple)',
+              'Assignee(s)',
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Team',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String?>(
-                        value: _filterTeamId,
-                        isExpanded: true,
-                        hint: const Text('All teams'),
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('All teams'),
-                          ),
-                          ...widget.teams.map(
-                            (t) => DropdownMenuItem<String?>(
-                              value: t.teamId,
-                              child: Text(
-                                t.teamName.isNotEmpty ? t.teamName : t.teamId,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        ],
-                        onChanged: (v) => setState(() => _filterTeamId = v),
-                      ),
-                    ),
-                  ),
+            TextField(
+              controller: _searchController,
+              style: theme.textTheme.bodyLarge,
+              decoration: const InputDecoration(
+                labelText: 'Search name',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: _fieldContentPadding,
+                prefixIcon: Icon(Icons.search, size: 20),
+                prefixIconConstraints: BoxConstraints(
+                  minWidth: 44,
+                  minHeight: 44,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      labelText: 'Search name',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      prefixIcon: Icon(Icons.search, size: 20),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String?>(
+              value: _filterTeamId,
+              isDense: true,
+              isExpanded: true,
+              alignment: AlignmentDirectional.centerStart,
+              style: theme.textTheme.bodyLarge,
+              decoration: const InputDecoration(
+                labelText: 'Team',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: _fieldContentPadding,
+              ),
+              hint: const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text('All teams'),
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  alignment: Alignment.centerLeft,
+                  child: Text('All teams'),
+                ),
+                ...widget.teams.map(
+                  (t) => DropdownMenuItem<String?>(
+                    value: t.teamId,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      t.teamName.isNotEmpty ? t.teamName : t.teamId,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    onChanged: (_) => setState(() {}),
                   ),
                 ),
               ],
+              onChanged: (v) => setState(() => _filterTeamId = v),
             ),
             const SizedBox(height: 8),
             Text(

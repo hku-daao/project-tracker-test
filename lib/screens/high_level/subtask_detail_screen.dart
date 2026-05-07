@@ -1320,6 +1320,36 @@ class _SubtaskDetailScreenState extends State<SubtaskDetailScreen> {
       }
       _cancelCommentEdit();
       await _load(rebindAttachments: false);
+      try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token != null) {
+          final notifyErr = await BackendApi().notifySubtaskCommentEdited(
+            idToken: token,
+            commentId: c.id,
+          );
+          if (notifyErr != null && mounted) {
+            showCopyableSnackBar(
+              context,
+              'Sub-task comment edit email: $notifyErr',
+              backgroundColor: Colors.orange,
+            );
+          }
+        } else if (mounted) {
+          showCopyableSnackBar(
+            context,
+            'Comment updated; notify email skipped (no sign-in token)',
+            backgroundColor: Colors.orange,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          showCopyableSnackBar(
+            context,
+            'Sub-task comment edit email failed: $e',
+            backgroundColor: Colors.orange,
+          );
+        }
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

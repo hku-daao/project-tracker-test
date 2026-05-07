@@ -646,6 +646,36 @@ class _SingularTaskDetailViewState extends State<SingularTaskDetailView> {
       return;
     }
     await _loadTableComments();
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token != null) {
+        final notifyErr = await BackendApi().notifyTaskCommentEdited(
+          idToken: token,
+          commentId: c.id,
+        );
+        if (notifyErr != null && mounted) {
+          showCopyableSnackBar(
+            context,
+            'Comment edit email: $notifyErr',
+            backgroundColor: Colors.orange,
+          );
+        }
+      } else if (mounted) {
+        showCopyableSnackBar(
+          context,
+          'Comment updated; notify email skipped (no sign-in token)',
+          backgroundColor: Colors.orange,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showCopyableSnackBar(
+          context,
+          'Comment edit email failed: $e',
+          backgroundColor: Colors.orange,
+        );
+      }
+    }
   }
 
   Future<void> _confirmDeleteSingularComment(

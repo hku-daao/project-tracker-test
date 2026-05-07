@@ -1242,6 +1242,59 @@ ${TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF}`;
 }
 
 /**
+ * Task comment **edited** notify (`handleNotifyTaskEditedComment`): Hi + edited line + task link +
+ * Updated by / at + Project Tracker; Aptos 16px.
+ *
+ * @param {{ recipientDisplayName: string, commentDescription: string, taskName: string, taskUrl: string, updaterDisplayName: string, updatedAtLine: string }} p
+ */
+function buildTaskCommentEditedEmailHtml(p) {
+  const safeHi = escapeHtml(p.recipientDisplayName);
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  const safeDescHtml = desc
+    .split(/\r?\n/)
+    .map((line) => escapeHtml(line))
+    .join('<br>');
+  const safeTaskUrlAttr = escapeHtml(p.taskUrl);
+  const safeTitle = escapeHtml(p.taskName);
+  const safeUpdater = escapeHtml(p.updaterDisplayName);
+  const safeUpdatedAt = escapeHtml(p.updatedAtLine);
+  const safeLandingHref = escapeHtml(PROJECT_TRACKER_LANDING_URL);
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">Hi ${safeHi},<br><br>
+<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">Comment is edited – ${safeDescHtml}</span><br><br>
+<a href="${safeTaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+Updated by: ${safeUpdater}<br><br>
+Updated at: ${safeUpdatedAt}<br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildTaskCommentEditedEmailText(p) {
+  let desc = String(p.commentDescription || '').trim();
+  if (!desc) desc = '(no text)';
+  if (desc.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    desc = `${desc.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  return `Hi ${p.recipientDisplayName},
+
+Comment is edited – ${desc}
+
+${p.taskName}
+${p.taskUrl}
+
+Updated by: ${p.updaterDisplayName}
+
+Updated at: ${p.updatedAtLine}
+
+Project Tracker
+${PROJECT_TRACKER_LANDING_URL}`;
+}
+
+/**
  * “Project Tracker” link in sub-task comment → creator emails (strict product URL, no trailing path).
  */
 const SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF = 'https://projecttracker.hku.hk';
@@ -1316,6 +1369,59 @@ ${p.subtaskUrl}
 
 Project Tracker
 ${SUBTASK_COMMENT_NOTIFY_PROJECT_TRACKER_HREF}`;
+}
+
+/**
+ * Sub-task comment **edited** notify (`handleNotifySubtaskEditedComment`): Hi + edited line + sub-task link +
+ * Updated by / at + Project Tracker; Aptos 16px. Description uses [subtaskCommentDescriptionPlainText].
+ *
+ * @param {{ recipientDisplayName: string, commentDescription: unknown, subtaskName: string, subtaskUrl: string, updaterDisplayName: string, updatedAtLine: string }} p
+ */
+function buildSubtaskCommentEditedEmailHtml(p) {
+  const safeHi = escapeHtml(p.recipientDisplayName);
+  let descPlain = subtaskCommentDescriptionPlainText(p.commentDescription);
+  if (!descPlain) descPlain = '(no text)';
+  if (descPlain.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    descPlain = `${descPlain.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  const safeDescHtml = descPlain
+    .split(/\r?\n/)
+    .map((line) => escapeHtml(line))
+    .join('<br>');
+  const safeSubtaskUrlAttr = escapeHtml(p.subtaskUrl);
+  const safeTitle = escapeHtml(p.subtaskName);
+  const safeUpdater = escapeHtml(p.updaterDisplayName);
+  const safeUpdatedAt = escapeHtml(p.updatedAtLine);
+  const safeLandingHref = escapeHtml(PROJECT_TRACKER_LANDING_URL);
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">Hi ${safeHi},<br><br>
+<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">Comment is edited – ${safeDescHtml}</span><br><br>
+<a href="${safeSubtaskUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+Updated by: ${safeUpdater}<br><br>
+Updated at: ${safeUpdatedAt}<br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildSubtaskCommentEditedEmailText(p) {
+  let descPlain = subtaskCommentDescriptionPlainText(p.commentDescription);
+  if (!descPlain) descPlain = '(no text)';
+  if (descPlain.length > TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN) {
+    descPlain = `${descPlain.slice(0, TASK_UPDATE_NOTIFY_MAX_COMMENT_LEN)}…`;
+  }
+  return `Hi ${p.recipientDisplayName},
+
+Comment is edited – ${descPlain}
+
+${p.subtaskName}
+${p.subtaskUrl}
+
+Updated by: ${p.updaterDisplayName}
+
+Updated at: ${p.updatedAtLine}
+
+Project Tracker
+${PROJECT_TRACKER_LANDING_URL}`;
 }
 
 /** Formats task.update_date (timestamptz) as YYYY-MM-DD in Asia/Hong_Kong. */
@@ -4159,6 +4265,189 @@ async function handleNotifyTaskComment(req, res) {
 }
 
 /**
+ * POST { commentId } — after a task comment is edited: Firebase email must match `staff.email` for
+ * `comment.update_by`. Emails task `create_by` + assignee_01..10 (deduped), never the editor.
+ */
+async function handleNotifyTaskEditedComment(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!TASK_COMMENT_EMAIL_ENABLED) {
+    sendJson(req, res, 200, {
+      ok: true,
+      skipped: true,
+      message: 'Task comment email notifications are disabled.',
+    });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const commentId = (body.commentId || '').trim();
+    if (!commentId) {
+      sendJson(req, res, 400, { error: 'commentId required' });
+      return;
+    }
+    const { data: commentRow, error: cErr } = await supabase
+      .from('comment')
+      .select('id, task_id, description, update_by, update_date, create_date')
+      .eq('id', commentId)
+      .maybeSingle();
+    if (cErr || !commentRow) {
+      sendJson(req, res, 404, { error: 'Comment not found' });
+      return;
+    }
+    const editorStaffId = (commentRow.update_by || '').toString().trim();
+    if (!editorStaffId) {
+      sendJson(req, res, 400, { error: 'Comment has no update_by' });
+      return;
+    }
+    const { data: editorStaff, error: edErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', editorStaffId)
+      .maybeSingle();
+    if (edErr || !editorStaff) {
+      sendJson(req, res, 400, { error: 'Comment editor staff not found' });
+      return;
+    }
+    const editorEmail = (editorStaff.email || '').trim().toLowerCase();
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    if (!editorEmail || editorEmail !== sessionEmail) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the comment editor (staff email for update_by must match signed-in user) can send edit emails',
+      });
+      return;
+    }
+    const taskId = (commentRow.task_id || '').toString().trim();
+    if (!taskId) {
+      sendJson(req, res, 400, { error: 'Comment has no task_id' });
+      return;
+    }
+    const { data: taskRow, error: tErr } = await supabase
+      .from('task')
+      .select('*')
+      .eq('id', taskId)
+      .maybeSingle();
+    if (tErr || !taskRow) {
+      sendJson(req, res, 404, { error: 'Task not found' });
+      return;
+    }
+    const taskName = (taskRow.task_name || '').toString().trim() || '(no title)';
+    const taskTitleForSubject = mailSubjectSingleLine(taskName).replace(/"/g, '');
+    const editorNameForSubject =
+      (editorStaff.display_name || '').trim() ||
+      (editorStaff.name || '').trim() ||
+      editorEmail;
+    const subject = `${mailSubjectSingleLine(editorNameForSubject)} edited comments on task "${taskTitleForSubject}"`;
+    const taskUrl = taskWebAppUrl(taskId);
+    const updaterNameForBody =
+      (editorStaff.name || '').trim() ||
+      (editorStaff.display_name || '').trim() ||
+      editorEmail;
+    const updatedRaw =
+      commentRow.update_date != null && String(commentRow.update_date).trim() !== ''
+        ? commentRow.update_date
+        : commentRow.create_date;
+    const updatedAtLine = formatUpdateDateTimeYmdHm(updatedRaw);
+
+    const recipientByNorm = buildTaskUpdatedDefaultRecipientStaffIds(taskRow);
+    const editorNorm = editorStaffId.toLowerCase();
+    recipientByNorm.delete(editorNorm);
+
+    const results = [];
+    if (recipientByNorm.size === 0) {
+      sendJson(req, res, 200, {
+        ok: true,
+        commentId,
+        taskId,
+        recipients: 0,
+        results: [
+          {
+            ok: true,
+            skipped: 'no recipients after excluding editor (creator/assignees)',
+          },
+        ],
+      });
+      return;
+    }
+
+    for (const staffUuid of recipientByNorm.values()) {
+      const { data: s } = await supabase
+        .from('staff')
+        .select('email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      const to = (s?.email || '').trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const recipientDisplayName =
+        (s?.display_name || '').trim() ||
+        (s?.name || '').trim() ||
+        to;
+      const html = buildTaskCommentEditedEmailHtml({
+        recipientDisplayName,
+        commentDescription: commentRow.description,
+        taskName,
+        taskUrl,
+        updaterDisplayName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const text = buildTaskCommentEditedEmailText({
+        recipientDisplayName,
+        commentDescription: commentRow.description,
+        taskName,
+        taskUrl,
+        updaterDisplayName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo: editorEmail,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      commentId,
+      taskId,
+      recipients: results.filter((x) => x.ok && !x.skipped).length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifyTaskEditedComment:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
+/**
  * POST { commentId } — comment author only: Firebase email must match `staff.email` **or** any
  * `app_users.email` linked to `subtask_comment.create_by` → `staff.id`. Sends **one** Mailgun message
  * to **subtask.create_by** (resolved `staff` + `app_users` email) when the author is not the
@@ -4359,6 +4648,209 @@ async function handleNotifySubtaskComment(req, res) {
     });
   } catch (e) {
     console.error('handleNotifySubtaskComment:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
+/**
+ * POST { commentId } — after a sub-task comment is edited: signed-in email must match the editor’s
+ * staff row (`subtask_comment.update_by`), via `staff.email` or linked `app_users`. Emails sub-task
+ * `create_by` + assignee_01..10 (deduped), never the editor.
+ */
+async function handleNotifySubtaskEditedComment(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!TASK_COMMENT_EMAIL_ENABLED) {
+    sendJson(req, res, 200, {
+      ok: true,
+      skipped: true,
+      message: 'Task/sub-task comment email notifications are disabled.',
+    });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const commentId = (body.commentId || '').trim();
+    if (!commentId) {
+      sendJson(req, res, 400, { error: 'commentId required' });
+      return;
+    }
+    const { data: commentRow, error: cErr } = await supabase
+      .from('subtask_comment')
+      .select('id, subtask_id, description, update_by, update_date, create_date')
+      .eq('id', commentId)
+      .maybeSingle();
+    if (cErr || !commentRow) {
+      sendJson(req, res, 404, { error: 'Sub-task comment not found' });
+      return;
+    }
+    const editorStaffId = (commentRow.update_by || '').toString().trim();
+    if (!editorStaffId) {
+      sendJson(req, res, 400, { error: 'Sub-task comment has no update_by' });
+      return;
+    }
+    const { data: editorStaff, error: edErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', editorStaffId)
+      .maybeSingle();
+    if (edErr || !editorStaff) {
+      sendJson(req, res, 400, { error: 'Comment editor staff not found' });
+      return;
+    }
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    const editorMatchesSession = await sessionEmailBelongsToStaffRow(
+      supabase,
+      editorStaff,
+      sessionEmail,
+    );
+    if (!editorMatchesSession) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the comment editor (signed-in email must match staff.email or linked app_users email for update_by) can send edit emails',
+      });
+      return;
+    }
+    const editorReplyTo = (
+      (await resolveStaffEmailForNotifications(supabase, editorStaff)) ||
+      (editorStaff.email || '').trim()
+    ).trim();
+    const subtaskId = (commentRow.subtask_id || '').toString().trim();
+    if (!subtaskId) {
+      sendJson(req, res, 400, { error: 'Sub-task comment has no subtask_id' });
+      return;
+    }
+    const { data: subtaskRow, error: sErr } = await supabase
+      .from('subtask')
+      .select('*')
+      .eq('id', subtaskId)
+      .maybeSingle();
+    if (sErr || !subtaskRow) {
+      sendJson(req, res, 404, { error: 'Sub-task not found' });
+      return;
+    }
+    const subtaskName =
+      (subtaskRow.subtask_name || '').toString().trim() || '(no title)';
+    const subtaskTitleForSubject = mailSubjectSingleLine(subtaskName).replace(/"/g, '');
+    const editorNameForSubject =
+      (editorStaff.display_name || '').trim() ||
+      (editorStaff.name || '').trim() ||
+      sessionEmail ||
+      editorReplyTo ||
+      'Colleague';
+    const subject = `${mailSubjectSingleLine(editorNameForSubject)} edited comments on sub-task "${subtaskTitleForSubject}"`;
+    const subtaskRowId = (subtaskRow.id || subtaskId || '').toString().trim();
+    const subtaskUrl = subtaskWebAppUrl(subtaskRowId);
+    const updaterNameForBody =
+      (editorStaff.name || '').trim() ||
+      (editorStaff.display_name || '').trim() ||
+      editorReplyTo ||
+      sessionEmail ||
+      'Colleague';
+    const updatedRaw =
+      commentRow.update_date != null && String(commentRow.update_date).trim() !== ''
+        ? commentRow.update_date
+        : commentRow.create_date;
+    const updatedAtLine = formatUpdateDateTimeYmdHm(updatedRaw);
+
+    const recipientByNorm = buildTaskUpdatedDefaultRecipientStaffIds(subtaskRow);
+    const editorNorm = editorStaffId.toLowerCase();
+    recipientByNorm.delete(editorNorm);
+
+    const results = [];
+    if (recipientByNorm.size === 0) {
+      sendJson(req, res, 200, {
+        ok: true,
+        commentId,
+        subtaskId,
+        recipients: 0,
+        results: [
+          {
+            ok: true,
+            skipped: 'no recipients after excluding editor (creator/assignees)',
+          },
+        ],
+      });
+      return;
+    }
+
+    const replyTo = editorReplyTo || sessionEmail || undefined;
+
+    for (const staffUuid of recipientByNorm.values()) {
+      const { data: s } = await supabase
+        .from('staff')
+        .select('id, email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      const to = (
+        (await resolveStaffEmailForNotifications(supabase, s)) ||
+        (s?.email || '').trim()
+      ).trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const recipientDisplayName =
+        (s?.display_name || '').trim() ||
+        (s?.name || '').trim() ||
+        to;
+      const html = buildSubtaskCommentEditedEmailHtml({
+        recipientDisplayName,
+        commentDescription: commentRow.description,
+        subtaskName,
+        subtaskUrl,
+        updaterDisplayName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const text = buildSubtaskCommentEditedEmailText({
+        recipientDisplayName,
+        commentDescription: commentRow.description,
+        subtaskName,
+        subtaskUrl,
+        updaterDisplayName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      commentId,
+      subtaskId,
+      recipients: results.filter((x) => x.ok && !x.skipped).length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifySubtaskEditedComment:', e);
     sendJson(req, res, 500, { error: e.message || String(e) });
   }
 }
@@ -5629,8 +6121,16 @@ const server = http.createServer(async (req, res) => {
     await handleNotifyTaskComment(req, res);
     return;
   }
+  if (path === '/api/notify/task-comment-edited' && req.method === 'POST') {
+    await handleNotifyTaskEditedComment(req, res);
+    return;
+  }
   if (path === '/api/notify/subtask-comment' && req.method === 'POST') {
     await handleNotifySubtaskComment(req, res);
+    return;
+  }
+  if (path === '/api/notify/subtask-comment-edited' && req.method === 'POST') {
+    await handleNotifySubtaskEditedComment(req, res);
     return;
   }
   if (path === '/api/notify/task-updated' && req.method === 'POST') {

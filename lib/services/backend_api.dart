@@ -463,6 +463,35 @@ class BackendApi {
     }
   }
 
+  /// Emails task creator + assignees when a comment is edited (server excludes the editor).
+  /// Server: `POST /api/notify/task-comment-edited` (`handleNotifyTaskEditedComment`).
+  Future<String?> notifyTaskCommentEdited({
+    required String idToken,
+    required String commentId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/task-comment-edited'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'commentId': commentId}),
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   /// Emails the **sub-task creator** when a **non-creator** saves a comment. The server accepts the
   /// caller when Firebase email matches `staff.email` or a linked `app_users.email` for the comment
   /// author, and resolves the creator’s inbox via the same helper when `staff.email` is empty.
@@ -476,6 +505,35 @@ class BackendApi {
       final response = await http
           .post(
             url('/api/notify/subtask-comment'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'commentId': commentId}),
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Emails sub-task creator + assignees when a comment is edited (server excludes the editor).
+  /// Server: `POST /api/notify/subtask-comment-edited` (`handleNotifySubtaskEditedComment`).
+  Future<String?> notifySubtaskCommentEdited({
+    required String idToken,
+    required String commentId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/subtask-comment-edited'),
             headers: {
               'Authorization': 'Bearer $idToken',
               'Content-Type': 'application/json',
