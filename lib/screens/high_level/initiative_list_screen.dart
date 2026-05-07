@@ -248,9 +248,10 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   final MenuController _filterMenuController = MenuController();
   bool _remindersExpanded = false;
 
-  /// Single-column sort for task lists on the landing page (null = default order).
+  /// Single-column sort for task lists on the landing page (null = created-date order).
+  /// Overview customized flat: default column is [TaskListSortColumn.dueDate].
   TaskListSortColumn? _taskSortColumn;
-  /// For **Created date (default)** (`_taskSortColumn == null`): `false` = descending (newest first).
+  /// When `_taskSortColumn == null`: `false` = created date descending (newest first).
   bool _taskSortAscending = false;
 
   /// Projects-only dashboard: `staff.id` → `staff.app_id` (from Supabase maps).
@@ -959,6 +960,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
 
   /// Each whitespace-separated keyword must appear in [Task.name], [Task.description],
   /// or any non-deleted sub-task’s `subtask_name` / `description` (case-insensitive).
+  /// On Overview **All tasks & sub-tasks**, project name/description are not searched.
   bool _taskMatchesLandingSearch(Task t, String query) {
     final tokens = _landingSearchTokens(query);
     if (tokens.isEmpty) return true;
@@ -970,14 +972,14 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     final desc = t.description.toLowerCase();
     final pn = (t.projectName ?? '').toLowerCase();
     final pd = (t.projectDescription ?? '').toLowerCase();
+    final searchProject = !widget.customizedFlat;
     final subBlob = t.isSingularTableRow
         ? (_subtaskSearchBlobByTaskId[t.id] ?? '')
         : '';
     for (final token in tokens) {
       final inTask = name.contains(token) ||
           desc.contains(token) ||
-          pn.contains(token) ||
-          pd.contains(token);
+          (searchProject && (pn.contains(token) || pd.contains(token)));
       final inSub = subBlob.contains(token);
       final inSubServer =
           serverReady && (serverMap[token]?.contains(t.id) ?? false);
@@ -1676,9 +1678,11 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           continue;
         }
 
-        final showSingularTaskRow = taskInRange &&
-            !_customizedFlatHideIncompleteParentTaskRowWhenCompletedOnly(t) &&
-            !(widget.customizedFlat && hasVisibleSubRows);
+        // All tasks & sub-tasks: keep parent row visible when any matching sub-row
+        // is shown (incl. parent outside create-date range but sub-task inside).
+        final showSingularTaskRow =
+            (taskInRange || hasVisibleSubRows) &&
+                !_customizedFlatHideIncompleteParentTaskRowWhenCompletedOnly(t);
         if (showSingularTaskRow) {
           out.add(_CustomizedFlatEntry.task(t));
         }
@@ -1692,8 +1696,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       }
 
       final taskTextMatch = _taskTextMatchesAllTokens(t, tokens);
+      final taskInRange = _rowPassesCreateDateForCustomized(t, null);
+      // All tasks & sub-tasks: if the task name/description matches search, show the
+      // task row even when its created date is outside the filter (sub-task may still
+      // match and appear; parent was incorrectly omitted before).
       final taskRowAllowed = taskTextMatch &&
-          _rowPassesCreateDateForCustomized(t, null);
+          (taskInRange ||
+              (widget.customizedFlat && !overviewTasksTab));
 
       if (taskRowAllowed) {
         if (overviewTasksTab) {
@@ -1715,10 +1724,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           if (_customizedFlatShouldOmitSubtaskRow(t, s)) continue;
           out.add(_CustomizedFlatEntry.subtask(t, s));
         }
-        final subsAdded = out.length - mark;
         final showSingularTaskRow =
-            !_customizedFlatHideIncompleteParentTaskRowWhenCompletedOnly(t) &&
-            (!widget.customizedFlat || subsAdded == 0);
+            !_customizedFlatHideIncompleteParentTaskRowWhenCompletedOnly(t);
         if (showSingularTaskRow) {
           out.insert(mark, _CustomizedFlatEntry.task(t));
         }
@@ -1920,6 +1927,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     required Map<String, DateTime?> taskCommentActivity,
     required Map<String, DateTime?> subtaskCommentActivity,
     bool overviewTasksTabExpandSubtasks = false,
+    bool overviewAllTabLayout = false,
   }) {
     if (e.isTaskRow) {
       final lu = _lastUpdatedYmdFromInstant(
@@ -1938,6 +1946,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           overviewLastUpdatedYmd: lu,
           includeDeletedSubtasks:
               _selectedTaskStatuses.contains(_statusDeleted),
+          overviewAllTabStyling: overviewAllTabLayout,
         );
       }
       return TaskListCard(
@@ -1946,6 +1955,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         showCustomizedTaskTitle: true,
         openedFromOverview: true,
         overviewLastUpdatedYmd: lu,
+        overviewAllTabStyling: overviewAllTabLayout,
       );
     }
     final s = e.sub!;
@@ -1972,6 +1982,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           parentTaskName: e.task.name,
           parentProjectName: e.task.projectName,
           overviewLastUpdatedYmd: lu,
+          overviewAllTabStyling: overviewAllTabLayout,
           onTap: () async {
             final changed = await Navigator.of(context).push<bool>(
               MaterialPageRoute<bool>(
@@ -2792,6 +2803,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 taskCommentActivity: taskCommentActivity,
                 subtaskCommentActivity: subtaskCommentActivity,
                 overviewTasksTabExpandSubtasks: expandSubsInTasksTab,
+                overviewAllTabLayout: effectiveTab == _kOverviewTabAll,
               ),
             ),
           ],
@@ -2821,6 +2833,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               taskCommentActivity: taskCommentActivity,
               subtaskCommentActivity: subtaskCommentActivity,
               overviewTasksTabExpandSubtasks: expandSubsInTasksTab,
+              overviewAllTabLayout: effectiveTab == _kOverviewTabAll,
             ),
           ),
         ];
@@ -3011,6 +3024,18 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _landingFiltersPrefsReady = true;
   }
 
+  /// First open of Dashboards → Customized (no saved [LandingTaskFilters]).
+  void _applyOverviewCustomizedDefaultFilters() {
+    _selectedTaskStatuses
+      ..clear()
+      ..add(_statusIncomplete);
+    final r = _defaultCreateDateRangeHk();
+    _filterCreateDateStart = r.$1;
+    _filterCreateDateEnd = r.$2;
+    _taskSortColumn = TaskListSortColumn.dueDate;
+    _taskSortAscending = true;
+  }
+
   Future<void> _loadLandingFilters() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
@@ -3021,7 +3046,15 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     if (!mounted) return;
     final state = context.read<AppState>();
     if (data == null) {
-      _landingFiltersPrefsReady = true;
+      if (widget.customizedFlat) {
+        setState(_applyOverviewCustomizedDefaultFilters);
+        _landingFiltersPrefsReady = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _persistLandingFilters();
+        });
+      } else {
+        _landingFiltersPrefsReady = true;
+      }
       return;
     }
     final needsDefer = data.teamIds.isNotEmpty && state.teams.isEmpty;
@@ -3220,6 +3253,86 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   Widget _buildTaskSortDropdown() {
     final theme = Theme.of(context);
     final hasColumn = _taskSortColumn != null;
+    final items = widget.customizedFlat
+        ? <DropdownMenuItem<TaskListSortColumn?>>[
+            DropdownMenuItem<TaskListSortColumn?>(
+              value: TaskListSortColumn.dueDate,
+              child: Text(
+                'Due Date (default)',
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: _taskSortColumn == TaskListSortColumn.dueDate
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                ),
+              ),
+            ),
+            DropdownMenuItem<TaskListSortColumn?>(
+              value: null,
+              child: Text(
+                'Created date',
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: _taskSortColumn == null
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                ),
+              ),
+            ),
+            for (final c in TaskListSortColumn.values)
+              if (c != TaskListSortColumn.dueDate)
+                DropdownMenuItem<TaskListSortColumn?>(
+                  value: c,
+                  child: Text(
+                    c.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: _taskSortColumn == c
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                ),
+          ]
+        : <DropdownMenuItem<TaskListSortColumn?>>[
+            DropdownMenuItem<TaskListSortColumn?>(
+              value: null,
+              child: Text(
+                'Created date (default)',
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: _taskSortColumn == null
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                ),
+              ),
+            ),
+            for (final c in TaskListSortColumn.values)
+              DropdownMenuItem<TaskListSortColumn?>(
+                value: c,
+                child: Text(
+                  c.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: _taskSortColumn == c
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
+              ),
+          ];
+    final sortTooltip = widget.customizedFlat &&
+            _taskSortColumn == TaskListSortColumn.dueDate
+        ? (_taskSortAscending
+            ? 'Due date: earliest first — tap for latest first'
+            : 'Due date: latest first — tap for earliest first')
+        : _taskSortColumn == null
+            ? (_taskSortAscending
+                ? 'Created date: oldest first — tap for newest first'
+                : 'Created date: newest first — tap for oldest first')
+            : (_taskSortAscending
+                ? 'Ascending — tap for descending'
+                : 'Descending — tap for ascending');
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: Row(
@@ -3245,33 +3358,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 underline: const SizedBox.shrink(),
                 borderRadius: BorderRadius.circular(8),
                 style: theme.textTheme.labelLarge,
-                items: [
-                  DropdownMenuItem<TaskListSortColumn?>(
-                    value: null,
-                    child: Text(
-                      'Created date (default)',
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: _taskSortColumn == null
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                  for (final c in TaskListSortColumn.values)
-                    DropdownMenuItem<TaskListSortColumn?>(
-                      value: c,
-                      child: Text(
-                        c.label,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: _taskSortColumn == c
-                              ? FontWeight.w600
-                              : FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                ],
+                items: items,
                 onChanged: (v) {
                   setState(() {
                     _taskSortColumn = v;
@@ -3285,13 +3372,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
           ),
           const SizedBox(width: 2),
           Tooltip(
-            message: _taskSortColumn == null
-                ? (_taskSortAscending
-                    ? 'Created date: oldest first — tap for newest first'
-                    : 'Created date: newest first — tap for oldest first')
-                : (_taskSortAscending
-                    ? 'Ascending — tap for descending'
-                    : 'Descending — tap for ascending'),
+            message: sortTooltip,
             child: IconButton(
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
@@ -3437,8 +3518,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       },
       decoration: InputDecoration(
         labelText: 'Search',
-        hintText:
-            'Project, project description, task, task description, sub-task, sub-task description',
+        hintText: widget.customizedFlat
+            ? 'Task, task description, sub-task, sub-task description'
+            : 'Project, project description, task, task description, sub-task, sub-task description',
         border: const OutlineInputBorder(),
         isDense: true,
         prefixIcon: const Icon(Icons.search),

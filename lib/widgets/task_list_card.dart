@@ -140,6 +140,9 @@ class TaskListCard extends StatefulWidget {
     this.onTaskTap,
     /// When the landing filter includes **Deleted**, list deleted sub-tasks under a grey header.
     this.includeDeletedSubtasks = false,
+    /// Overview **All tasks & sub-tasks** tab: compact layout (T badge; hide assignees/project;
+    /// PIC under title when exactly one assignee).
+    this.overviewAllTabStyling = false,
   });
 
   final Task task;
@@ -163,6 +166,9 @@ class TaskListCard extends StatefulWidget {
 
   /// See landing status filter (Deleted).
   final bool includeDeletedSubtasks;
+
+  /// Overview flat list — **All tasks & sub-tasks** tab only.
+  final bool overviewAllTabStyling;
 
   /// Background tint from PIC's [`staff.team_id`] / [`team.team_id`] (home / initiative task lists).
   static Color? cardColorForPicTeam(String? teamBusinessId) {
@@ -633,7 +639,12 @@ class _TaskListCardState extends State<TaskListCard> {
             .map((id) => nameMap[id] ?? state.assigneeById(id)?.name ?? id)
             .toList()
           ..sort();
-        final showPicLine = t.assigneeIds.length > 1 &&
+        final showPicLine = !widget.overviewAllTabStyling &&
+            t.assigneeIds.length > 1 &&
+            picKey != null &&
+            picKey.isNotEmpty;
+        final showOverviewAllSingleAssigneePic = widget.overviewAllTabStyling &&
+            t.assigneeIds.length == 1 &&
             picKey != null &&
             picKey.isNotEmpty;
         final pk = picKey;
@@ -671,6 +682,27 @@ class _TaskListCardState extends State<TaskListCard> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (widget.overviewAllTabStyling) ...[
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor:
+                              theme.colorScheme.primaryContainer,
+                          child: Text(
+                            'T',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontSize: 13,
+                                ) ??
+                                TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -681,20 +713,27 @@ class _TaskListCardState extends State<TaskListCard> {
                               children: [
                                 Expanded(
                                   child: widget.showCustomizedTaskTitle
-                                      ? Text.rich(
-                                          TextSpan(
-                                            style: listText,
-                                            children: [
-                                              const TextSpan(text: 'Task: '),
+                                      ? (widget.overviewAllTabStyling
+                                          ? Text(
+                                              t.name,
+                                              maxLines: 3,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: taskTitleStyle,
+                                            )
+                                          : Text.rich(
                                               TextSpan(
-                                                text: t.name,
-                                                style: taskTitleStyle,
+                                                style: listText,
+                                                children: [
+                                                  const TextSpan(text: 'Task: '),
+                                                  TextSpan(
+                                                    text: t.name,
+                                                    style: taskTitleStyle,
+                                                  ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
-                                          maxLines: 3,
-                                          overflow: TextOverflow.ellipsis,
-                                        )
+                                              maxLines: 3,
+                                              overflow: TextOverflow.ellipsis,
+                                            ))
                                       : Text(
                                           t.name,
                                           maxLines: 3,
@@ -725,7 +764,18 @@ class _TaskListCardState extends State<TaskListCard> {
                                 ],
                               ],
                             ),
-                            if ((t.projectName ?? '').trim().isNotEmpty) ...[
+                            if (showOverviewAllSingleAssigneePic &&
+                                pk != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'PIC: ${nameMap[pk] ?? state.assigneeById(pk)?.name ?? pk}',
+                                style: listTextW500,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                            if (!widget.overviewAllTabStyling &&
+                                (t.projectName ?? '').trim().isNotEmpty) ...[
                               const SizedBox(height: 6),
                               Text(
                                 'Project: ${t.projectName!.trim()}',
@@ -735,7 +785,8 @@ class _TaskListCardState extends State<TaskListCard> {
                               ),
                             ],
                             const SizedBox(height: 8),
-                            if (officerNames.isNotEmpty)
+                            if (!widget.overviewAllTabStyling &&
+                                officerNames.isNotEmpty)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
                                 child: Text(
@@ -890,6 +941,7 @@ class _TaskListCardState extends State<TaskListCard> {
                           SingularSubtaskRowCard(
                             subtask: s,
                             resolveName: resolveName,
+                            overviewAllTabStyling: widget.overviewAllTabStyling,
                             onTap: () async {
                               final changed =
                                   await Navigator.of(context).push<bool>(
@@ -928,6 +980,8 @@ class _TaskListCardState extends State<TaskListCard> {
                             SingularSubtaskRowCard(
                               subtask: s,
                               resolveName: resolveName,
+                              overviewAllTabStyling:
+                                  widget.overviewAllTabStyling,
                               onTap: () async {
                                 final changed =
                                     await Navigator.of(context).push<bool>(
