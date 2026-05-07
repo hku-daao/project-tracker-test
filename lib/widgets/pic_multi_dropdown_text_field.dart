@@ -177,7 +177,7 @@ class _PicMultiDropdownTextFieldState extends State<PicMultiDropdownTextField> {
         hintText: widget.hint ??
             (widget.candidates.isEmpty
                 ? 'Select assignees first'
-                : 'Tap to choose PIC(s)'),
+                : 'Choose from assignees above'),
         border: const OutlineInputBorder(),
         suffixIcon: Icon(
           Icons.arrow_drop_down,

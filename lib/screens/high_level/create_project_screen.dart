@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../config/supabase_config.dart';
 import '../../models/staff_for_assignment.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/hk_time.dart';
@@ -223,6 +224,30 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
           backgroundColor: Colors.orange,
         );
         return;
+      }
+      try {
+        final notifyToken = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (notifyToken != null) {
+          final notifyErr = await BackendApi().notifyProjectAssigned(
+            idToken: notifyToken,
+            projectId: ins.projectId!,
+          );
+          if (notifyErr != null && mounted) {
+            showCopyableSnackBar(
+              context,
+              'Project assignment email: $notifyErr',
+              backgroundColor: Colors.orange,
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          showCopyableSnackBar(
+            context,
+            'Project assignment email failed: $e',
+            backgroundColor: Colors.orange,
+          );
+        }
       }
       final projects = await SupabaseService.fetchAllProjectsFromSupabase();
       if (mounted) state.applyProjects(projects);

@@ -9,6 +9,7 @@ import '../../config/supabase_config.dart';
 import '../../models/project_record.dart';
 import '../../models/staff_for_assignment.dart';
 import '../../models/task.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/copyable_snackbar.dart';
 import '../../utils/hk_time.dart';
@@ -260,6 +261,101 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     return '';
   }
 
+  static String _formatYmdForNotify(DateTime d) {
+    return DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, d.day));
+  }
+
+  static bool _dateOnlyEqual(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  static bool _stringSetEqual(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final e in a) {
+      if (!b.contains(e)) return false;
+    }
+    return true;
+  }
+
+  String _labelForAssigneeKey(String key, AppState state) {
+    final a = state.assigneeById(key);
+    if (a != null) {
+      final n = a.name.trim();
+      if (n.isNotEmpty) return n;
+    }
+    return key;
+  }
+
+  String _assigneeNamesCsv(AppState state, List<String> assigneeKeys) {
+    if (assigneeKeys.isEmpty) return '—';
+    final sorted = [...assigneeKeys]..sort(
+          (a, b) => _labelForAssigneeKey(a, state)
+              .toLowerCase()
+              .compareTo(_labelForAssigneeKey(b, state).toLowerCase()),
+        );
+    return sorted
+        .map((id) => _labelForAssigneeKey(id, state).trim())
+        .where((s) => s.isNotEmpty)
+        .join(', ');
+  }
+
+  Future<Set<String>> _assigneeKeysFromStaffUuids(List<String> staffUuids) async {
+    final out = <String>{};
+    for (final u in staffUuids) {
+      out.add(await SupabaseService.assigneeListKeyFromStaffUuid(u));
+    }
+    return out;
+  }
+
+  /// Field keys must match the backend allow-list for project-updated emails.
+  Future<List<Map<String, String>>> _buildProjectUpdateNotifyChanges(
+    AppState state,
+    ProjectRecord p,
+  ) async {
+    final out = <Map<String, String>>[];
+    if (p.name.trim() != _nameController.text.trim()) {
+      out.add({'field': 'projectName', 'value': _nameController.text.trim()});
+    }
+    if (p.description.trim() != _descController.text.trim()) {
+      out.add({'field': 'description', 'value': _descController.text.trim()});
+    }
+    final oldAssigneeKeys = await _assigneeKeysFromStaffUuids(p.assigneeStaffUuids);
+    final newAssigneeKeys = Set<String>.from(_editAssigneeIds);
+    if (!_stringSetEqual(oldAssigneeKeys, newAssigneeKeys)) {
+      out.add({
+        'field': 'assignees',
+        'value': _assigneeNamesCsv(state, _editAssigneeIds.toList()),
+      });
+    }
+    final oldPicKeys = await _assigneeKeysFromStaffUuids(p.picStaffUuids);
+    final newPicKeys = Set<String>.from(_editPicIds);
+    if (!_stringSetEqual(oldPicKeys, newPicKeys)) {
+      out.add({
+        'field': 'pic',
+        'value': _assigneeNamesCsv(state, _editPicIds.toList()),
+      });
+    }
+    final effStatus = (_draftStatus ?? p.status).trim();
+    if (p.status.trim() != effStatus) {
+      out.add({'field': 'status', 'value': effStatus});
+    }
+    if (!_dateOnlyEqual(p.startDate, _editStart)) {
+      out.add({
+        'field': 'startDate',
+        'value': _editStart == null ? '—' : _formatYmdForNotify(_editStart!),
+      });
+    }
+    if (!_dateOnlyEqual(p.endDate, _editEnd)) {
+      out.add({
+        'field': 'endDate',
+        'value': _editEnd == null ? '—' : _formatYmdForNotify(_editEnd!),
+      });
+    }
+    return out;
+  }
+
   Future<void> _saveProject(AppState state, ProjectRecord p) async {
     if (!_isCreator(p)) return;
     if (_editAssigneeIds.isEmpty) {
@@ -299,6 +395,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     }
     setState(() => _saving = true);
     try {
+      final changesForEmail = await _buildProjectUpdateNotifyChanges(state, p);
       final slots =
           await SupabaseService.assigneeSlotsForTask(_editAssigneeIds.toList());
       final picUuids = <String>[];
@@ -334,6 +431,30 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         return;
       }
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token != null && changesForEmail.isNotEmpty) {
+        try {
+          final notifyErr = await BackendApi().notifyProjectUpdated(
+            idToken: token,
+            projectId: widget.projectId,
+            changes: changesForEmail,
+          );
+          if (notifyErr != null && mounted) {
+            showCopyableSnackBar(
+              context,
+              'Project saved; update email: $notifyErr',
+              backgroundColor: Colors.orange,
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            showCopyableSnackBar(
+              context,
+              'Project update email failed: $e',
+              backgroundColor: Colors.orange,
+            );
+          }
+        }
+      }
       if (token != null) {
         final data = await SupabaseService.fetchTasksFromSupabase();
         if (data != null && mounted) state.applyTasksFromSupabase(data);

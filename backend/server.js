@@ -38,6 +38,13 @@ function taskWebAppUrl(taskId) {
   return `${base}/#/?task=${encodeURIComponent(id)}`;
 }
 
+/** Flutter web deep link for project detail (`/#/?project=` matches [web_deep_link_web.dart]). */
+function projectWebAppUrl(projectId) {
+  const id = String(projectId || '').trim();
+  const base = String(PUBLIC_WEB_APP_URL || 'https://projecttracker.hku.hk').trim().replace(/\/$/, '');
+  return `${base}/#/?project=${encodeURIComponent(id)}`;
+}
+
 /** “Project Tracker” footer link in task-updated assignee emails (fixed product URL). */
 const TASK_UPDATE_NOTIFY_PROJECT_TRACKER_HREF = 'https://projecttracker.hku.hk/';
 
@@ -63,6 +70,17 @@ const SUBTASK_UPDATE_NOTIFY_FIELD_LABELS = {
   priority: 'Priority',
   startDate: 'Start date',
   dueDate: 'Due date',
+};
+
+/** Allowed keys from Flutter for project-updated email lines (display label is server-side). */
+const PROJECT_UPDATE_NOTIFY_FIELD_LABELS = {
+  projectName: 'Project name',
+  description: 'Description',
+  assignees: 'Assignee(s)',
+  pic: 'PIC(s)',
+  status: 'Status',
+  startDate: 'Start date',
+  endDate: 'End date',
 };
 
 /**
@@ -3955,6 +3973,409 @@ async function handleNotifyTaskAssigned(req, res) {
 }
 
 /**
+ * Project assignment email (`handleNotifyProjectAssigned`): creator line + project link + Project Tracker; Aptos 16px.
+ *
+ * @param {{ creatorDisplayName: string, projectName: string, projectUrl: string }} p
+ */
+function buildProjectAssignedEmailHtml(p) {
+  const safeCreator = escapeHtml(p.creatorDisplayName);
+  const safeTitle = escapeHtml(p.projectName);
+  const safeUrlAttr = escapeHtml(p.projectUrl);
+  const safeLandingHref = escapeHtml(PROJECT_TRACKER_LANDING_URL);
+  const bodyFont =
+    "font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;line-height:1.5;color:#000000;";
+  return `<div style="margin:0;${bodyFont}">${safeCreator} assigned you a project.<br><br>
+<a href="${safeUrlAttr}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;font-weight:bold;text-decoration:underline;color:#1565C0;">${safeTitle}</a><br><br>
+<a href="${safeLandingHref}" style="font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;color:#1565C0;">Project Tracker</a></div>`;
+}
+
+function buildProjectAssignedEmailText(p) {
+  return `${p.creatorDisplayName} assigned you a project.
+
+${p.projectName}
+${p.projectUrl}
+
+Project Tracker
+${PROJECT_TRACKER_LANDING_URL}`;
+}
+
+/**
+ * POST { projectId } — creator only; emails each project assignee (assignee_01..10). Reply-To: creator email.
+ * Duplicate assignee slots / create_by also an assignee: one message per distinct recipient email.
+ */
+async function handleNotifyProjectAssigned(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const projectId = (body.projectId || '').trim();
+    if (!projectId) {
+      sendJson(req, res, 400, { error: 'projectId required' });
+      return;
+    }
+    const { data: projectRow, error: pErr } = await supabase
+      .from('project')
+      .select('*')
+      .eq('id', projectId)
+      .maybeSingle();
+    if (pErr || !projectRow) {
+      sendJson(req, res, 404, { error: 'Project not found' });
+      return;
+    }
+    const creatorId = projectRow.create_by?.toString().trim();
+    if (!creatorId) {
+      sendJson(req, res, 400, { error: 'Project has no create_by' });
+      return;
+    }
+    const { data: creatorStaff, error: cErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', creatorId)
+      .maybeSingle();
+    if (cErr || !creatorStaff) {
+      sendJson(req, res, 400, { error: 'Creator staff not found' });
+      return;
+    }
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    const creatorMatchesSession = await sessionEmailBelongsToStaffRow(
+      supabase,
+      creatorStaff,
+      sessionEmail,
+    );
+    if (!creatorMatchesSession) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the project creator (signed-in email must match staff.email or linked app_users email) can send assignment emails',
+      });
+      return;
+    }
+    const creatorReplyTo = (
+      (await resolveStaffEmailForNotifications(supabase, creatorStaff)) ||
+      (creatorStaff.email || '').trim()
+    ).trim();
+    const staffDisplayName =
+      (creatorStaff.display_name || '').trim() ||
+      (creatorStaff.name || '').trim() ||
+      creatorReplyTo ||
+      sessionEmail ||
+      'Colleague';
+    const projectName = (projectRow.name || '').toString().trim() || '(no title)';
+    const projectUrl = projectWebAppUrl(projectId);
+    const assigneeUuids = collectTaskAssigneeStaffIds(projectRow);
+    const subject = "You've been assigned a project";
+    const results = [];
+    const seenEmails = new Set();
+
+    if (assigneeUuids.length === 0) {
+      sendJson(req, res, 200, {
+        ok: true,
+        projectId,
+        recipients: 0,
+        results: [{ ok: true, skipped: 'no assignees on project' }],
+      });
+      return;
+    }
+
+    for (const staffUuid of assigneeUuids) {
+      const { data: s } = await supabase
+        .from('staff')
+        .select('id, email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      if (!s) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'assignee staff not found' });
+        continue;
+      }
+      const to = (
+        (await resolveStaffEmailForNotifications(supabase, s)) ||
+        (s.email || '').trim()
+      ).trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const toNorm = to.toLowerCase();
+      if (seenEmails.has(toNorm)) {
+        results.push({
+          staffId: staffUuid,
+          ok: true,
+          skipped: 'duplicate recipient email (same inbox already notified)',
+        });
+        continue;
+      }
+      seenEmails.add(toNorm);
+      const html = buildProjectAssignedEmailHtml({
+        creatorDisplayName: staffDisplayName,
+        projectName,
+        projectUrl,
+      });
+      const text = buildProjectAssignedEmailText({
+        creatorDisplayName: staffDisplayName,
+        projectName,
+        projectUrl,
+      });
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo: creatorReplyTo || undefined,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      projectId,
+      recipients: results.filter((x) => x.ok && !x.skipped).length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifyProjectAssigned:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
+/**
+ * POST { projectId, changes } — signed-in email must match `project.update_by` (`staff` / `app_users`).
+ * Emails each non-empty assignee slot only (deduped); skips updater when they are an assignee.
+ */
+async function handleNotifyProjectUpdated(req, res) {
+  if (req.method !== 'POST') {
+    sendJson(req, res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const session = await verifyFirebaseToken(req.headers.authorization);
+  if (!session) {
+    sendJson(req, res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  if (!supabase) {
+    sendJson(req, res, 503, { error: 'Supabase not configured' });
+    return;
+  }
+  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
+    sendJson(req, res, 503, { error: 'Mailgun not configured' });
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const projectId = (body.projectId || '').trim();
+    if (!projectId) {
+      sendJson(req, res, 400, { error: 'projectId required' });
+      return;
+    }
+    const { data: projectRow, error: pErr } = await supabase
+      .from('project')
+      .select('*')
+      .eq('id', projectId)
+      .maybeSingle();
+    if (pErr || !projectRow) {
+      sendJson(req, res, 404, { error: 'Project not found' });
+      return;
+    }
+    const updaterId = (projectRow.update_by || '').toString().trim();
+    if (!updaterId) {
+      sendJson(req, res, 400, { error: 'Project has no update_by' });
+      return;
+    }
+    const { data: updaterStaff, error: uErr } = await supabase
+      .from('staff')
+      .select('id, name, email, display_name')
+      .eq('id', updaterId)
+      .maybeSingle();
+    if (uErr || !updaterStaff) {
+      sendJson(req, res, 400, { error: 'Updater staff not found' });
+      return;
+    }
+    const sessionEmail = (session.email || '').trim().toLowerCase();
+    const updaterMatchesSession = await sessionEmailBelongsToStaffRow(
+      supabase,
+      updaterStaff,
+      sessionEmail,
+    );
+    if (!updaterMatchesSession) {
+      sendJson(req, res, 403, {
+        error:
+          'Only the user who updated the project (signed-in email must match staff.email or linked app_users email for update_by) can send update emails',
+      });
+      return;
+    }
+    const updaterReplyTo = (
+      (await resolveStaffEmailForNotifications(supabase, updaterStaff)) ||
+      (updaterStaff.email || '').trim()
+    ).trim();
+    const updaterNameForBody =
+      (updaterStaff.name || '').trim() ||
+      (updaterStaff.display_name || '').trim() ||
+      updaterReplyTo ||
+      sessionEmail ||
+      'Colleague';
+    const projectName = (projectRow.name || '').toString().trim() || '(no title)';
+    const projectTitleForSubject = mailSubjectSingleLine(projectName).replace(/"/g, '');
+    const subject = `Project updated - ${projectTitleForSubject}`;
+    const projectUrl = projectWebAppUrl(projectId);
+    const updatedAtLine = formatUpdateDateTimeYmdHm(projectRow.update_date);
+
+    const changeLinesHtmlParts = [];
+    const changeLinesTextParts = [];
+    const rawChanges = Array.isArray(body.changes) ? body.changes : [];
+    let nCh = 0;
+    for (const row of rawChanges) {
+      if (nCh >= TASK_UPDATE_NOTIFY_MAX_CHANGES) break;
+      if (!row || typeof row !== 'object') continue;
+      const field = String(row.field || '').trim();
+      const label = PROJECT_UPDATE_NOTIFY_FIELD_LABELS[field];
+      if (!label) continue;
+      let value = row.value;
+      if (value == null) value = '';
+      value = String(value);
+      if (value.length > TASK_UPDATE_NOTIFY_MAX_VALUE_LEN) {
+        value = `${value.slice(0, TASK_UPDATE_NOTIFY_MAX_VALUE_LEN)}…`;
+      }
+      const safeVal = escapeHtml(value);
+      const safeLbl = escapeHtml(label);
+      changeLinesHtmlParts.push(
+        `<span style="color:#000000;font-family:Aptos,'Segoe UI',Calibri,sans-serif;font-size:16px;">${safeLbl} is updated – ${safeVal}</span>`,
+      );
+      changeLinesTextParts.push(`${label} is updated – ${value}`);
+      nCh += 1;
+    }
+    const changeLinesHtml = changeLinesHtmlParts.join('<br><br>');
+    const changeLinesText = changeLinesTextParts.join('\n\n');
+
+    if (changeLinesHtmlParts.length === 0) {
+      sendJson(req, res, 200, {
+        ok: true,
+        skipped: true,
+        projectId,
+        message: 'No notifyable column changes in the request.',
+        recipients: 0,
+        results: [],
+      });
+      return;
+    }
+
+    const assigneeUuids = collectTaskAssigneeStaffIds(projectRow);
+    const updaterNorm = updaterId.toLowerCase();
+    const results = [];
+    const replyTo = updaterReplyTo || sessionEmail || undefined;
+    const seenEmails = new Set();
+
+    for (const staffUuid of assigneeUuids) {
+      if (String(staffUuid).trim().toLowerCase() === updaterNorm) {
+        results.push({
+          staffId: staffUuid,
+          ok: true,
+          skipped: 'updater is assignee; no self-email',
+        });
+        continue;
+      }
+      const { data: s } = await supabase
+        .from('staff')
+        .select('id, email, name, display_name')
+        .eq('id', staffUuid)
+        .maybeSingle();
+      if (!s) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'assignee staff not found' });
+        continue;
+      }
+      const to = (
+        (await resolveStaffEmailForNotifications(supabase, s)) ||
+        (s.email || '').trim()
+      ).trim();
+      if (!to) {
+        results.push({ staffId: staffUuid, ok: false, skipped: 'no email on staff row' });
+        continue;
+      }
+      const toNorm = to.toLowerCase();
+      if (seenEmails.has(toNorm)) {
+        results.push({
+          staffId: staffUuid,
+          ok: true,
+          skipped: 'duplicate recipient email',
+        });
+        continue;
+      }
+      seenEmails.add(toNorm);
+      const displayNameForHi =
+        (s.display_name || '').trim() ||
+        (s.name || '').trim() ||
+        to;
+      const html = buildSubtaskUpdatedAssigneeEmailHtml({
+        recipientDisplayName: displayNameForHi,
+        changeLinesHtml,
+        changeLinesText,
+        commentLineHtml: '',
+        commentLineText: '',
+        subtaskName: projectName,
+        subtaskUrl: projectUrl,
+        updaterName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const text = buildSubtaskUpdatedAssigneeEmailText({
+        recipientDisplayName: displayNameForHi,
+        changeLinesHtml,
+        changeLinesText,
+        commentLineHtml: '',
+        commentLineText: '',
+        subtaskName: projectName,
+        subtaskUrl: projectUrl,
+        updaterName: updaterNameForBody,
+        updatedAtLine,
+      });
+      const r = await sendMailgun({
+        to,
+        subject,
+        text,
+        html,
+        from: MAILGUN_NOTIFICATION_FROM,
+        replyTo,
+      });
+      results.push({
+        to,
+        ok: r.ok,
+        mailgunId: r.ok ? r.id : null,
+        error: r.ok ? null : r.error,
+        detail: r.ok ? null : r.detail,
+      });
+    }
+
+    sendJson(req, res, 200, {
+      ok: true,
+      projectId,
+      recipients: results.filter((x) => x.ok && !x.skipped).length,
+      results,
+    });
+  } catch (e) {
+    console.error('handleNotifyProjectUpdated:', e);
+    sendJson(req, res, 500, { error: e.message || String(e) });
+  }
+}
+
+/**
  * POST { subtaskId } — creator only; emails each subtask assignee (assignee_01..10) with Mailgun.
  * Creator receives mail only if they appear in assignee slots. Reply-To: creator email.
  */
@@ -6115,6 +6536,14 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/api/notify/subtask-assigned' && req.method === 'POST') {
     await handleNotifySubtaskAssigned(req, res);
+    return;
+  }
+  if (path === '/api/notify/project-assigned' && req.method === 'POST') {
+    await handleNotifyProjectAssigned(req, res);
+    return;
+  }
+  if (path === '/api/notify/project-updated' && req.method === 'POST') {
+    await handleNotifyProjectUpdated(req, res);
     return;
   }
   if (path === '/api/notify/task-comment' && req.method === 'POST') {

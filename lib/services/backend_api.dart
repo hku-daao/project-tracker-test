@@ -433,6 +433,70 @@ class BackendApi {
     }
   }
 
+  /// Emails each project assignee (`assignee_01`–`assignee_10`) after project creation.
+  /// Server: `POST /api/notify/project-assigned` (`handleNotifyProjectAssigned`).
+  Future<String?> notifyProjectAssigned({
+    required String idToken,
+    required String projectId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            url('/api/notify/project-assigned'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'projectId': projectId}),
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Emails project assignees after project detail columns change (`POST /api/notify/project-updated`).
+  ///
+  /// [changes]: `{ 'field': 'projectName'|'description'|'assignees'|'pic'|'status'|'startDate'|'endDate', 'value': '...' }`.
+  Future<String?> notifyProjectUpdated({
+    required String idToken,
+    required String projectId,
+    List<Map<String, String>>? changes,
+  }) async {
+    try {
+      final payload = <String, dynamic>{'projectId': projectId};
+      if (changes != null && changes.isNotEmpty) {
+        payload['changes'] = changes;
+      }
+      final response = await http
+          .post(
+            url('/api/notify/project-updated'),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode == 200) return null;
+      try {
+        final j = jsonDecode(response.body) as Map<String, dynamic>;
+        return j['error']?.toString() ?? 'HTTP ${response.statusCode}';
+      } catch (_) {
+        return 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   /// Emails the task creator after a comment is saved (not when the creator comments on own task).
   /// Server: `POST /api/notify/task-comment` (`handleNotifyTaskComment`). Requires Mailgun;
   /// enable with `TASK_COMMENT_EMAIL_ENABLED` on the backend (on by default unless set to false).
