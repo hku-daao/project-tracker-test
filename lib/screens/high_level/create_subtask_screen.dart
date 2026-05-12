@@ -71,14 +71,20 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
   String? _picKey;
   bool _submitting = false;
 
+  /// HK/HKU `holiday_date` keys from Supabase [calendar_holiday]; empty until loaded.
+  Set<String> _holidaySkipYmd = {};
+
   @override
   void initState() {
     super.initState();
-    _anchorStartDate = HkTime.todayDateOnlyHk();
+    _holidaySkipYmd = {};
+    final t = HkTime.todayDateOnlyHk();
+    _anchorStartDate = HkTime.firstBusinessDayOnOrAfter(t, _holidaySkipYmd);
     _startDate = _anchorStartDate;
     _endDate = _defaultDueForPriority(_priority);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _loadCalendarHolidaysForDefaults();
       context.read<AppState>().setCreateSubtaskDraftChecker(_hasUnsavedDraft);
       final task = context.read<AppState>().taskById(widget.taskId);
       if (task == null) return;
@@ -126,6 +132,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       _startDate,
       _endDate,
       _priority,
+      calendarHolidayYmdSkip: _holidaySkipYmd,
     );
   }
 
@@ -153,7 +160,32 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
 
   DateTime _defaultDueForPriority(int priority) {
     final workingDaysAfter = priority == priorityUrgent ? 1 : 3;
-    return HkTime.addWorkingDaysAfter(_startDate, workingDaysAfter);
+    return HkTime.addBusinessDaysAfter(
+      _startDate,
+      workingDaysAfter,
+      _holidaySkipYmd,
+    );
+  }
+
+  Future<void> _loadCalendarHolidaysForDefaults() async {
+    Set<String> skip = {};
+    if (SupabaseConfig.isConfigured) {
+      try {
+        final rows = await SupabaseService.fetchCalendarHolidaysBetween(
+          kHolidayPickerWideFirstDate,
+          kHolidayPickerWideLastDate,
+        );
+        skip = HkTime.holidaySkipYmdFromCalendarRows(rows);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _holidaySkipYmd = skip;
+      _anchorStartDate =
+          HkTime.firstBusinessDayOnOrAfter(HkTime.todayDateOnlyHk(), _holidaySkipYmd);
+      _startDate = _anchorStartDate;
+      _endDate = _defaultDueForPriority(_priority);
+    });
   }
 
   static int _dateOnlyCompare(DateTime a, DateTime b) {
@@ -216,6 +248,7 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
       _startDate,
       due,
       _priority,
+      calendarHolidayYmdSkip: _holidaySkipYmd,
     );
     if (needsDueReason && _changeDueReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -498,9 +531,10 @@ class _CreateSubtaskScreenState extends State<CreateSubtaskScreen> {
                                     final d = await showHolidayAwareDatePicker(
                                       context: context,
                                       initialDate: _endDate ??
-                                          HkTime.addWorkingDaysAfter(
+                                          HkTime.addBusinessDaysAfter(
                                             _startDate,
                                             1,
+                                            _holidaySkipYmd,
                                           ),
                                       firstDate: _startDate,
                                       lastDate: kHolidayPickerWideLastDate,

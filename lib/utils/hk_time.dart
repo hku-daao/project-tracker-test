@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import '../models/calendar_holiday.dart';
+
 /// Hong Kong wall clock (UTC+8, no DST). Use for timestamps stored as HK local time with +08:00.
 class HkTime {
   HkTime._();
@@ -78,19 +80,67 @@ class HkTime {
     return wd == DateTime.saturday || wd == DateTime.sunday;
   }
 
+  /// `yyyy-MM-dd` key for a date-only [DateTime] (for holiday skip sets).
+  static String ymdKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Dates to treat as non-working: any [CalendarHoliday.date] (`holiday_date`) whose
+  /// [CalendarHoliday.holidayType] (`calendar_holiday.holiday_type`) is **HK** or **HKU**
+  /// (other types are ignored). Uses [ymdKey] for the skip set.
+  static Set<String> holidaySkipYmdFromCalendarRows(
+    Iterable<CalendarHoliday> rows,
+  ) {
+    final o = <String>{};
+    for (final h in rows) {
+      if (!h.isHk && !h.isHku) continue;
+      o.add(ymdKey(h.date));
+    }
+    return o;
+  }
+
+  /// Monday–Friday, not a weekend and not a [holidayYmdSkip] date (HK/HKU `holiday_date`).
+  static bool isBusinessDay(DateTime d, Set<String> holidayYmdSkip) {
+    if (_isWeekend(d)) return false;
+    return !holidayYmdSkip.contains(ymdKey(d));
+  }
+
+  /// First [isBusinessDay] on or after [date] (date-only fields).
+  static DateTime firstBusinessDayOnOrAfter(
+    DateTime date,
+    Set<String> holidayYmdSkip,
+  ) {
+    var d = DateTime(date.year, date.month, date.day);
+    while (!isBusinessDay(d, holidayYmdSkip)) {
+      d = d.add(const Duration(days: 1));
+    }
+    return d;
+  }
+
+  /// Moves forward from [start] (date-only). Each counted day is the next calendar day that is
+  /// Mon–Fri and not listed in [holidayYmdSkip]. [start] itself is **not** counted.
+  ///
+  /// With an empty [holidayYmdSkip], matches [addWorkingDaysAfter] (weekends only).
+  static DateTime addBusinessDaysAfter(
+    DateTime start,
+    int businessDays,
+    Set<String> holidayYmdSkip,
+  ) {
+    if (businessDays <= 0) {
+      return DateTime(start.year, start.month, start.day);
+    }
+    var d = DateTime(start.year, start.month, start.day);
+    for (var i = 0; i < businessDays; i++) {
+      do {
+        d = d.add(const Duration(days: 1));
+      } while (!isBusinessDay(d, holidayYmdSkip));
+    }
+    return d;
+  }
+
   /// Moves forward from [start] (use date-only fields). Each step is the next calendar day;
   /// only Mon–Fri count toward [workingDays]. The start date itself is **not** counted.
   /// E.g. Monday + 3 → Thursday; Friday + 1 → Monday.
   static DateTime addWorkingDaysAfter(DateTime start, int workingDays) {
-    if (workingDays <= 0) {
-      return DateTime(start.year, start.month, start.day);
-    }
-    var d = DateTime(start.year, start.month, start.day);
-    for (var i = 0; i < workingDays; i++) {
-      do {
-        d = d.add(const Duration(days: 1));
-      } while (_isWeekend(d));
-    }
-    return d;
+    return addBusinessDaysAfter(start, workingDays, const {});
   }
 }

@@ -258,6 +258,7 @@ class _CreateSupabaseTaskScreenState extends State<CreateSupabaseTaskScreen> {
                         final checked = _selectedStaffIds.contains(s.id);
                         return CheckboxListTile(
                           dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
                           value: checked,
                           onChanged: (v) => _toggleStaff(s.id, v ?? false),
                           title: Text(s.name),

@@ -5,16 +5,21 @@ import '../priority.dart';
 int allowedWorkingDaysAfterStartForPriority(int priority) =>
     priority == priorityUrgent ? 1 : 3;
 
-/// True when [due] (date-only) is strictly after `start + N` working days, where
-/// N follows the same rule as default due ([HkTime.addWorkingDaysAfter]).
+/// True when [due] (date-only) is strictly after `start + N` business days, where
+/// N follows the same rule as default due ([HkTime.addBusinessDaysAfter]).
+///
+/// [calendarHolidayYmdSkip]: `yyyy-MM-dd` keys (see [HkTime.ymdKey]) for HK/HKU holidays
+/// from [public.calendar_holiday]. Empty set counts only Mon–Fri (weekends skipped).
 bool dueDateExceedsPolicyForPriority(
   DateTime? start,
   DateTime? due,
-  int priority,
-) {
+  int priority, {
+  Set<String> calendarHolidayYmdSkip = const {},
+}) {
   if (start == null || due == null) return false;
   final n = allowedWorkingDaysAfterStartForPriority(priority);
-  final maxDue = HkTime.addWorkingDaysAfter(start, n);
+  final maxDue =
+      HkTime.addBusinessDaysAfter(start, n, calendarHolidayYmdSkip);
   final dDue = DateTime(due.year, due.month, due.day);
   final dMax = DateTime(maxDue.year, maxDue.month, maxDue.day);
   return dDue.isAfter(dMax);

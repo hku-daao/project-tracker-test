@@ -166,6 +166,7 @@ class _StaffAssigneePickerPanelState extends State<StaffAssigneePickerPanel> {
                           final checked = widget.selectedIds.contains(s.assigneeId);
                           return CheckboxListTile(
                             dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
                             value: checked,
                             onChanged: (v) => _toggle(s.assigneeId, v ?? false),
                             title: Text(s.name),

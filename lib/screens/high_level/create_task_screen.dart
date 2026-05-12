@@ -108,6 +108,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
   final Map<String, String> _staffAssigneeToTeamId = {};
   bool _submitting = false;
 
+  /// HK/HKU `holiday_date` keys (`yyyy-MM-dd`) from Supabase [calendar_holiday]; empty until loaded.
+  Set<String> _holidaySkipYmd = {};
+
   String? _selectedProjectId;
   List<ProjectRecord> _myCreatedProjects = [];
   bool _myProjectsLoading = false;
@@ -122,11 +125,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
     if (widget.projectId != null && widget.projectId!.trim().isNotEmpty) {
       _selectedProjectId = widget.projectId!.trim();
     }
-    _anchorCreateDate = HkTime.todayDateOnlyHk();
+    _holidaySkipYmd = {};
+    final t = HkTime.todayDateOnlyHk();
+    _anchorCreateDate = HkTime.firstBusinessDayOnOrAfter(t, _holidaySkipYmd);
     _startDate = _anchorCreateDate;
     _endDate = _defaultDueForPriority(_priority);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _loadCalendarHolidaysForDefaults();
       _loadSupabaseAssigneePicker();
       context.read<AppState>().setCreateTaskDraftChecker(_hasUnsavedDraft);
       if (widget.entryPoint == CreateTaskEntryPoint.projectDetail &&
@@ -334,12 +340,42 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
   bool _needsChangeDueReason() {
     final start = _startDate ?? _anchorCreateDate;
     final due = _endDate;
-    return dueDateExceedsPolicyForPriority(start, due, _priority);
+    return dueDateExceedsPolicyForPriority(
+      start,
+      due,
+      _priority,
+      calendarHolidayYmdSkip: _holidaySkipYmd,
+    );
   }
 
   DateTime _defaultDueForPriority(int priority) {
     final workingDaysAfter = priority == priorityUrgent ? 1 : 3;
-    return HkTime.addWorkingDaysAfter(_anchorCreateDate, workingDaysAfter);
+    return HkTime.addBusinessDaysAfter(
+      _anchorCreateDate,
+      workingDaysAfter,
+      _holidaySkipYmd,
+    );
+  }
+
+  Future<void> _loadCalendarHolidaysForDefaults() async {
+    Set<String> skip = {};
+    if (SupabaseConfig.isConfigured) {
+      try {
+        final rows = await SupabaseService.fetchCalendarHolidaysBetween(
+          kHolidayPickerWideFirstDate,
+          kHolidayPickerWideLastDate,
+        );
+        skip = HkTime.holidaySkipYmdFromCalendarRows(rows);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _holidaySkipYmd = skip;
+      _anchorCreateDate =
+          HkTime.firstBusinessDayOnOrAfter(HkTime.todayDateOnlyHk(), _holidaySkipYmd);
+      _startDate = _anchorCreateDate;
+      _endDate = _defaultDueForPriority(_priority);
+    });
   }
 
   static int _dateOnlyCompare(DateTime a, DateTime b) {
@@ -602,8 +638,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       return;
     }
 
-    final needsDueReason =
-        dueDateExceedsPolicyForPriority(capturedStart, capturedEnd, priority);
+    final needsDueReason = dueDateExceedsPolicyForPriority(
+      capturedStart,
+      capturedEnd,
+      priority,
+      calendarHolidayYmdSkip: _holidaySkipYmd,
+    );
     if (needsDueReason && _changeDueReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(duration: const Duration(seconds: 4), content: Text(
@@ -770,7 +810,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
       _selectedAssigneeIds.clear();
       _picAssigneeId = null;
       _priority = 1;
-      _anchorCreateDate = HkTime.todayDateOnlyHk();
+      _anchorCreateDate = HkTime.firstBusinessDayOnOrAfter(
+        HkTime.todayDateOnlyHk(),
+        _holidaySkipYmd,
+      );
       _startDate = _anchorCreateDate;
       _endDate = _defaultDueForPriority(_priority);
     });
@@ -1171,7 +1214,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen>
                           final start = _startDate ?? _anchorCreateDate;
                           final d = await showHolidayAwareDatePicker(
                             context: context,
-                            initialDate: _endDate ?? HkTime.addWorkingDaysAfter(start, 1),
+                            initialDate: _endDate ??
+                                HkTime.addBusinessDaysAfter(
+                                  start,
+                                  1,
+                                  _holidaySkipYmd,
+                                ),
                             firstDate: start,
                             lastDate: kHolidayPickerWideLastDate,
                           );
