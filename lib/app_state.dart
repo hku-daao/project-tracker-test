@@ -415,7 +415,9 @@ class AppState extends ChangeNotifier {
 
   /// Low-level tasks for a team: `task.team_id` matches **or** any assignee's `staff.team_id` matches
   /// (same id as filter dropdown: Supabase `team.team_id`).
-  /// Tasks visible to the current user: assignee slots must be self or a subordinate (see [subordinate] table).
+  /// Tasks visible to the current user: any assignee slot is the user’s `staff.app_id` or a
+  /// `subordinate.subordinate_id` whose `supervisor_id` is the user ([assigneeVisibilityAppIds]),
+  /// **or** the task was created by this user ([taskIsCreatedByCurrentUser]) (assignees may be outside that set).
   List<Task> tasksForTeam(String? teamId) {
     var all = tasks;
     final scope = assigneeVisibilityAppIds;

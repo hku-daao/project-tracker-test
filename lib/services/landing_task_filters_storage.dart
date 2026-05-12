@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persisted landing-page task list filters (per Firebase user id).
+/// Persisted landing-page task list filters (per Firebase user id). Storage key `landing_task_filters_v2_*`.
 class LandingTaskFilters {
   const LandingTaskFilters({
     required this.filterType,
@@ -119,7 +119,7 @@ class LandingTaskFilters {
 }
 
 class LandingTaskFiltersStorage {
-  static String _key(String uid) => 'landing_task_filters_v1_$uid';
+  static String _key(String uid) => 'landing_task_filters_v2_$uid';
 
   static Future<void> save(String uid, LandingTaskFilters f) async {
     final p = await SharedPreferences.getInstance();

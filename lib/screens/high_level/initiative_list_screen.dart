@@ -236,6 +236,24 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
   late final ExpansibleController _filterSubmissionTileController;
   late final ExpansibleController _filterCreateDateTileController;
 
+  /// Landing / Overview task rows: self + [subordinate] subordinates on assignees, or created by me
+  /// ([filterKey] `all`); only assignee = current user (`assigned`); only creator = me (`created`).
+  bool _landingTaskVisibleToUser(AppState state, Task t, String filterKey) {
+    final fk = filterKey == 'my' ? 'all' : filterKey;
+    if (fk == 'assigned') {
+      final mine = state.userStaffAppId?.trim();
+      return mine != null && mine.isNotEmpty && t.assigneeIds.contains(mine);
+    }
+    if (fk == 'created') {
+      return state.taskIsCreatedByCurrentUser(t);
+    }
+    final scope = state.assigneeVisibilityAppIds;
+    if (scope.isEmpty) return false;
+    if (t.assigneeIds.any(scope.contains)) return true;
+    if (state.taskIsCreatedByCurrentUser(t)) return true;
+    return false;
+  }
+
   /// Create-date range filter (task `createdAt` / sub-task `createDate` on Customized).
   DateTime? _filterCreateDateStart;
   DateTime? _filterCreateDateEnd;
@@ -1625,21 +1643,37 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       statusKeys,
       submissionKeys,
     );
+    Set<String>? visibilityFilteredOverviewAllowlist;
     if (overviewStatusRowAllowlist != null) {
-      for (final key in overviewStatusRowAllowlist) {
-        final tid =
-            OverviewTasksSubtasksFlatFetch.parentTaskIdFromRowKey(key);
-        if (tid != null && tid.isNotEmpty) {
+      if (!mounted) {
+        visibilityFilteredOverviewAllowlist = null;
+      } else {
+        final appState = context.read<AppState>();
+        final fk = _filterType == 'my' ? 'all' : _filterType;
+        final next = <String>{};
+        for (final key in overviewStatusRowAllowlist) {
+          final tid =
+              OverviewTasksSubtasksFlatFetch.parentTaskIdFromRowKey(key);
+          if (tid == null || tid.isEmpty) continue;
+          final t = appState.taskById(tid);
+          if (t == null || !_landingTaskVisibleToUser(appState, t, fk)) {
+            continue;
+          }
+          next.add(key);
           ids.add(tid);
         }
+        visibilityFilteredOverviewAllowlist =
+            next.isEmpty ? null : next;
       }
+    } else {
+      visibilityFilteredOverviewAllowlist = null;
     }
     if (ids.isEmpty) {
       return (
         grouped: <String, List<SingularSubtask>>{},
         taskCommentActivity: <String, DateTime?>{},
         subtaskCommentActivity: <String, DateTime?>{},
-        overviewStatusRowAllowlist: overviewStatusRowAllowlist,
+        overviewStatusRowAllowlist: visibilityFilteredOverviewAllowlist,
         overdueAllTabActiveEntries: null,
         overdueAllTabDelEntries: null,
       );
@@ -1676,7 +1710,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
       grouped: grouped,
       taskCommentActivity: taskCommentActivity,
       subtaskCommentActivity: subtaskCommentActivity,
-      overviewStatusRowAllowlist: overviewStatusRowAllowlist,
+      overviewStatusRowAllowlist: visibilityFilteredOverviewAllowlist,
       overdueAllTabActiveEntries: null,
       overdueAllTabDelEntries: null,
     );
@@ -3061,6 +3095,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
                 ? payload?.overviewStatusRowAllowlist
                 : null);
 
+        final landingFk = _filterType == 'my' ? 'all' : _filterType;
+
         late List<_CustomizedFlatEntry> activeEntries;
         late List<_CustomizedFlatEntry> delEntries;
 
@@ -3078,6 +3114,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               if (have.contains(tid)) continue;
               final task = state.taskById(tid);
               if (task == null || !task.isSingularTableRow) continue;
+              if (!_landingTaskVisibleToUser(state, task, landingFk)) {
+                continue;
+              }
               final ds = task.dbStatus?.trim().toLowerCase() ?? '';
               if (ds == 'delete' || ds == 'deleted') continue;
               activeTasksForEntries = [...activeTasksForEntries, task];
@@ -3093,6 +3132,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               if (have.contains(tid)) continue;
               final task = state.taskById(tid);
               if (task == null || !task.isSingularTableRow) continue;
+              if (!_landingTaskVisibleToUser(state, task, landingFk)) {
+                continue;
+              }
               final ds = task.dbStatus?.trim().toLowerCase() ?? '';
               if (ds == 'delete' || ds == 'deleted') continue;
               activeTasksForEntries = [...activeTasksForEntries, task];
@@ -3108,6 +3150,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               if (haveDel.contains(tid)) continue;
               final task = state.taskById(tid);
               if (task == null || !task.isSingularTableRow) continue;
+              if (!_landingTaskVisibleToUser(state, task, landingFk)) {
+                continue;
+              }
               final ds = task.dbStatus?.trim().toLowerCase() ?? '';
               if (ds != 'delete' && ds != 'deleted') continue;
               delTasksForEntries = [...delTasksForEntries, task];
@@ -3126,6 +3171,9 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
               if (tid == null || tid.isEmpty) continue;
               final task = state.taskById(tid);
               if (task == null || !task.isSingularTableRow) continue;
+              if (!_landingTaskVisibleToUser(state, task, landingFk)) {
+                continue;
+              }
               final ds = task.dbStatus?.trim().toLowerCase() ?? '';
               final isDel = ds == 'delete' || ds == 'deleted';
               if (isDel) {
@@ -3708,11 +3756,27 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     _selectedTaskStatuses
       ..clear()
       ..add(_statusIncomplete);
+    _selectedSubmissionFilters
+      ..clear()
+      ..add(_submissionPending);
     final r = _defaultCreateDateRangeHk();
     _filterCreateDateStart = r.$1;
     _filterCreateDateEnd = r.$2;
     _taskSortColumn = TaskListSortColumn.dueDate;
     _taskSortAscending = true;
+  }
+
+  /// Home **Tasks** tab (non-Overview): same default window as Overview customized.
+  void _applyLandingTasksDefaultFilters() {
+    _selectedTaskStatuses
+      ..clear()
+      ..add(_statusIncomplete);
+    _selectedSubmissionFilters
+      ..clear()
+      ..add(_submissionPending);
+    final r = _defaultCreateDateRangeHk();
+    _filterCreateDateStart = r.$1;
+    _filterCreateDateEnd = r.$2;
   }
 
   Future<void> _loadLandingFilters() async {
@@ -3727,13 +3791,13 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
     if (data == null) {
       if (widget.customizedFlat) {
         setState(_applyOverviewCustomizedDefaultFilters);
-        _landingFiltersPrefsReady = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _persistLandingFilters();
-        });
       } else {
-        _landingFiltersPrefsReady = true;
+        setState(_applyLandingTasksDefaultFilters);
       }
+      _landingFiltersPrefsReady = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _persistLandingFilters();
+      });
       return;
     }
     final needsDefer = data.teamIds.isNotEmpty && state.teams.isEmpty;
@@ -5566,6 +5630,8 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         it = it.where(isAssignedToMe);
       } else if (filterKey == 'created') {
         it = it.where(isCreatedByMe);
+      } else {
+        it = it.where((t) => _landingTaskVisibleToUser(state, t, 'all'));
       }
       return it.where(statusMatch).toList();
     }
@@ -5705,6 +5771,7 @@ class _InitiativeListScreenState extends State<InitiativeListScreen> {
         if (have.contains(id)) continue;
         final t = state.taskById(id);
         if (t == null || !t.isSingularTableRow) continue;
+        if (!_landingTaskVisibleToUser(state, t, filterKey)) continue;
         if (singularDeleted(t)) continue;
         if (!taskMatchesOverdueFilter(t)) continue;
         if (_applyTaskSearch([t]).isEmpty) continue;
