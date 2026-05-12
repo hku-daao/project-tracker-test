@@ -63,13 +63,14 @@ Uses **DAAO Tests** Supabase + **test** Railway (default `DEPLOY_ENV=testing`).
 
 2. Build and deploy:
 ```powershell
-flutter build web --release --no-wasm-dry-run
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
 firebase deploy --only hosting:testing
 ```
 
 **URLs:** **https://project-tracker-test.web.app/** · https://project-tracker-test.firebaseapp.com/ · custom https://projecttrackertest.hku-ia.ai/ (if configured)
 
-> `--no-wasm-dry-run` avoids Firebase Pigeon `channel-error` / `FirebaseCoreHostApi.initializeCore` on many Flutter web setups.
+> `--no-wasm-dry-run` avoids Firebase Pigeon `channel-error` / `FirebaseCoreHostApi.initializeCore` on many Flutter web setups.  
+> `--no-tree-shake-icons` keeps the full Material Icons font in the bundle so release web builds do not drop rarely-used glyphs (otherwise some `Icon` widgets can render blank).
 
 ---
 
@@ -78,7 +79,7 @@ firebase deploy --only hosting:testing
 Uses **DAAO Apps** Supabase + **production** Railway.
 
 ```powershell
-flutter build web --release --no-wasm-dry-run --dart-define=DEPLOY_ENV=production
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --dart-define=DEPLOY_ENV=production
 firebase deploy --only hosting:production
 ```
 
@@ -92,11 +93,11 @@ Run from the project root. You must **build twice** (different `DEPLOY_ENV`); **
 
 ```powershell
 # --- Testing (DAAO Tests Supabase + test Railway) ---
-flutter build web --release --no-wasm-dry-run
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
 firebase deploy --only hosting:testing
 
 # --- Production (DAAO Apps Supabase + prod Railway) ---
-flutter build web --release --no-wasm-dry-run --dart-define=DEPLOY_ENV=production
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --dart-define=DEPLOY_ENV=production
 firebase deploy --only hosting:production
 ```
 
@@ -145,7 +146,7 @@ Wait for DNS (and SSL) to finish; can take from minutes to 48 hours.
 From the project root:
 
 ```powershell
-flutter build web --release --no-wasm-dry-run
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
 firebase deploy --only hosting:testing
 ```
 
@@ -154,3 +155,14 @@ Confirm **`.firebaserc`** maps `testing` → **`project-tracker-test`** and you 
 ### 4. Confirm a release exists
 
 **Hosting** → site **`project-tracker-test`** → **Releases** — latest deploy should match your recent deploy time.
+
+---
+
+## Troubleshooting: **Material icons missing** (blank icons on web)
+
+Release `flutter build web` **tree-shakes** the Material Icons font so only glyphs that the compiler thinks are used are shipped. Some icons can be omitted incorrectly, so they disappear on **testing/production** while `flutter run` (debug) looks fine.
+
+1. **Always** build with **`--no-tree-shake-icons`** (already included in `DEPLOY.md`, `docs/ENVIRONMENTS.md`, and `scripts/build_web.ps1`).
+2. The **AI assistant** header and **Suggest name & description** controls use **Unicode symbols** drawn with `Text` so they stay visible even if the Material Icons subset is wrong.
+
+---

@@ -163,6 +163,33 @@ class _TaskLlmAssistantPanelState extends State<TaskLlmAssistantPanel> {
     );
   }
 
+  /// Release `flutter build web` tree-shakes the Material Icons font; uncommon
+  /// glyphs can be omitted so [Icon] paints nothing. These characters use the
+  /// app text font (e.g. Noto Sans TC) and stay visible on testing/production.
+  Widget _aiAssistantTitleGlyph(ThemeData theme) {
+    return Text(
+      String.fromCharCode(0x2726), // ✦ FOUR POINTED BLACK STAR
+      style: TextStyle(
+        fontSize: 20,
+        height: 1.1,
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  Widget _suggestActionGlyph(ThemeData theme) {
+    return Text(
+      String.fromCharCode(0x27A4), // ➤ BLACK-FEATHERED RIGHTWARDS ARROW
+      style: TextStyle(
+        fontSize: 18,
+        height: 1,
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
   Widget _buildPreviewBox(ThemeData theme) {
     return Semantics(
       label: 'Suggested name and description preview',
@@ -229,13 +256,17 @@ class _TaskLlmAssistantPanelState extends State<TaskLlmAssistantPanel> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.auto_awesome,
-                      size: 22,
-                      color: theme.colorScheme.primary,
+                    SizedBox(
+                      width: 26,
+                      height: 24,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _aiAssistantTitleGlyph(theme),
+                      ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         'AI assistant',
@@ -297,10 +328,10 @@ class _TaskLlmAssistantPanelState extends State<TaskLlmAssistantPanel> {
                             ),
                           )
                         else
-                          Icon(
-                            Icons.send,
-                            size: 20,
-                            color: theme.colorScheme.primary,
+                          SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: Center(child: _suggestActionGlyph(theme)),
                           ),
                         const SizedBox(width: 10),
                         Flexible(

@@ -28,17 +28,19 @@ Single Firebase project (**DAAO** / `daao-a20c6`) hosts **two** sites. Supabase 
 
 ### Commands
 
+Release web builds use **`--no-tree-shake-icons`** so Material `Icon` glyphs are not stripped from the font (see `DEPLOY.md`).
+
 **Deploy to the test site** (DAAO Tests + test Railway):
 
 ```powershell
-flutter build web --release --no-wasm-dry-run
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
 firebase deploy --only hosting:testing
 ```
 
 **Deploy to the production site** (DAAO Apps + production Railway):
 
 ```powershell
-flutter build web --release --no-wasm-dry-run --dart-define=DEPLOY_ENV=production
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --dart-define=DEPLOY_ENV=production
 firebase deploy --only hosting:production
 ```
 

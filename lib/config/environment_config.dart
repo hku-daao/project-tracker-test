@@ -10,10 +10,10 @@
 /// ### Build examples (web)
 /// ```bash
 /// # Testing stack (default)
-/// flutter build web --release --no-wasm-dry-run
+/// flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
 ///
 /// # Production stack
-/// flutter build web --release --no-wasm-dry-run --dart-define=DEPLOY_ENV=production
+/// flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --dart-define=DEPLOY_ENV=production
 /// ```
 ///
 /// ### Optional overrides (either environment)
