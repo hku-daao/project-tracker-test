@@ -78,6 +78,90 @@ class AsanaDetailTwoColumnRow extends StatelessWidget {
   }
 }
 
+/// AI suggestion row: empty label column, then outlined value field with a
+/// floating "Suggested" label that cuts through the border (like "Your prompt").
+class AsanaDetailSuggestedValueRow extends StatelessWidget {
+  const AsanaDetailSuggestedValueRow({
+    super.key,
+    required this.child,
+    this.label = 'Suggested',
+    this.labelWidth = kAsanaDetailLabelColumnWidth,
+    this.labelColor,
+    this.borderColor,
+    this.fillColor,
+    this.bottomPadding = 10,
+    this.wrapField,
+    this.insetLabelColumn = true,
+  });
+
+  final Widget child;
+  final String label;
+  final double labelWidth;
+  final Color? labelColor;
+  final Color? borderColor;
+  final Color? fillColor;
+  final double bottomPadding;
+
+  /// When false, field spans full width (task name, description, comment).
+  final bool insetLabelColumn;
+
+  /// Optional outer wrap (e.g. glow shadow); outline stays on [InputDecorator].
+  final Widget Function(Widget field)? wrapField;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = asanaDetailLabelStyle(context).copyWith(
+      color: labelColor ?? kAsanaTextSecondary,
+    );
+    final edge = borderColor ?? kAsanaTextSecondary.withValues(alpha: 0.35);
+    final outline = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(6),
+      borderSide: BorderSide(color: edge),
+    );
+
+    Widget field = InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        alignLabelWithHint: true,
+        isDense: true,
+        filled: fillColor != null,
+        fillColor: fillColor,
+        border: outline,
+        enabledBorder: outline,
+        focusedBorder: outline,
+        disabledBorder: outline,
+        contentPadding: const EdgeInsets.fromLTRB(12, 12, 2, 10),
+        labelStyle: labelStyle,
+        floatingLabelStyle: labelStyle,
+      ),
+      child: child,
+    );
+
+    if (wrapField != null) {
+      field = wrapField!(field);
+    }
+
+    if (!insetLabelColumn) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: bottomPadding),
+        child: field,
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomPadding),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: labelWidth),
+          Expanded(child: field),
+        ],
+      ),
+    );
+  }
+}
+
 class AsanaDetailLabelValue extends StatelessWidget {
   const AsanaDetailLabelValue({
     super.key,
@@ -441,33 +525,35 @@ class AsanaDetailSlideScaffold extends StatelessWidget {
   /// Padding around scroll content when there is no footer.
   final EdgeInsets contentPadding;
 
-  /// Extra bottom scroll padding when [footer] is shown (clears the action bar).
+  /// Legacy: ignored when [footer] is set — scroll area is sized above the footer.
   final double footerScrollPadding;
 
   @override
   Widget build(BuildContext context) {
-    final scrollPadding = footer != null
-        ? contentPadding.copyWith(bottom: footerScrollPadding)
-        : contentPadding;
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(
-          color: backgroundColor,
-          child: SingleChildScrollView(
-            padding: scrollPadding,
-            child: body,
-          ),
+    if (footer == null) {
+      return ColoredBox(
+        color: backgroundColor,
+        child: SingleChildScrollView(
+          padding: contentPadding,
+          child: body,
         ),
-        if (footer != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: footer!,
+      );
+    }
+
+    // Column layout: footer (AI dock + actions) does not overlay scroll content.
+    return ColoredBox(
+      color: backgroundColor,
+      child: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: contentPadding,
+              child: body,
+            ),
           ),
-      ],
+          footer!,
+        ],
+      ),
     );
   }
 }

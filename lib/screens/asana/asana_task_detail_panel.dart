@@ -24,11 +24,12 @@ import 'asana_assignee_picker.dart';
 import 'asana_attachment_draft_tile.dart';
 import 'asana_attachment_menu.dart';
 import 'asana_blocking_loading_overlay.dart';
-import '../../widgets/task_llm_assistant_panel.dart';
 import '../../widgets/task_list_card.dart';
+import 'asana_task_ai_assistant.dart';
 import '../asana_landing_screen.dart';
 import 'asana_detail_subtask_list.dart';
 import 'asana_detail_widgets.dart';
+import 'asana_theme.dart';
 import 'asana_filter_widgets.dart';
 import 'asana_value_chips.dart';
 
@@ -124,6 +125,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   List<AsanaAnchoredOption<String>> _projectMenuOptions = [];
   int _anchoredPickerReopenBlockedUntilMs = 0;
 
+  AsanaTaskAiController? _taskAi;
+  AsanaTaskAiController? _commentAi;
+  bool _taskAiCanSuggestAssignees = true;
+
   @override
   void initState() {
     super.initState();
@@ -154,6 +159,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     _descController.dispose();
     _reasonController.dispose();
     _commentController.dispose();
+    _taskAi?.dispose();
+    _commentAi?.dispose();
     _clearAttachments();
     super.dispose();
   }
@@ -647,6 +654,65 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     return HkTime.formatInstantAsHk(d, 'MMM d, yyyy HH:mm');
   }
 
+  /// Posted time on task comments (HK, 24h — matches legacy task detail).
+  String _formatCommentPostedTs(DateTime? stored) {
+    if (stored == null) return '';
+    return HkTime.formatInstantAsHk(stored, 'yyyy-MM-dd HH:mm');
+  }
+
+  Widget _buildCommentDisplayTile(
+    BuildContext context,
+    SingularCommentRowDisplay c,
+  ) {
+    final deleted = c.isDeleted;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            c.displayStaffName,
+            style: asanaDetailLabelStyle(context),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            decoration: BoxDecoration(
+              color: deleted ? const Color(0xFFF9FAFB) : Colors.white,
+              border: Border.all(color: const Color(0xFFEDEAE9)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  c.description,
+                  style: asanaDetailMultilineValueStyle(context).copyWith(
+                    color: deleted ? kAsanaTextSecondary : kAsanaTextPrimary,
+                  ),
+                ),
+                if (c.createTimestampUtc != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      _formatCommentPostedTs(c.createTimestampUtc),
+                      style: asanaDetailLabelStyle(context).copyWith(
+                        fontWeight: FontWeight.normal,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   bool _needsChangeDueReason() {
     if (_startDate == null || _dueDate == null) return false;
     if (!widget.createMode &&
@@ -839,6 +905,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     required String creatorLabel,
     String readOnlyAssigneesText = '',
     String readOnlyPicText = '',
+    bool showAiSuggestions = false,
   }) {
     return [
       AsanaDetailTwoColumnRow(
@@ -860,6 +927,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               : AsanaDetailPlainValue(text: readOnlyAssigneesText),
         ),
       ),
+      if (showAiSuggestions)
+        _aiSuggestions(AsanaTaskAiFieldKey.assignees),
       AsanaDetailTwoColumnRow(
         label: 'PIC',
         child: canEditAssignees
@@ -883,6 +952,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                   ))
             : AsanaDetailPlainValue(text: readOnlyPicText),
       ),
+      if (showAiSuggestions)
+        _aiSuggestions(AsanaTaskAiFieldKey.pic),
     ];
   }
 
@@ -949,6 +1020,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       );
       return;
     }
+    _taskAi?.clearAllSuggestions();
     _setSaving(true);
     try {
       final slots =
@@ -1043,6 +1115,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       return;
     }
     if (_isCreator(state, task) && !_validateAssigneesAndPic()) return;
+    _taskAi?.clearAllSuggestions();
     _setSaving(true);
     try {
       final directorIds = _isCreator(state, task)
@@ -1443,16 +1516,126 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     return _buildCreateBody(context, state, chrome);
   }
 
-  String? _llmExtraContextForCreate() {
-    final id = _selectedProjectId?.trim();
-    if (id == null || id.isEmpty) return null;
-    for (final p in _myProjects) {
-      if (p.id == id) {
-        final n = p.name.trim();
-        if (n.isNotEmpty) return 'Project: $n';
-      }
-    }
-    return null;
+  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  AsanaTaskAiFormSnapshot _aiFormSnapshot(
+    AppState state, {
+    required bool canSuggestAssignees,
+  }) {
+    final assigneesLabel = _selectedAssigneeIds
+        .map((id) => _labelForAssigneeId(id, state))
+        .where((n) => n.isNotEmpty)
+        .join(', ');
+    final picLabel = _picAssigneeId != null
+        ? _labelForAssigneeId(_picAssigneeId!, state)
+        : '';
+    return AsanaTaskAiFormSnapshot(
+      name: _nameController.text.trim(),
+      description: _descController.text.trim(),
+      projectLabel: _projectLabelForDraft(),
+      assigneesLabel: assigneesLabel,
+      picLabel: picLabel,
+      priority: _localPriority,
+      startDate: _startDate,
+      dueDate: _dueDate,
+      projects: _myProjects
+          .map((p) => (id: p.id, name: p.name.trim()))
+          .where((p) => p.name.isNotEmpty)
+          .toList(),
+      staff: _pickerStaff
+          .map((s) => (id: s.assigneeId, name: s.name.trim()))
+          .where((s) => s.name.isNotEmpty)
+          .toList(),
+      canSuggestProject: _myProjects.isNotEmpty,
+      canSuggestAssignees: canSuggestAssignees,
+      selectedAssigneeIds: Set<String>.from(_selectedAssigneeIds),
+      selectedProjectId: _selectedProjectId,
+      picAssigneeId: _picAssigneeId,
+    );
+  }
+
+  AsanaTaskAiApply _aiApplyHandlers() {
+    return AsanaTaskAiApply(
+      applyName: (v) => setState(() => _nameController.text = v),
+      applyDescription: (v) => setState(() => _descController.text = v),
+      applyProject: (id) => setState(() => _selectedProjectId = id),
+      applyAssignees: (ids) => setState(() {
+        _selectedAssigneeIds
+          ..clear()
+          ..addAll(ids);
+        _syncPicAfterAssigneesChange();
+      }),
+      applyPic: (id) => setState(() => _picAssigneeId = id),
+      applyPriority: (p) => setState(() => _localPriority = p),
+      applyStartDate: (d) => setState(() => _startDate = _dateOnly(d)),
+      applyDueDate: (d) => setState(() => _dueDate = _dateOnly(d)),
+    );
+  }
+
+  void _ensureTaskAi(AppState state, {required bool canSuggestAssignees}) {
+    _taskAiCanSuggestAssignees = canSuggestAssignees;
+    _taskAi ??= AsanaTaskAiController(
+      mode: AsanaTaskAiAssistantMode.taskFields,
+      readOnly: () => _saving,
+      formSnapshot: () => _aiFormSnapshot(
+        state,
+        canSuggestAssignees: _taskAiCanSuggestAssignees,
+      ),
+      apply: _aiApplyHandlers(),
+    );
+  }
+
+  void _ensureCommentAi(Task task) {
+    _commentAi ??= AsanaTaskAiController(
+      mode: AsanaTaskAiAssistantMode.commentOnly,
+      readOnly: () => _saving,
+      commentSnapshot: () => AsanaCommentAiFormSnapshot(
+        taskName: task.name.trim().isNotEmpty
+            ? task.name.trim()
+            : _nameController.text.trim(),
+        currentComment: _commentController.text,
+      ),
+      onApplyComment: (v) => setState(() => _commentController.text = v),
+    );
+  }
+
+  Widget? _buildSlideFooterStack({
+    required AsanaSlideChrome chrome,
+    required Widget? actionBar,
+    AsanaTaskAiController? aiController,
+  }) {
+    if (aiController == null && actionBar == null) return null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (aiController != null)
+          AsanaTaskAiDock(
+            controller: aiController,
+            palette: widget.palette,
+            footerBorder: chrome.footerBorder,
+          ),
+        if (actionBar != null)
+          AsanaDetailSlideFooter(
+            backgroundColor: chrome.footer,
+            borderColor: chrome.footerBorder,
+            child: actionBar,
+          ),
+      ],
+    );
+  }
+
+  Widget _aiSuggestions(
+    AsanaTaskAiFieldKey key, {
+    AsanaTaskAiController? controller,
+  }) {
+    final c = controller ?? _taskAi;
+    if (c == null) return const SizedBox.shrink();
+    return AsanaTaskAiInlineSuggestions(
+      controller: c,
+      fieldKey: key,
+      palette: widget.palette,
+    );
   }
 
   Widget _buildCreateBody(
@@ -1461,12 +1644,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     AsanaSlideChrome chrome,
   ) {
     const canEdit = true;
+    _ensureTaskAi(state, canSuggestAssignees: true);
     return AsanaDetailSlideScaffold(
       backgroundColor: chrome.body,
-      footer: AsanaDetailSlideFooter(
-        backgroundColor: chrome.footer,
-        borderColor: chrome.footerBorder,
-        child: _ActionBar(
+      footer: _buildSlideFooterStack(
+        chrome: chrome,
+        aiController: _taskAi,
+        actionBar: _ActionBar(
           createMode: true,
           saving: _saving,
           palette: widget.palette,
@@ -1476,13 +1660,6 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TaskLlmAssistantPanel(
-            nameController: _nameController,
-            descController: _descController,
-            readOnly: _saving,
-            extraContext: _llmExtraContextForCreate(),
-          ),
-          const SizedBox(height: 16),
           AsanaDetailLabelValue(
             label: 'Name',
             child: AsanaHoverTextField(
@@ -1496,6 +1673,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               style: asanaDetailValueStyle(context),
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.taskName),
           AsanaDetailLabelValue(
             label: 'Description',
             child: AsanaHoverTextField(
@@ -1509,6 +1687,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               style: asanaDetailMultilineValueStyle(context),
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.description),
           AsanaDetailTwoColumnRow(
             label: 'Project',
             child: _myProjects.isNotEmpty
@@ -1521,11 +1700,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                   )
                 : const AsanaDetailPlainValue(text: ''),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.project),
           ..._buildAssigneePicSection(
             context,
             state,
             canEditAssignees: true,
             creatorLabel: _creatorDisplayName(state),
+            showAiSuggestions: true,
           ),
           AsanaDetailTwoColumnRow(
             label: 'Priority',
@@ -1547,6 +1728,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               ),
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.priority),
           const AsanaDetailTwoColumnRow(
             label: 'Status',
             child: AsanaDetailStatusPill(status: 'Incomplete'),
@@ -1560,6 +1742,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               onTap: _saving ? null : _pickStartDueRange,
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.startDate),
           AsanaDetailTwoColumnRow(
             label: 'Due date',
             child: AsanaHoverTapValue(
@@ -1568,6 +1751,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               onTap: _saving ? null : _pickStartDueRange,
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.dueDate),
           if (_needsChangeDueReason())
             AsanaDetailLabelValue(
               label: 'Reason',
@@ -1642,37 +1826,53 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
     );
 
+    final showCommentAi =
+        _canWriteComments(state, task) && !canEdit;
+    if (canEdit) {
+      _ensureTaskAi(
+        state,
+        canSuggestAssignees: _isCreator(state, task),
+      );
+    }
+    if (showCommentAi) {
+      _ensureCommentAi(task);
+    }
+    final aiController = canEdit
+        ? _taskAi
+        : (showCommentAi ? _commentAi : null);
+    final actionBar = showActionFooter
+        ? _ActionBar(
+            createMode: false,
+            saving: _saving,
+            palette: widget.palette,
+            state: state,
+            task: task,
+            isCreator: _isCreator(state, task),
+            isPic: _isPic(state, task),
+            isAssigneeOnly: _isTaskAssignee(state, task) &&
+                !_isCreator(state, task) &&
+                !_isPic(state, task),
+            canDelete: _staffDirector || _isCreator(state, task),
+            onUpdate: () => _save(state, task),
+            onMarkComplete: () => _markCompleted(state, task),
+            onSubmit: () => _submitTask(state, task),
+            onAccept: () => _acceptTask(state, task),
+            onReturn: () => _returnTask(state, task),
+            onDelete: () => _deleteTask(state, task),
+            onUndoAcceptOrReturn: () => _undoAcceptOrReturn(state, task),
+            onUndoDeleted: () => _undoDeleted(state, task),
+            canMarkComplete: _canMarkComplete(task),
+            canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
+          )
+        : null;
+
     return AsanaDetailSlideScaffold(
       backgroundColor: chrome.body,
-      footer: showActionFooter
-          ? AsanaDetailSlideFooter(
-              backgroundColor: chrome.footer,
-              borderColor: chrome.footerBorder,
-              child: _ActionBar(
-                createMode: false,
-                saving: _saving,
-                palette: widget.palette,
-                state: state,
-                task: task,
-                isCreator: _isCreator(state, task),
-                isPic: _isPic(state, task),
-                isAssigneeOnly: _isTaskAssignee(state, task) &&
-                    !_isCreator(state, task) &&
-                    !_isPic(state, task),
-                canDelete: _staffDirector || _isCreator(state, task),
-                onUpdate: () => _save(state, task),
-                onMarkComplete: () => _markCompleted(state, task),
-                onSubmit: () => _submitTask(state, task),
-                onAccept: () => _acceptTask(state, task),
-                onReturn: () => _returnTask(state, task),
-                onDelete: () => _deleteTask(state, task),
-                onUndoAcceptOrReturn: () => _undoAcceptOrReturn(state, task),
-                onUndoDeleted: () => _undoDeleted(state, task),
-                canMarkComplete: _canMarkComplete(task),
-                canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
-              ),
-            )
-          : null,
+      footer: _buildSlideFooterStack(
+        chrome: chrome,
+        aiController: aiController,
+        actionBar: actionBar,
+      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1684,6 +1884,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                     minLines: 1,
                     style: asanaDetailTitleStyle(context),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.taskName),
                   const SizedBox(height: 12),
                   AsanaDetailLabelValue(
                     label: 'Description',
@@ -1696,6 +1898,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                       style: asanaDetailMultilineValueStyle(context),
                     ),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.description),
                   AsanaDetailTwoColumnRow(
                     label: 'Project',
                     child: canEdit && _myProjects.isNotEmpty
@@ -1709,6 +1913,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                             text: task.projectName?.trim() ?? '',
                           ),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.project),
                   ..._buildAssigneePicSection(
                     context,
                     state,
@@ -1719,6 +1925,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                         .where((n) => n.isNotEmpty)
                         .join(', '),
                     readOnlyPicText: _nameFor(state, task.pic),
+                    showAiSuggestions: canEdit,
                   ),
                   AsanaDetailSectionHeader(
                     title: 'Sub-tasks',
@@ -1770,6 +1977,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                       ),
                     ),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.priority),
                   AsanaDetailTwoColumnRow(
                     label: 'Status',
                     child: AsanaDetailStatusPill(
@@ -1784,6 +1993,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                       onTap: _saving ? null : _pickStartDueRange,
                     ),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.startDate),
                   AsanaDetailTwoColumnRow(
                     label: 'Due date',
                     child: AsanaHoverTapValue(
@@ -1792,6 +2003,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                       onTap: _saving ? null : _pickStartDueRange,
                     ),
                   ),
+                  if (canEdit)
+                    _aiSuggestions(AsanaTaskAiFieldKey.dueDate),
                   if (_needsChangeDueReason() ||
                       (task.changeDueReason ?? '').trim().isNotEmpty)
                     AsanaDetailLabelValue(
@@ -1857,7 +2070,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (_canWriteComments(state, task))
+                        if (_canWriteComments(state, task)) ...[
                           AsanaHoverTextField(
                             controller: _commentController,
                             canEdit: true,
@@ -1866,26 +2079,16 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                             minLines: 2,
                             style: asanaDetailMultilineValueStyle(context),
                           ),
+                          if (showCommentAi)
+                            _aiSuggestions(
+                              AsanaTaskAiFieldKey.comment,
+                              controller: _commentAi,
+                            ),
+                        ],
                         if (_comments.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           ..._comments.map(
-                            (c) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    c.displayStaffName,
-                                    style: asanaDetailLabelStyle(context),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    c.description,
-                                    style: asanaDetailValueStyle(context),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            (c) => _buildCommentDisplayTile(context, c),
                           ),
                         ],
                       ],
