@@ -41,6 +41,14 @@
   <div id="loading" style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;font-size:18px;">
     Loading Project Tracker…
   </div>
+  <!-- Drop stale Flutter service workers so normal browsers load the latest deploy. -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        for (var i = 0; i < regs.length; i++) regs[i].unregister();
+      });
+    }
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

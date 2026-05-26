@@ -63,7 +63,7 @@ Uses **DAAO Tests** Supabase + **test** Railway (default `DEPLOY_ENV=testing`).
 
 2. Build and deploy:
 ```powershell
-flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --pwa-strategy=none
 firebase deploy --only hosting:testing
 ```
 
@@ -93,7 +93,7 @@ Run from the project root. You must **build twice** (different `DEPLOY_ENV`); **
 
 ```powershell
 # --- Testing (DAAO Tests Supabase + test Railway) ---
-flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --pwa-strategy=none
 firebase deploy --only hosting:testing
 
 # --- Production (DAAO Apps Supabase + prod Railway) ---
@@ -146,7 +146,7 @@ Wait for DNS (and SSL) to finish; can take from minutes to 48 hours.
 From the project root:
 
 ```powershell
-flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --pwa-strategy=none
 firebase deploy --only hosting:testing
 ```
 

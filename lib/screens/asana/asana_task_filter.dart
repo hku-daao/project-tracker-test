@@ -326,7 +326,7 @@ class AsanaTaskFilter {
     return _singularIncomplete(t);
   }
 
-  static bool _calendarDayInCreateRange(DateTime day, AsanaTaskFilterState f) {
+  static bool _calendarDayInDueRange(DateTime day, AsanaTaskFilterState f) {
     if (!f.createDateEngaged) return true;
     final s = f.createDateStart != null ? _dateOnly(f.createDateStart!) : null;
     final e = f.createDateEnd != null ? _dateOnly(f.createDateEnd!) : null;
@@ -335,34 +335,23 @@ class AsanaTaskFilter {
     return true;
   }
 
-  static bool _rowPassesCreateDate(
+  static bool _rowPassesDueDate(
     Task t,
     SingularSubtask? sub,
     AsanaTaskFilterState filters,
   ) {
-    final DateTime day;
-    if (sub == null) {
-      day = _dateOnly(t.createdAt);
-    } else {
-      final cd = sub.createDate;
-      day = cd == null ? _dateOnly(t.createdAt) : _dateOnly(cd);
-    }
-    if (filters.createDateEngaged) {
-      return _calendarDayInCreateRange(day, filters);
-    }
-    return true;
+    if (!filters.createDateEngaged) return true;
+    final DateTime? due = sub == null ? t.endDate : sub.dueDate;
+    if (due == null) return false;
+    return _calendarDayInDueRange(_dateOnly(due), filters);
   }
 
-  static bool _rowPassesCreateDateSubtask(
+  static bool _rowPassesDueDateSubtask(
     Task t,
     SingularSubtask s,
     AsanaTaskFilterState filters,
   ) {
-    if (_singularSubtaskCompleted(s) &&
-        filters.statuses.contains(AsanaTaskFilterState.statusCompleted)) {
-      return true;
-    }
-    return _rowPassesCreateDate(t, s, filters);
+    return _rowPassesDueDate(t, s, filters);
   }
 
   /// Phase 1: scope, status, submission, role menus, overdue â€” no create-date (customized flat).
@@ -585,9 +574,9 @@ class AsanaTaskFilter {
       if (filters.overdueOnly) {
         if (t.overdue == 'Yes') {
           if (!searchActive) {
-            if (_rowPassesCreateDate(t, null, filters)) out.add(t);
+            if (_rowPassesDueDate(t, null, filters)) out.add(t);
           } else if (_taskTextMatchesAllTokens(t, tokens) &&
-              _rowPassesCreateDate(t, null, filters)) {
+              _rowPassesDueDate(t, null, filters)) {
             out.add(t);
           }
         } else {
@@ -596,13 +585,13 @@ class AsanaTaskFilter {
             if (s.overdue != 'Yes') continue;
             if (_shouldOmitSubtaskRow(t, s, filters)) continue;
             if (!searchActive) {
-              if (_rowPassesCreateDateSubtask(t, s, filters)) {
+              if (_rowPassesDueDateSubtask(t, s, filters)) {
                 wantParent = true;
                 break;
               }
             } else {
               if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-              if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+              if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
               wantParent = true;
               break;
             }
@@ -612,13 +601,13 @@ class AsanaTaskFilter {
               if (s.overdue != 'Yes') continue;
               if (_shouldOmitSubtaskRow(t, s, filters)) continue;
               if (!searchActive) {
-                if (_rowPassesCreateDateSubtask(t, s, filters)) {
+                if (_rowPassesDueDateSubtask(t, s, filters)) {
                   wantParent = true;
                   break;
                 }
               } else {
                 if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-                if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+                if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
                 wantParent = true;
                 break;
               }
@@ -633,20 +622,23 @@ class AsanaTaskFilter {
       }
       if (!searchActive) {
         final subsInRange = subsNonDeleted
-            .where((s) => _rowPassesCreateDateSubtask(t, s, filters))
+            .where((s) => _rowPassesDueDateSubtask(t, s, filters))
             .where((s) => !_shouldOmitSubtaskRow(t, s, filters))
             .toList();
         final subsDeletedInRange = subsDeleted
-            .where((s) => _rowPassesCreateDateSubtask(t, s, filters))
+            .where((s) => _rowPassesDueDateSubtask(t, s, filters))
             .where((s) => !_shouldOmitSubtaskRow(t, s, filters))
             .toList();
-        final taskInRange = _rowPassesCreateDate(t, null, filters);
+        final taskInRange = _rowPassesDueDate(t, null, filters);
         if (!taskInRange && subsInRange.isEmpty && subsDeletedInRange.isEmpty) {
           continue;
         }
         final hasVisibleSubs =
             subsInRange.isNotEmpty || subsDeletedInRange.isNotEmpty;
-        if ((taskInRange || hasVisibleSubs) &&
+        final showParent = filters.createDateEngaged
+            ? taskInRange
+            : (taskInRange || hasVisibleSubs);
+        if (showParent &&
             !_hideIncompleteParentWhenCompletedOnly(t, filters)) {
           out.add(t);
         }
@@ -662,7 +654,7 @@ class AsanaTaskFilter {
       var anySub = false;
       for (final s in subsNonDeleted) {
         if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-        if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+        if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
         if (_shouldOmitSubtaskRow(t, s, filters)) continue;
         anySub = true;
         break;
@@ -670,7 +662,7 @@ class AsanaTaskFilter {
       if (!anySub) {
         for (final s in subsDeleted) {
           if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-          if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+          if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
           if (_shouldOmitSubtaskRow(t, s, filters)) continue;
           anySub = true;
           break;
@@ -685,7 +677,8 @@ class AsanaTaskFilter {
     if (out.isEmpty &&
         activeTasks.isNotEmpty &&
         !searchActive &&
-        !filters.overdueOnly) {
+        !filters.overdueOnly &&
+        !filters.createDateEngaged) {
       out.addAll(
         activeTasks.where(
           (t) =>
@@ -756,10 +749,10 @@ class AsanaTaskFilter {
         for (final s in list) {
           if (_shouldOmitSubtaskRow(t, s, filters)) continue;
           if (!searchActive) {
-            if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+            if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
           } else {
             if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-            if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+            if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
           }
           out.add(AsanaFlatRow.subtask(t, s));
         }
@@ -768,9 +761,9 @@ class AsanaTaskFilter {
       if (filters.overdueOnly) {
         if (t.overdue == 'Yes') {
           if (!searchActive) {
-            if (_rowPassesCreateDate(t, null, filters)) addTaskIfAllowed();
+            if (_rowPassesDueDate(t, null, filters)) addTaskIfAllowed();
           } else if (_taskTextMatchesAllTokens(t, tokens) &&
-              _rowPassesCreateDate(t, null, filters)) {
+              _rowPassesDueDate(t, null, filters)) {
             addTaskIfAllowed();
           }
         }
@@ -781,20 +774,25 @@ class AsanaTaskFilter {
 
       if (!searchActive) {
         final subsInRange = subsNonDeleted
-            .where((s) => _rowPassesCreateDateSubtask(t, s, filters))
+            .where((s) => _rowPassesDueDateSubtask(t, s, filters))
             .where((s) => !_shouldOmitSubtaskRow(t, s, filters))
             .toList();
         final subsDeletedInRange = subsDeleted
-            .where((s) => _rowPassesCreateDateSubtask(t, s, filters))
+            .where((s) => _rowPassesDueDateSubtask(t, s, filters))
             .where((s) => !_shouldOmitSubtaskRow(t, s, filters))
             .toList();
-        final taskInRange = _rowPassesCreateDate(t, null, filters);
+        final taskInRange = _rowPassesDueDate(t, null, filters);
         if (!taskInRange &&
             subsInRange.isEmpty &&
             subsDeletedInRange.isEmpty) {
           continue;
         }
-        if (taskInRange || subsInRange.isNotEmpty || subsDeletedInRange.isNotEmpty) {
+        final showParent = filters.createDateEngaged
+            ? taskInRange
+            : (taskInRange ||
+                subsInRange.isNotEmpty ||
+                subsDeletedInRange.isNotEmpty);
+        if (showParent) {
           addTaskIfAllowed();
         }
         addSubsInRange(subsInRange);
@@ -808,13 +806,13 @@ class AsanaTaskFilter {
       }
       for (final s in subsNonDeleted) {
         if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-        if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+        if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
         if (_shouldOmitSubtaskRow(t, s, filters)) continue;
         out.add(AsanaFlatRow.subtask(t, s));
       }
       for (final s in subsDeleted) {
         if (!_subtaskTextMatchesAllTokens(s, tokens)) continue;
-        if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+        if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
         if (_shouldOmitSubtaskRow(t, s, filters)) continue;
         out.add(AsanaFlatRow.subtask(t, s));
       }
@@ -869,7 +867,8 @@ class AsanaTaskFilter {
     if (out.isEmpty &&
         activeTasks.isNotEmpty &&
         !searchActive &&
-        !filters.overdueOnly) {
+        !filters.overdueOnly &&
+        !filters.createDateEngaged) {
       for (final t in activeTasks) {
         if (!t.isSingularTableRow) continue;
         if (_hideIncompleteParentWhenCompletedOnly(t, filters)) continue;
@@ -878,7 +877,7 @@ class AsanaTaskFilter {
         for (final s in subs) {
           if (!_subtaskPassesStatusChips(s, filters)) continue;
           if (_shouldOmitSubtaskRow(t, s, filters)) continue;
-          if (!_rowPassesCreateDateSubtask(t, s, filters)) continue;
+          if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
           out.add(AsanaFlatRow.subtask(t, s));
         }
       }
@@ -930,12 +929,18 @@ class AsanaTaskFilter {
   /// Sub-tasks listed under an expanded task row (show data; status chips only).
   static List<SingularSubtask> subtasksForExpandedPanel(
     List<SingularSubtask> subs,
-    AsanaTaskFilterState filters,
-  ) {
+    AsanaTaskFilterState filters, {
+    Task? parentTask,
+  }) {
     Iterable<SingularSubtask> it =
         subs.where((s) => _subtaskPassesStatusChips(s, filters));
     if (!filters.statuses.contains(AsanaTaskFilterState.statusDeleted)) {
       it = it.where((s) => !s.isDeleted);
+    }
+    if (filters.createDateEngaged && parentTask != null) {
+      it = it.where(
+        (s) => _rowPassesDueDateSubtask(parentTask, s, filters),
+      );
     }
     final out = it.toList();
     out.sort((a, b) {
@@ -975,10 +980,10 @@ class AsanaTaskFilter {
       if (_shouldOmitSubtaskRow(task, s, filters)) return false;
       if (filters.overdueOnly && s.overdue != 'Yes') return false;
       if (!searchActive) {
-        return _rowPassesCreateDateSubtask(task, s, filters);
+        return _rowPassesDueDateSubtask(task, s, filters);
       }
       if (!_subtaskTextMatchesAllTokens(s, tokens)) return false;
-      return _rowPassesCreateDateSubtask(task, s, filters);
+      return _rowPassesDueDateSubtask(task, s, filters);
     }
 
     final out = <SingularSubtask>[

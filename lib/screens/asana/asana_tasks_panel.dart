@@ -295,9 +295,10 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                   onPressed: _showSubmissionMenu,
                 ),
                 AsanaFilterDropdown(
-                  title: 'Create date',
-                  value: _createDateLabel(),
-                  onPressed: _showCreateDateRangePicker,
+                  title: 'Due date',
+                  value: _dueDateLabel(),
+                  buttonWidth: 188,
+                  onPressed: _showDueDateRangePicker,
                 ),
                 AsanaFilterDropdown(
                   title: 'Sort',
@@ -342,34 +343,8 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                     Divider(height: 1, color: Colors.grey.shade300),
                     Expanded(
                       child: ListView.builder(
-                        itemCount: rowCount + 1,
+                        itemCount: rowCount,
                         itemBuilder: (context, index) {
-                          if (index == rowCount) {
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Divider(
-                                  height: 1,
-                                  color: Colors.grey.shade300,
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 14,
-                                  ),
-                                  child: Text(
-                                    'Add task…',
-                                    style:
-                                        theme.textTheme.bodyMedium?.copyWith(
-                                      color: theme
-                                          .colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
                           if (widget.flatTasksAndSubtasks) {
                             final row = flatRows[index];
                             final sub = row.sub;
@@ -428,6 +403,7 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                               AsanaTaskFilter.subtasksForExpandedPanel(
                             rawSubs,
                             _filters,
+                            parentTask: t,
                           );
                           return Column(
                             mainAxisSize: MainAxisSize.min,
@@ -526,7 +502,7 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
     return _filters.submissions.map((k) => labels[k] ?? k).join(', ');
   }
 
-  String _createDateLabel() {
+  String _dueDateLabel() {
     final s = _filters.createDateStart;
     final e = _filters.createDateEnd;
     if (s == null && e == null) return 'All';
@@ -541,7 +517,7 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
 
   String _overdueLabel() => _filters.overdueOnly ? 'Overdue only' : 'All';
 
-  Future<void> _showCreateDateRangePicker(BuildContext buttonContext) async {
+  Future<void> _showDueDateRangePicker(BuildContext buttonContext) async {
     final picked = await showAsanaAnchoredDateRangePicker(
       anchorContext: buttonContext,
       start: _filters.createDateStart,
@@ -549,8 +525,8 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
     );
     if (picked == null) return;
     setState(() {
-      _filters.createDateStart = picked.start;
-      _filters.createDateEnd = picked.end;
+      _filters.createDateStart = asanaDateOnlyFromPicker(picked.start);
+      _filters.createDateEnd = asanaDateOnlyFromPicker(picked.end);
     });
     _onFiltersChanged();
   }
@@ -744,21 +720,25 @@ class _TaskTableLayout {
   static const double singleLineExtent = 24;
   static const double hPad = 12;
 
+  static const double _flexWeightSum =
+      0.28 + 0.08 + 0.11 + 0.09 + 0.09 + 0.08 + 0.09;
+
   late final double _inner = (tableWidth -
           typeCol -
           typeColGap -
           kAsanaTextColumnGap * textColumnGapCount -
-          hPad * 2)
+          hPad * 2 -
+          kAsanaTableStatusColWidth)
       .clamp(400, double.infinity);
 
-  double get taskNameCol => _inner * 0.28;
-  double get dueCol => _inner * 0.08;
-  double get projectCol => _inner * 0.11;
-  double get creatorCol => _inner * 0.09;
-  double get picCol => _inner * 0.09;
-  double get priorityCol => _inner * 0.08;
-  double get statusCol => _inner * 0.08;
-  double get submissionCol => _inner * 0.09;
+  double get taskNameCol => _inner * (0.28 / _flexWeightSum);
+  double get dueCol => _inner * (0.08 / _flexWeightSum);
+  double get projectCol => _inner * (0.11 / _flexWeightSum);
+  double get creatorCol => _inner * (0.09 / _flexWeightSum);
+  double get picCol => _inner * (0.09 / _flexWeightSum);
+  double get priorityCol => _inner * (0.08 / _flexWeightSum);
+  double get statusCol => kAsanaTableStatusColWidth;
+  double get submissionCol => _inner * (0.09 / _flexWeightSum);
 }
 
 TextStyle? _taskTableHeaderStyle(BuildContext context) =>
@@ -1187,7 +1167,6 @@ class _ItemTableRow extends StatelessWidget {
       completed: completed,
       isSubtask: isSubtask,
     );
-
     final rowBg =
         isSubtask ? tableColors.subtaskRow : tableColors.taskRow;
 

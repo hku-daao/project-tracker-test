@@ -64,11 +64,15 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SizedBox.expand(
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     final s = _subtask;
     if (s == null) {
-      return const Center(child: Text('Sub-task not found'));
+      return const SizedBox.expand(
+        child: Center(child: Text('Sub-task not found')),
+      );
     }
     final state = context.watch<AppState>();
     final parent = state.taskById(s.taskId);

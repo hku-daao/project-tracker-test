@@ -8,6 +8,9 @@ const Color kAsanaTextSecondary = Color(0xFF6D6E6F);
 /// Narrow empty column after each plain-text table cell (before the next column).
 const double kAsanaTextColumnGap = 16;
 
+/// Status column width (fits "Incomplete" / "In progress" chips).
+const double kAsanaTableStatusColWidth = 112;
+
 /// Gap widget used between text columns in task / project / home tables.
 Widget asanaTextColumnGap() => const SizedBox(width: kAsanaTextColumnGap);
 
@@ -168,19 +171,23 @@ TextStyle? asanaTableRowValueStyle(
   bool completed = false,
 }) {
   final theme = Theme.of(context);
-  final muted = completed ? Colors.black38 : theme.colorScheme.onSurface;
-  return theme.textTheme.bodyMedium?.copyWith(color: muted);
+  return theme.textTheme.bodyMedium?.copyWith(
+    color: theme.colorScheme.onSurface,
+  );
 }
 
-/// Task / project name column (bold for top-level rows).
+/// Task / sub-task / project name column (always bold; completion does not lighten).
 TextStyle? asanaTableRowNameStyle(
   BuildContext context, {
   bool completed = false,
   bool isSubtask = false,
 }) {
-  return asanaTableRowValueStyle(context, completed: completed)?.copyWith(
-        fontWeight: isSubtask ? FontWeight.w500 : FontWeight.w700,
-      );
+  return asanaTextStyle(
+    Theme.of(context).textTheme.bodyMedium,
+    fontSize: 14,
+    fontWeight: isSubtask ? FontWeight.w600 : FontWeight.w700,
+    color: kAsanaTextPrimary,
+  );
 }
 
 /// User initials for sidebar avatar (e.g. Ken Lee → KL).

@@ -583,6 +583,20 @@ class SupabaseService {
     }
   }
 
+  /// Deletes one `attachment` row by primary key (used when removing a saved attachment in the UI).
+  static Future<String?> deleteAttachmentById(String attachmentId) async {
+    if (!_enabled) return 'Supabase not configured';
+    final id = attachmentId.trim();
+    if (id.isEmpty) return 'Missing attachment id';
+    try {
+      await Supabase.instance.client.from('attachment').delete().eq('id', id);
+      return null;
+    } catch (e) {
+      debugPrint('deleteAttachmentById: $e');
+      return e.toString();
+    }
+  }
+
   /// Replaces all `attachment` rows for [taskId] with [rows] (skips rows where both fields are empty).
   static Future<String?> replaceAttachmentsForTask({
     required String taskId,

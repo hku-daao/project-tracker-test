@@ -14,18 +14,35 @@ import '../web_deep_link.dart';
 import 'high_level/project_detail_screen.dart';
 import 'high_level/subtask_detail_screen.dart';
 import '../config/environment_config.dart';
+import '../web_host_env.dart';
 import 'asana_landing_screen.dart';
 import 'home_screen.dart';
 import 'task_detail_screen.dart';
 
 /// Web: root shell matches `view` / session so [HomeScreen] is not painted before Overview.
 /// Mobile: unchanged — [HomeScreen]; pinned Overview still opens via [_StartupShell._maybeOpenPinnedView].
+bool _preferAsanaShellOnWeb(String? view) {
+  if (!kIsWeb) return false;
+  if (!AppEnvironment.isTesting && !isTestWebHost) return false;
+  if (view == 'project') return false;
+  if (view == 'asana' || view == 'newui' || view == 'new-ui') return true;
+  // Stale session values from the old overview / original home.
+  return view == null ||
+      view.isEmpty ||
+      view == 'original' ||
+      view == 'default' ||
+      view == 'overview';
+}
+
 Widget _bootstrapShellChild() {
   if (!kIsWeb) {
     return const HomeScreen();
   }
   final raw = readDashboardViewFromUrlOrSession();
   final view = raw?.trim().toLowerCase();
+  if (_preferAsanaShellOnWeb(view)) {
+    return const AsanaLandingScreen();
+  }
   if (view == 'original') {
     return const HomeScreen();
   }
@@ -33,10 +50,6 @@ Widget _bootstrapShellChild() {
     return buildProjectDashboardPage();
   }
   if (view == 'asana' || view == 'newui' || view == 'new-ui') {
-    return const AsanaLandingScreen();
-  }
-  // Testing web deploy: open the new Asana-style shell by default.
-  if (AppEnvironment.isTesting) {
     return const AsanaLandingScreen();
   }
   return buildOverviewDashboardPage();

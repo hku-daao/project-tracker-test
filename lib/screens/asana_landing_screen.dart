@@ -17,11 +17,15 @@ class AsanaSlideChrome {
 
   final AsanaLandingPalette palette;
 
-  Color get header => palette.banner;
+  /// Top strip darker than the bottom action area (Asana: banner vs selectedNav).
+  Color get header => palette.darkChrome
+      ? palette.banner
+      : palette.banner;
   Color get onHeader => palette.onBanner;
   Color get body => palette.content;
-  Color get footer =>
-      palette.darkChrome ? palette.selectedNav : palette.sidebar;
+  Color get footer => palette.darkChrome
+      ? palette.selectedNav
+      : palette.sidebar;
   Color get footerBorder => palette.darkChrome
       ? palette.onSidebarMuted.withValues(alpha: 0.35)
       : palette.accent.withValues(alpha: 0.25);
@@ -220,6 +224,9 @@ class AsanaLandingPalette {
 
 const _kSidebarAnimDuration = Duration(milliseconds: 280);
 
+/// Below this width, an open detail slide uses the full viewport width.
+const _kDetailFullWidthBreakpoint = 840.0;
+
 /// Below this viewport width the nav sidebar auto-hides (menu can reopen when wider).
 const _kSidebarAutoHideWidth = 1280.0;
 
@@ -232,6 +239,7 @@ class AsanaLandingScreen extends StatefulWidget {
 }
 
 class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
+  static const Duration _kDetailSlideDuration = Duration(milliseconds: 300);
   static const double _kSidebarWidth = 240;
 
   final _searchController = TextEditingController();
@@ -312,6 +320,29 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
       );
     }
     return ColoredBox(color: palette.content);
+  }
+
+  /// One slide host for the whole open/close cycle (inner task panel keeps its own key).
+  String _detailPanelKey() {
+    if (_detailStack.isEmpty) return 'detail-closed';
+    return 'detail-slide-open';
+  }
+
+  void _dismissAllDetails() {
+    if (_detailStack.isEmpty) return;
+    setState(_detailStack.clear);
+  }
+
+  void _popDetail() {
+    if (_detailStack.isEmpty) return;
+    setState(() {
+      if (_detailStack.length > 1) {
+        _detailStack.removeLast();
+        _detailRefreshToken++;
+      } else {
+        _detailStack.clear();
+      }
+    });
   }
 
   @override
@@ -524,13 +555,12 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      if (inlineSidebar)
+                      if (!sidebarOverlay)
                         ClipRect(
-                          child: AnimatedAlign(
+                          child: AnimatedContainer(
                             duration: _kSidebarAnimDuration,
                             curve: Curves.easeInOut,
-                            alignment: Alignment.centerLeft,
-                            widthFactor: 1,
+                            width: _sidebarOpen ? _kSidebarWidth : 0,
                             child: Material(
                               color: palette.sidebar,
                               child: SizedBox(
@@ -545,9 +575,16 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                           listenable: _searchController,
                           builder: (context, _) {
                             final q = _searchController.text;
+                            final screenW =
+                                MediaQuery.sizeOf(context).width;
+                            final basePanelWidth =
+                                (screenW * 0.504).clamp(480.0, 672.0);
                             final panelWidth =
-                                (MediaQuery.sizeOf(context).width * 0.504)
-                                    .clamp(480.0, 672.0);
+                                _detailStack.isNotEmpty &&
+                                        screenW <
+                                            _kDetailFullWidthBreakpoint
+                                    ? screenW
+                                    : basePanelWidth;
                             return Stack(
                               fit: StackFit.expand,
                               children: [
@@ -555,55 +592,78 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                                   palette: palette,
                                   searchQuery: q,
                                 ),
-                                if (_detailStack.isNotEmpty) ...[
-                                  Positioned.fill(
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () =>
-                                          setState(_detailStack.clear),
-                                      child: const ColoredBox(
-                                        color: Color(0x33000000),
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 0,
-                                    top: 0,
-                                    bottom: 0,
-                                    child: AsanaDetailSlidePanel(
-                                      width: panelWidth,
-                                      palette: palette,
-                                      stack: List<AsanaDetailSelection>.from(
-                                        _detailStack,
-                                      ),
-                                      detailRefreshToken:
-                                          _detailRefreshToken,
-                                      onDismissAll: () => setState(() {
-                                        _detailStack.clear();
-                                      }),
-                                      onPop: () => setState(() {
-                                        if (_detailStack.length > 1) {
-                                          _detailStack.removeLast();
-                                          _detailRefreshToken++;
-                                        } else {
-                                          _detailStack.clear();
-                                        }
-                                      }),
-                                      onPushCreateSubtask: (taskId) =>
-                                          setState(
-                                        () => _detailStack.add(
-                                          AsanaDetailSelection
-                                              .createSubtask(taskId),
-                                        ),
-                                      ),
-                                      onPushSubtask: (id) => setState(
-                                        () => _detailStack.add(
-                                          AsanaDetailSelection.subtask(id),
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    ignoring: _detailStack.isEmpty,
+                                    child: AnimatedOpacity(
+                                      duration: _kDetailSlideDuration,
+                                      opacity:
+                                          _detailStack.isEmpty ? 0 : 1,
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: _dismissAllDetails,
+                                        child: const ColoredBox(
+                                          color: Color(0x33000000),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ],
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  child: AnimatedSwitcher(
+                                    duration: _kDetailSlideDuration,
+                                    switchInCurve: Curves.easeOutCubic,
+                                    switchOutCurve: Curves.easeInCubic,
+                                    transitionBuilder: (child, animation) {
+                                      final offset = Tween<Offset>(
+                                        begin: const Offset(1, 0),
+                                        end: Offset.zero,
+                                      ).animate(animation);
+                                      return SlideTransition(
+                                        position: offset,
+                                        child: child,
+                                      );
+                                    },
+                                    child: _detailStack.isEmpty
+                                        ? const SizedBox.shrink(
+                                            key: ValueKey<String>(
+                                              'detail-closed',
+                                            ),
+                                          )
+                                        : AsanaDetailSlidePanel(
+                                            key: ValueKey<String>(
+                                              _detailPanelKey(),
+                                            ),
+                                            width: panelWidth,
+                                            palette: palette,
+                                            stack:
+                                                List<AsanaDetailSelection>.from(
+                                              _detailStack,
+                                            ),
+                                            detailRefreshToken:
+                                                _detailRefreshToken,
+                                            onDismissAll: _dismissAllDetails,
+                                            onPop: _popDetail,
+                                            onPushCreateSubtask: (taskId) =>
+                                                setState(
+                                              () => _detailStack.add(
+                                                AsanaDetailSelection
+                                                    .createSubtask(taskId),
+                                              ),
+                                            ),
+                                            onPushSubtask: (id) => setState(
+                                              () => _detailStack.add(
+                                                AsanaDetailSelection.subtask(
+                                                  id,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                  ),
+                                ),
                               ],
                             );
                           },

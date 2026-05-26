@@ -118,9 +118,10 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
                   onPressed: _showStatusMenu,
                 ),
                 AsanaFilterDropdown(
-                  title: 'Create date',
-                  value: _createDateLabel(),
-                  onPressed: _showCreateDateRangePicker,
+                  title: 'Due date',
+                  value: _dueDateLabel(),
+                  buttonWidth: 188,
+                  onPressed: _showDueDateRangePicker,
                 ),
                 AsanaFilterDropdown(
                   title: 'Sort',
@@ -157,33 +158,8 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
                     Divider(height: 1, color: Colors.grey.shade300),
                     Expanded(
                       child: ListView.builder(
-                        itemCount: projects.length + 1,
+                        itemCount: projects.length,
                         itemBuilder: (context, index) {
-                          if (index == projects.length) {
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Divider(
-                                  height: 1,
-                                  color: Colors.grey.shade300,
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 14,
-                                  ),
-                                  child: Text(
-                                    'Add project…',
-                                    style: theme.textTheme.bodyMedium
-                                        ?.copyWith(
-                                      color: theme
-                                          .colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
                           final p = projects[index];
                           return Column(
                             mainAxisSize: MainAxisSize.min,
@@ -244,7 +220,7 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
     return _filters.statuses.join(', ');
   }
 
-  String _createDateLabel() {
+  String _dueDateLabel() {
     final s = _filters.createDateStart;
     final e = _filters.createDateEnd;
     if (s == null && e == null) return 'All';
@@ -257,7 +233,7 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
     return 'To ${HkTime.formatInstantAsHk(e!, 'MMM d')}';
   }
 
-  Future<void> _showCreateDateRangePicker(BuildContext buttonContext) async {
+  Future<void> _showDueDateRangePicker(BuildContext buttonContext) async {
     final picked = await showAsanaAnchoredDateRangePicker(
       anchorContext: buttonContext,
       start: _filters.createDateStart,
@@ -265,8 +241,8 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
     );
     if (picked == null) return;
     setState(() {
-      _filters.createDateStart = picked.start;
-      _filters.createDateEnd = picked.end;
+      _filters.createDateStart = asanaDateOnlyFromPicker(picked.start);
+      _filters.createDateEnd = asanaDateOnlyFromPicker(picked.end);
     });
     _rebuildList();
   }
@@ -399,17 +375,20 @@ class _ProjectTableLayout {
   static const double singleLineExtent = 24;
   static const double hPad = 12;
 
+  static const double _flexWeightSum = 0.34 + 0.14 + 0.22;
+
   late final double _inner = (tableWidth -
           typeCol -
           typeColGap -
           kAsanaTextColumnGap * textColumnGapCount -
-          hPad * 2)
+          hPad * 2 -
+          kAsanaTableStatusColWidth)
       .clamp(320, double.infinity);
 
-  double get nameCol => _inner * 0.34;
-  double get dueCol => _inner * 0.14;
-  double get picCol => _inner * 0.22;
-  double get statusCol => _inner * 0.16;
+  double get nameCol => _inner * (0.34 / _flexWeightSum);
+  double get dueCol => _inner * (0.14 / _flexWeightSum);
+  double get picCol => _inner * (0.22 / _flexWeightSum);
+  double get statusCol => kAsanaTableStatusColWidth;
 }
 
 class _ProjectTableHeader extends StatelessWidget {

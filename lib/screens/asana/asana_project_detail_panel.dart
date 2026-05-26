@@ -53,11 +53,15 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SizedBox.expand(
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     final p = _project;
     if (p == null) {
-      return const Center(child: Text('Project not found'));
+      return const SizedBox.expand(
+        child: Center(child: Text('Project not found')),
+      );
     }
     final state = context.watch<AppState>();
 

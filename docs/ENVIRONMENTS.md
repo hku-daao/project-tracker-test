@@ -33,7 +33,7 @@ Release web builds use **`--no-tree-shake-icons`** so Material `Icon` glyphs are
 **Deploy to the test site** (DAAO Tests + test Railway):
 
 ```powershell
-flutter build web --release --no-wasm-dry-run --no-tree-shake-icons
+flutter build web --release --no-wasm-dry-run --no-tree-shake-icons --pwa-strategy=none
 firebase deploy --only hosting:testing
 ```
 

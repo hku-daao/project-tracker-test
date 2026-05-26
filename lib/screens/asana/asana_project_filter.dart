@@ -1,16 +1,11 @@
 import '../../app_state.dart';
 import '../../models/project_record.dart';
-import '../../utils/hk_time.dart';
-
 class AsanaProjectFilterState {
   AsanaProjectFilterState();
 
   String scope = 'all';
-  final Set<String> statuses = {
-    'Not started',
-    'In progress',
-    'Completed',
-  };
+  /// Empty = all statuses (default).
+  final Set<String> statuses = {};
 
   DateTime? createDateStart;
   DateTime? createDateEnd;
@@ -22,9 +17,7 @@ class AsanaProjectFilterState {
 
   void resetToDefaults() {
     scope = 'all';
-    statuses
-      ..clear()
-      ..addAll(['Not started', 'In progress', 'Completed']);
+    statuses.clear();
     sortKey = 'due';
     sortAscending = true;
     createDateStart = null;
@@ -37,14 +30,7 @@ class AsanaProjectFilter {
 
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  static bool _dateWithinLastRollingMonth(DateTime d) {
-    final day = _dateOnly(d);
-    final today = HkTime.todayDateOnlyHk();
-    final start = today.subtract(const Duration(days: 30));
-    return !day.isBefore(start) && !day.isAfter(today);
-  }
-
-  static bool _calendarDayInCreateRange(DateTime day, AsanaProjectFilterState f) {
+  static bool _calendarDayInDueRange(DateTime day, AsanaProjectFilterState f) {
     if (!f.createDateEngaged) return true;
     final s = f.createDateStart != null ? _dateOnly(f.createDateStart!) : null;
     final e = f.createDateEnd != null ? _dateOnly(f.createDateEnd!) : null;
@@ -53,17 +39,14 @@ class AsanaProjectFilter {
     return true;
   }
 
-  static bool _projectPassesCreateDate(
+  static bool _projectPassesDueDate(
     ProjectRecord p,
     AsanaProjectFilterState filters,
   ) {
-    final cd = p.createDate;
-    if (cd == null) return true;
-    final day = _dateOnly(cd);
-    if (filters.createDateEngaged) {
-      return _calendarDayInCreateRange(day, filters);
-    }
-    return _dateWithinLastRollingMonth(cd);
+    if (!filters.createDateEngaged) return true;
+    final due = p.endDate;
+    if (due == null) return true;
+    return _calendarDayInDueRange(_dateOnly(due), filters);
   }
 
   /// Mirrors [InitiativeListScreen._projectIsVisibleToCurrentUser].
@@ -137,7 +120,7 @@ class AsanaProjectFilter {
       list = list.where((p) => filters.statuses.contains(p.status)).toList();
     }
 
-    list = list.where((p) => _projectPassesCreateDate(p, filters)).toList();
+    list = list.where((p) => _projectPassesDueDate(p, filters)).toList();
 
     final q = searchQuery.trim().toLowerCase();
     if (q.isNotEmpty) {

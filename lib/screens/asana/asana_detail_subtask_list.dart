@@ -8,27 +8,34 @@ import 'asana_value_chips.dart';
 
 /// Column layout aligned with [AsanaTasksPanel] task table rows.
 class AsanaDetailSubtaskTableLayout {
-  AsanaDetailSubtaskTableLayout(this.tableWidth);
+  AsanaDetailSubtaskTableLayout(this.tableWidth, {this.nameAndDueOnly = false});
 
   static const double minTableWidth = 1104;
+  static const double minNameDueTableWidth = 360;
   static const double typeCol = 48;
   static const double typeColGap = 10;
   static const double nameGutter = 36;
   static const int textColumnGapCount = 5;
+  static const int nameDueTextColumnGapCount = 1;
   static const double singleLineExtent = 24;
   static const double hPad = 12;
 
   final double tableWidth;
+  final bool nameAndDueOnly;
 
   late final double _inner = (tableWidth -
-          typeCol -
-          typeColGap -
-          kAsanaTextColumnGap * textColumnGapCount -
+          (nameAndDueOnly
+              ? 0
+              : typeCol + typeColGap) -
+          kAsanaTextColumnGap *
+              (nameAndDueOnly
+                  ? nameDueTextColumnGapCount
+                  : textColumnGapCount) -
           hPad * 2)
-      .clamp(400, double.infinity);
+      .clamp(200, double.infinity);
 
-  double get nameCol => _inner * 0.32;
-  double get dueCol => _inner * 0.08;
+  double get nameCol => nameAndDueOnly ? _inner * 0.72 : _inner * 0.32;
+  double get dueCol => nameAndDueOnly ? _inner * 0.28 : _inner * 0.08;
   double get projectCol => _inner * 0.12;
   double get creatorCol => _inner * 0.10;
   double get picCol => _inner * 0.10;
@@ -65,7 +72,8 @@ class AsanaDetailSubtaskList extends StatelessWidget {
     required this.subtasks,
     required this.tableColors,
     required this.appState,
-    required this.projectName,
+    this.projectName = '—',
+    this.nameAndDueOnly = false,
     this.onOpenSubtask,
   });
 
@@ -74,16 +82,22 @@ class AsanaDetailSubtaskList extends StatelessWidget {
   final AsanaTableColors tableColors;
   final AppState appState;
   final String projectName;
+  final bool nameAndDueOnly;
   final void Function(String subtaskId)? onOpenSubtask;
 
   @override
   Widget build(BuildContext context) {
     if (subtasks.isEmpty) return const SizedBox.shrink();
 
-    final tableWidth = viewportWidth < AsanaDetailSubtaskTableLayout.minTableWidth
-        ? AsanaDetailSubtaskTableLayout.minTableWidth
-        : viewportWidth;
-    final cols = AsanaDetailSubtaskTableLayout(tableWidth);
+    final minWidth = nameAndDueOnly
+        ? AsanaDetailSubtaskTableLayout.minNameDueTableWidth
+        : AsanaDetailSubtaskTableLayout.minTableWidth;
+    final tableWidth =
+        viewportWidth < minWidth ? minWidth : viewportWidth;
+    final cols = AsanaDetailSubtaskTableLayout(
+      tableWidth,
+      nameAndDueOnly: nameAndDueOnly,
+    );
     final header = _headerStyle(context);
 
     Widget table = Column(
@@ -100,20 +114,25 @@ class AsanaDetailSubtaskList extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              SizedBox(
-                width: AsanaDetailSubtaskTableLayout.typeCol,
-                child: Text('', style: header),
-              ),
-              const SizedBox(width: AsanaDetailSubtaskTableLayout.typeColGap),
+              if (!nameAndDueOnly) ...[
+                SizedBox(
+                  width: AsanaDetailSubtaskTableLayout.typeCol,
+                  child: Text('', style: header),
+                ),
+                const SizedBox(
+                  width: AsanaDetailSubtaskTableLayout.typeColGap,
+                ),
+              ],
               SizedBox(
                 width: cols.nameCol,
                 height: AsanaDetailSubtaskTableLayout.singleLineExtent,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const SizedBox(
-                      width: AsanaDetailSubtaskTableLayout.nameGutter,
-                    ),
+                    if (!nameAndDueOnly)
+                      const SizedBox(
+                        width: AsanaDetailSubtaskTableLayout.nameGutter,
+                      ),
                     Expanded(
                       child: Text(
                         'Sub-task Name',
@@ -132,40 +151,42 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                 style: header,
                 rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
               ),
-              asanaTextColumnGap(),
-              asanaTableHeaderLabel(
-                width: cols.projectCol,
-                label: 'Project',
-                style: header,
-                rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
-              ),
-              asanaTextColumnGap(),
-              asanaTableHeaderLabel(
-                width: cols.creatorCol,
-                label: 'Creator',
-                style: header,
-                rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
-              ),
-              asanaTextColumnGap(),
-              asanaTableHeaderLabel(
-                width: cols.picCol,
-                label: 'PIC',
-                style: header,
-                rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
-              ),
-              asanaTextColumnGap(),
-              asanaTableHeaderLabel(
-                width: cols.statusCol,
-                label: 'Status',
-                style: header,
-                rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
-              ),
-              asanaTableHeaderLabel(
-                width: cols.submissionCol,
-                label: 'Submission',
-                style: header,
-                rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
-              ),
+              if (!nameAndDueOnly) ...[
+                asanaTextColumnGap(),
+                asanaTableHeaderLabel(
+                  width: cols.projectCol,
+                  label: 'Project',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
+                asanaTextColumnGap(),
+                asanaTableHeaderLabel(
+                  width: cols.creatorCol,
+                  label: 'Creator',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
+                asanaTextColumnGap(),
+                asanaTableHeaderLabel(
+                  width: cols.picCol,
+                  label: 'PIC',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
+                asanaTextColumnGap(),
+                asanaTableHeaderLabel(
+                  width: cols.statusCol,
+                  label: 'Status',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
+                asanaTableHeaderLabel(
+                  width: cols.submissionCol,
+                  label: 'Submission',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
+              ],
             ],
           ),
         ),
@@ -196,27 +217,32 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: AsanaDetailSubtaskTableLayout.typeCol,
-                      child: Center(
-                        child: AsanaRowTypeLetter(
-                          letter: 'S',
-                          completed: completed,
+                    if (!nameAndDueOnly) ...[
+                      SizedBox(
+                        width: AsanaDetailSubtaskTableLayout.typeCol,
+                        child: Center(
+                          child: AsanaRowTypeLetter(
+                            letter: 'S',
+                            completed: completed,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(
-                      width: AsanaDetailSubtaskTableLayout.typeColGap,
-                    ),
+                      const SizedBox(
+                        width: AsanaDetailSubtaskTableLayout.typeColGap,
+                      ),
+                    ],
                     SizedBox(
                       width: cols.nameCol,
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const SizedBox(
-                            width: AsanaDetailSubtaskTableLayout.nameGutter,
-                            height: AsanaDetailSubtaskTableLayout.singleLineExtent,
-                          ),
+                          if (!nameAndDueOnly)
+                            const SizedBox(
+                              width:
+                                  AsanaDetailSubtaskTableLayout.nameGutter,
+                              height: AsanaDetailSubtaskTableLayout
+                                  .singleLineExtent,
+                            ),
                           Expanded(
                             child: Text(
                               name,
@@ -238,51 +264,53 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    asanaTextColumnGap(),
-                    SizedBox(
-                      width: cols.projectCol,
-                      child: Text(
-                        projectName,
-                        style: rowValueStyle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    if (!nameAndDueOnly) ...[
+                      asanaTextColumnGap(),
+                      SizedBox(
+                        width: cols.projectCol,
+                        child: Text(
+                          projectName,
+                          style: rowValueStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    asanaTextColumnGap(),
-                    SizedBox(
-                      width: cols.creatorCol,
-                      child: Text(
-                        (s.createByStaffName ?? '').trim().isEmpty
-                            ? '—'
-                            : s.createByStaffName!.trim(),
-                        style: rowValueStyle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      asanaTextColumnGap(),
+                      SizedBox(
+                        width: cols.creatorCol,
+                        child: Text(
+                          (s.createByStaffName ?? '').trim().isEmpty
+                              ? '—'
+                              : s.createByStaffName!.trim(),
+                          style: rowValueStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    asanaTextColumnGap(),
-                    SizedBox(
-                      width: cols.picCol,
-                      child: Text(
-                        _formatPic(appState, s.pic),
-                        style: rowValueStyle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      asanaTextColumnGap(),
+                      SizedBox(
+                        width: cols.picCol,
+                        child: Text(
+                          _formatPic(appState, s.pic),
+                          style: rowValueStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    asanaTextColumnGap(),
-                    SizedBox(
-                      width: cols.statusCol,
-                      child: AsanaTableCellChip(
-                        child: AsanaStatusChip(status: s.status),
+                      asanaTextColumnGap(),
+                      SizedBox(
+                        width: cols.statusCol,
+                        child: AsanaTableCellChip(
+                          child: AsanaStatusChip(status: s.status),
+                        ),
                       ),
-                    ),
-                    SizedBox(
-                      width: cols.submissionCol,
-                      child: AsanaTableCellChip(
-                        child: AsanaSubmissionChip(submission: s.submission),
+                      SizedBox(
+                        width: cols.submissionCol,
+                        child: AsanaTableCellChip(
+                          child: AsanaSubmissionChip(submission: s.submission),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -292,7 +320,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
       ],
     );
 
-    if (viewportWidth < AsanaDetailSubtaskTableLayout.minTableWidth) {
+    if (viewportWidth < minWidth) {
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SizedBox(width: tableWidth, child: table),

@@ -128,15 +128,32 @@ class _AsanaCreateProjectDetailPanelState
       return state.assigneeById(id)?.name.trim() ?? id;
     }();
 
-    return Stack(
-      children: [
-        ColoredBox(
-          color: chrome.body,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 88),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+    return AsanaDetailSlideScaffold(
+      backgroundColor: chrome.body,
+      footer: AsanaDetailSlideFooter(
+        backgroundColor: chrome.footer,
+        borderColor: chrome.footerBorder,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            FilledButton(
+              onPressed: _saving ? null : () => _create(state),
+              style: FilledButton.styleFrom(
+                backgroundColor: widget.palette.accent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+              ),
+              child: Text(_saving ? 'Creating…' : 'Create'),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
                 AsanaHoverTextField(
                   controller: _nameController,
                   canEdit: true,
@@ -174,7 +191,7 @@ class _AsanaCreateProjectDetailPanelState
                   child: AsanaHoverTapValue(
                     value: _formatDate(_startDate),
                     canEdit: true,
-                    onTap: () => _pickDate(isStart: true),
+                    onTap: (_) => _pickDate(isStart: true),
                   ),
                 ),
                 AsanaDetailTwoColumnRow(
@@ -182,46 +199,11 @@ class _AsanaCreateProjectDetailPanelState
                   child: AsanaHoverTapValue(
                     value: _formatDate(_endDate),
                     canEdit: true,
-                    onTap: () => _pickDate(isStart: false),
+                    onTap: (_) => _pickDate(isStart: false),
                   ),
                 ),
               ],
             ),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Material(
-            color: chrome.footer,
-            elevation: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: chrome.footerBorder)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  FilledButton(
-                    onPressed: _saving ? null : () => _create(state),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: widget.palette.accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                    ),
-                    child: Text(_saving ? 'Creating…' : 'Create'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

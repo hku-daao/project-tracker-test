@@ -1,10 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../utils/hk_time.dart';
 import '../asana_landing_screen.dart';
+import 'asana_anchored_overlay.dart';
+import 'asana_date_range_picker.dart';
+import 'asana_detail_widgets.dart';
 import 'asana_theme.dart';
+
+/// Calendar day from a [DateRangePickerDialog] result (local date components).
+DateTime asanaDateOnlyFromPicker(DateTime d) => DateTime(d.year, d.month, d.day);
 
 /// Filter control with a label above the current value (Asana-style toolbar).
 class AsanaFilterDropdown extends StatelessWidget {
@@ -145,11 +152,16 @@ class AsanaPanelFilterToolbar extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: filterChildren,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: filterChildren,
+                ),
               ),
             ),
           ),
@@ -384,11 +396,12 @@ class _CompactCheckboxTile extends StatelessWidget {
   }
 }
 
-/// Anchored range calendar (one picker UI) below the Create date filter button.
+/// Anchored range calendar (one picker UI) below a filter or detail field.
 Future<DateTimeRange?> showAsanaAnchoredDateRangePicker({
   required BuildContext anchorContext,
   DateTime? start,
   DateTime? end,
+  String helpText = 'Due date range',
 }) async {
   final box = anchorContext.findRenderObject() as RenderBox?;
   if (box == null || !box.hasSize) return null;
@@ -405,7 +418,14 @@ Future<DateTimeRange?> showAsanaAnchoredDateRangePicker({
   final size = box.size;
   final screen = MediaQuery.sizeOf(anchorContext);
   const panelWidth = 380.0;
-  const panelHeight = 460.0;
+  const panelHeight = 420.0;
+  final accent = Theme.of(anchorContext).colorScheme.primary;
+  final pickerTheme = Theme.of(anchorContext).copyWith(
+    colorScheme: Theme.of(anchorContext).colorScheme.copyWith(
+      primary: accent,
+      onPrimary: Colors.white,
+    ),
+  );
   var left = offset.dx;
   if (left + panelWidth > screen.width - 8) {
     left = screen.width - panelWidth - 8;
@@ -417,7 +437,7 @@ Future<DateTimeRange?> showAsanaAnchoredDateRangePicker({
   }
   if (top < 8) top = 8;
 
-  return showGeneralDialog<DateTimeRange>(
+  final picked = await showGeneralDialog<DateTimeRange>(
     context: anchorContext,
     barrierDismissible: true,
     barrierLabel: 'Dismiss',
@@ -433,17 +453,18 @@ Future<DateTimeRange?> showAsanaAnchoredDateRangePicker({
               elevation: 8,
               borderRadius: BorderRadius.circular(8),
               clipBehavior: Clip.antiAlias,
-              color: Theme.of(dialogContext).colorScheme.surface,
-              child: SizedBox(
-                width: panelWidth,
-                height: panelHeight,
-                child: DateRangePickerDialog(
-                  initialDateRange: initialRange,
-                  firstDate: now.subtract(const Duration(days: 365 * 3)),
-                  lastDate: now.add(const Duration(days: 365)),
-                  currentDate: now,
-                  helpText: 'Create date range',
-                  saveText: 'Apply',
+              color: pickerTheme.colorScheme.surface,
+              child: Theme(
+                data: pickerTheme,
+                child: SizedBox(
+                  width: panelWidth,
+                  child: AsanaDateRangePickerPanel(
+                    initialRange: initialRange,
+                    firstDate: now.subtract(const Duration(days: 365 * 10)),
+                    lastDate: now.add(const Duration(days: 365 * 5)),
+                    accentColor: accent,
+                    helpText: helpText,
+                  ),
                 ),
               ),
             ),
@@ -452,4 +473,71 @@ Future<DateTimeRange?> showAsanaAnchoredDateRangePicker({
       );
     },
   );
+  if (picked == null) return null;
+  return DateTimeRange(
+    start: asanaDateOnlyFromPicker(picked.start),
+    end: asanaDateOnlyFromPicker(picked.end),
+  );
+}
+
+/// One selectable row in [showAsanaAnchoredOptionMenu].
+class AsanaAnchoredOption<T> {
+  const AsanaAnchoredOption({required this.value, required this.label});
+
+  final T value;
+  final String label;
+}
+
+/// Small menu anchored under a field (task-list filter style; follows anchor on resize).
+Future<T?> showAsanaAnchoredOptionMenu<T>({
+  required LayerLink anchorLink,
+  required BuildContext anchorContext,
+  required List<AsanaAnchoredOption<T>> options,
+  VoidCallback? onClosed,
+}) async {
+  T? picked;
+  final menuWidth = asanaAnchoredFieldWidth(anchorContext);
+  await showAsanaAnchoredOverlay(
+    anchorLink: anchorLink,
+    anchorContext: anchorContext,
+    panelWidth: menuWidth,
+    whenClosed: onClosed,
+    builder: (ctx, close) {
+      return Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        color: Theme.of(anchorContext).colorScheme.surface,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: options
+              .map(
+                (o) => InkWell(
+                  onTap: () {
+                    picked = o.value;
+                    SchedulerBinding.instance.addPostFrameCallback((_) {
+                      close();
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Text(
+                      o.label,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                      style: asanaDetailValueStyle(anchorContext),
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      );
+    },
+  );
+  return picked;
 }
