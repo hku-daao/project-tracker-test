@@ -1,9 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../config/supabase_config.dart';
 import '../../models/staff_for_assignment.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
 import '../asana_landing_screen.dart';
@@ -157,6 +159,36 @@ class _AsanaCreateProjectDetailPanelState
         .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  void _showEmailWarning(String label, String error) {
+    debugPrint('$label: $error');
+    if (!mounted) return;
+    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label: $short'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _notifyEmail(
+    String label,
+    Future<String?> Function(String idToken) send,
+  ) async {
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) {
+        _showEmailWarning(label, 'sign-in token missing');
+        return;
+      }
+      final err = await send(token);
+      if (err != null) _showEmailWarning(label, err);
+    } catch (e) {
+      _showEmailWarning(label, e.toString());
+    }
   }
 
   void _syncPicAfterAssigneesChange() {
@@ -355,6 +387,13 @@ class _AsanaCreateProjectDetailPanelState
       if (newId != null && newId.isNotEmpty) {
         final p = await SupabaseService.fetchProjectById(newId);
         if (p != null) state.upsertProject(p);
+        await _notifyEmail(
+          'Project assignment email',
+          (token) => BackendApi().notifyProjectAssigned(
+            idToken: token,
+            projectId: newId,
+          ),
+        );
         widget.onCreated?.call(newId);
       }
       if (mounted) widget.onClose();

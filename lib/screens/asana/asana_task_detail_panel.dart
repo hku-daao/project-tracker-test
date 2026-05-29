@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -12,6 +13,7 @@ import '../../models/staff_for_assignment.dart';
 import '../../models/task.dart';
 import '../../priority.dart';
 import '../../services/firebase_attachment_upload_service.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
@@ -730,6 +732,93 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     return HkTime.formatInstantAsHk(d, 'MMM d, yyyy HH:mm');
   }
 
+  void _showEmailWarning(String label, String error) {
+    debugPrint('$label: $error');
+    if (!mounted) return;
+    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label: $short'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _notifyEmail(
+    String label,
+    Future<String?> Function(String idToken) send,
+  ) async {
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) {
+        _showEmailWarning(label, 'sign-in token missing');
+        return;
+      }
+      final err = await send(token);
+      if (err != null) _showEmailWarning(label, err);
+    } catch (e) {
+      _showEmailWarning(label, e.toString());
+    }
+  }
+
+  String _namesFor(AppState state, Iterable<String> ids) {
+    return ids
+        .map((id) => _nameFor(state, id))
+        .where((name) => name.trim().isNotEmpty)
+        .join(', ');
+  }
+
+  void _addChange(
+    List<Map<String, String>> changes,
+    String field,
+    String oldValue,
+    String newValue,
+  ) {
+    if (oldValue.trim() == newValue.trim()) return;
+    changes.add({'field': field, 'value': newValue});
+  }
+
+  List<Map<String, String>> _taskChangesForEmail(
+    AppState state,
+    Task task,
+    List<String> assigneeIds,
+  ) {
+    final changes = <Map<String, String>>[];
+    _addChange(changes, 'taskName', task.name, _nameController.text.trim());
+    _addChange(
+      changes,
+      'description',
+      task.description,
+      _descController.text.trim(),
+    );
+    _addChange(
+      changes,
+      'assignees',
+      _namesFor(state, task.assigneeIds),
+      _namesFor(state, assigneeIds),
+    );
+    _addChange(
+      changes,
+      'priority',
+      priorityToDisplayName(task.priority),
+      priorityToDisplayName(_localPriority),
+    );
+    _addChange(
+      changes,
+      'startDate',
+      _formatDate(task.startDate),
+      _formatDate(_startDate),
+    );
+    _addChange(
+      changes,
+      'dueDate',
+      _formatDate(task.endDate),
+      _formatDate(_dueDate),
+    );
+    return changes;
+  }
+
   /// Posted time on task comments (HK, 24h — matches legacy task detail).
   String _formatCommentPostedTs(DateTime? stored) {
     if (stored == null) return '';
@@ -1170,6 +1259,42 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       if (model != null) {
         state.upsertTask(model);
       }
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) {
+        debugPrint(
+          'notifyTaskAssigned: skipped - Firebase ID token is null',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Task saved. Assignment email was not sent (sign-in token missing).',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        final notifyErr = await BackendApi().notifyTaskAssigned(
+          idToken: token,
+          taskId: newId,
+        );
+        if (notifyErr != null) {
+          debugPrint('notifyTaskAssigned: $notifyErr');
+          if (mounted) {
+            final short = notifyErr.length > 160
+                ? '${notifyErr.substring(0, 160)}...'
+                : notifyErr;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Assignment email: $short'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        }
+      }
       if (mounted) widget.onCreated?.call(newId);
     } finally {
       AsanaBlockingLoadingOverlay.hide();
@@ -1226,6 +1351,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           curProj != null &&
           curProj.isNotEmpty;
 
+      final changesForEmail = _taskChangesForEmail(state, task, directorIds);
       final err = await SupabaseService.updateSingularTaskRow(
         taskId: task.id,
         taskName: _nameController.text.trim(),
@@ -1262,6 +1388,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         }
       }
       final comment = _commentController.text.trim();
+      String? commentId;
       if (comment.isNotEmpty) {
         final c = await SupabaseService.insertSingularCommentRow(
           taskId: task.id,
@@ -1269,6 +1396,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           creatorStaffLookupKey: state.userStaffAppId,
         );
         if (c.error == null) {
+          commentId = c.commentId;
           _commentController.clear();
           await _loadComments();
         }
@@ -1278,6 +1406,16 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       state.replaceTask(updated);
       SupabaseService.invalidateSubtasksCacheForTask(task.id);
       await _loadSubtasks();
+      await _notifyEmail(
+        'Task update email',
+        (token) => BackendApi().notifyTaskUpdated(
+          idToken: token,
+          taskId: task.id,
+          changes: changesForEmail,
+          commentAddedText: comment,
+          taskCommentId: commentId,
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -1320,6 +1458,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       }
       _commentController.clear();
       await _loadComments();
+      await _notifyEmail(
+        'Task comment email',
+        (token) => BackendApi().notifyTaskCommentAdded(
+          idToken: token,
+          commentId: c.commentId ?? '',
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -1358,6 +1503,15 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           completionDate: completedAt,
         ),
       );
+      if (task.submission?.trim() == 'Submitted') {
+        await _notifyEmail(
+          'Task accepted email',
+          (token) => BackendApi().notifyTaskAccepted(
+            idToken: token,
+            taskId: task.id,
+          ),
+        );
+      }
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -1385,6 +1539,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       state.replaceTask(
         task.copyWith(submission: 'Submitted', submitDate: DateTime.now().toUtc()),
       );
+      await _notifyEmail(
+        'Task submission email',
+        (token) => BackendApi().notifyTaskSubmission(
+          idToken: token,
+          taskId: task.id,
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -1409,6 +1570,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         return;
       }
       state.replaceTask(task.copyWith(submission: 'Returned'));
+      await _notifyEmail(
+        'Task returned email',
+        (token) => BackendApi().notifyTaskReturned(
+          idToken: token,
+          taskId: task.id,
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);

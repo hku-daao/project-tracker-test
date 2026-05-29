@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,10 +10,12 @@ import '../../models/singular_subtask.dart';
 import '../../models/staff_for_assignment.dart';
 import '../../models/task.dart';
 import '../../priority.dart';
+import '../../services/backend_api.dart';
 import '../../services/firebase_attachment_upload_service.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/due_span_policy.dart';
 import '../../utils/hk_time.dart';
+import '../app_bootstrap.dart';
 import '../asana_landing_screen.dart';
 import 'asana_attachment_draft_tile.dart';
 import 'asana_attachment_menu.dart';
@@ -264,6 +267,77 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   String _date(DateTime? d) {
     if (d == null) return '';
     return HkTime.formatInstantAsHk(d, 'MMM d, yyyy');
+  }
+
+  void _showEmailWarning(String label, String error) {
+    debugPrint('$label: $error');
+    if (!mounted) return;
+    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label: $short'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _notifyEmail(
+    String label,
+    Future<String?> Function(String idToken) send,
+  ) async {
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) {
+        _showEmailWarning(label, 'sign-in token missing');
+        return;
+      }
+      final err = await send(token);
+      if (err != null) _showEmailWarning(label, err);
+    } catch (e) {
+      _showEmailWarning(label, e.toString());
+    }
+  }
+
+  void _addChange(
+    List<Map<String, String>> changes,
+    String field,
+    String oldValue,
+    String newValue,
+  ) {
+    if (oldValue.trim() == newValue.trim()) return;
+    changes.add({'field': field, 'value': newValue});
+  }
+
+  String _namesFor(AppState state, Iterable<String> ids) {
+    return ids
+        .map((id) => _nameFor(state, id))
+        .where((name) => name.trim().isNotEmpty)
+        .join(', ');
+  }
+
+  List<Map<String, String>> _subtaskChangesForEmail(
+    AppState state,
+    SingularSubtask s,
+  ) {
+    final changes = <Map<String, String>>[];
+    _addChange(changes, 'subtaskName', s.subtaskName, _nameController.text.trim());
+    _addChange(changes, 'description', s.description, _descController.text.trim());
+    _addChange(
+      changes,
+      'assignees',
+      _namesFor(state, s.assigneeIds),
+      _namesFor(state, _assigneeIds),
+    );
+    _addChange(
+      changes,
+      'priority',
+      priorityToDisplayName(s.priority),
+      priorityToDisplayName(_localPriority),
+    );
+    _addChange(changes, 'startDate', _date(s.startDate), _date(_startDate));
+    _addChange(changes, 'dueDate', _date(s.dueDate), _date(_dueDate));
+    return changes;
   }
 
   bool _isCreator(AppState state) {
@@ -758,6 +832,13 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         if (mounted) {
           if (newSubtaskId != null && newSubtaskId.isNotEmpty) {
             widget.onCreated?.call(newSubtaskId);
+            await _notifyEmail(
+              'Sub-task assignment email',
+              (token) => BackendApi().notifySubtaskAssigned(
+                idToken: token,
+                subtaskId: newSubtaskId,
+              ),
+            );
             final row = await SupabaseService.fetchSubtaskById(newSubtaskId);
             if (!mounted) return;
             if (row != null) {
@@ -781,6 +862,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       }
 
       final isCreator = _isCreator(state);
+      final changesForEmail = isCreator
+          ? _subtaskChangesForEmail(state, s!)
+          : <Map<String, String>>[];
       if (isCreator) {
         final err = await SupabaseService.updateSubtaskRow(
           subtaskId: s!.id,
@@ -810,6 +894,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       }
 
       final commentText = _commentController.text.trim();
+      String? commentId;
       if (commentText.isNotEmpty) {
         final ins = await SupabaseService.insertSubtaskCommentRow(
           subtaskId: s!.id,
@@ -824,6 +909,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
             palette: widget.palette,
           );
         } else {
+          commentId = ins.commentId;
           _commentController.clear();
         }
       }
@@ -847,6 +933,26 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       _subtaskAi?.clearAllSuggestions();
       await _load();
       widget.onChanged?.call();
+      if (isCreator) {
+        await _notifyEmail(
+          'Sub-task update email',
+          (token) => BackendApi().notifySubtaskUpdated(
+            idToken: token,
+            subtaskId: s!.id,
+            changes: changesForEmail,
+            commentAddedText: commentText,
+            subtaskCommentId: commentId,
+          ),
+        );
+      } else if (commentId != null) {
+        await _notifyEmail(
+          'Sub-task comment email',
+          (token) => BackendApi().notifySubtaskCommentAdded(
+            idToken: token,
+            commentId: commentId!,
+          ),
+        );
+      }
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) setState(() => _saving = false);
@@ -899,6 +1005,15 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       completionDateAt: s.submitDate ?? DateTime.now().toUtc(),
       errorTitle: 'Could not mark sub-task completed',
     );
+    if (s.submission?.trim() == 'Submitted') {
+      await _notifyEmail(
+        'Sub-task accepted email',
+        (token) => BackendApi().notifySubtaskAccepted(
+          idToken: token,
+          subtaskId: s.id,
+        ),
+      );
+    }
   }
 
   Future<void> _submitSubtask(AppState state, SingularSubtask s) async {
@@ -966,6 +1081,13 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       _subtaskAi?.clearAllSuggestions();
       await _load();
       widget.onChanged?.call();
+      await _notifyEmail(
+        'Sub-task submission email',
+        (token) => BackendApi().notifySubtaskSubmission(
+          idToken: token,
+          subtaskId: s.id,
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) setState(() => _saving = false);
@@ -978,6 +1100,13 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       subtask: s,
       submission: 'Returned',
       errorTitle: 'Could not return sub-task',
+    );
+    await _notifyEmail(
+      'Sub-task returned email',
+      (token) => BackendApi().notifySubtaskReturned(
+        idToken: token,
+        subtaskId: s.id,
+      ),
     );
   }
 
@@ -1310,10 +1439,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
   Widget build(BuildContext context) {
     final chrome = AsanaSlideChrome(widget.palette);
     if (_loading) {
-      return ColoredBox(
-        color: chrome.body,
-        child: const Center(child: CircularProgressIndicator()),
-      );
+      return const StartupLoadingView(label: 'Loading');
     }
     final s = _subtask;
     if (!_effectiveCreateMode && s == null) {

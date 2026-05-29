@@ -12,6 +12,7 @@ import '../../services/landing_task_filters_storage.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
 import '../../widgets/task_list_card.dart';
+import '../app_bootstrap.dart';
 import '../asana_landing_screen.dart';
 import 'asana_filter_widgets.dart';
 import 'asana_task_filter.dart';
@@ -249,10 +250,7 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
         MediaQuery.sizeOf(context).width < 600;
 
     if (!_filtersReady || _loadingTasks) {
-      return ColoredBox(
-        color: widget.palette.panelBackground,
-        child: const Center(child: CircularProgressIndicator()),
-      );
+      return const StartupLoadingView(label: 'Loading');
     }
 
     return ColoredBox(

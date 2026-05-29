@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,8 +6,10 @@ import '../../app_state.dart';
 import '../../config/supabase_config.dart';
 import '../../models/project_record.dart';
 import '../../models/staff_for_assignment.dart';
+import '../../services/backend_api.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
+import '../app_bootstrap.dart';
 import '../asana_landing_screen.dart';
 import 'asana_assignee_field.dart';
 import 'asana_assignee_picker.dart';
@@ -207,6 +210,90 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  void _showEmailWarning(String label, String error) {
+    debugPrint('$label: $error');
+    if (!mounted) return;
+    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label: $short'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _notifyEmail(
+    String label,
+    Future<String?> Function(String idToken) send,
+  ) async {
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token == null) {
+        _showEmailWarning(label, 'sign-in token missing');
+        return;
+      }
+      final err = await send(token);
+      if (err != null) _showEmailWarning(label, err);
+    } catch (e) {
+      _showEmailWarning(label, e.toString());
+    }
+  }
+
+  void _addChange(
+    List<Map<String, String>> changes,
+    String field,
+    String oldValue,
+    String newValue,
+  ) {
+    if (oldValue.trim() == newValue.trim()) return;
+    changes.add({'field': field, 'value': newValue});
+  }
+
+  String _namesFor(AppState state, Iterable<String> ids) {
+    return ids.map((id) => _labelForAssigneeId(id, state)).join(', ');
+  }
+
+  List<Map<String, String>> _projectChangesForEmail(
+    AppState state,
+    ProjectRecord p,
+  ) {
+    final changes = <Map<String, String>>[];
+    _addChange(changes, 'projectName', p.name, _nameController.text.trim());
+    _addChange(
+      changes,
+      'description',
+      p.description,
+      _descController.text.trim(),
+    );
+    _addChange(
+      changes,
+      'assignees',
+      AsanaProjectFilter.assigneesLine(p, state),
+      _namesFor(state, _assigneeIds),
+    );
+    _addChange(
+      changes,
+      'pic',
+      AsanaProjectFilter.picLine(p, state),
+      _namesFor(state, _picAssigneeIds),
+    );
+    _addChange(changes, 'status', p.status, _effectiveStatus(p));
+    _addChange(
+      changes,
+      'startDate',
+      _formatDate(p.startDate),
+      _formatDate(_startDate),
+    );
+    _addChange(
+      changes,
+      'endDate',
+      _formatDate(p.endDate),
+      _formatDate(_endDate),
+    );
+    return changes;
   }
 
   void _publishAssigneeSnapshot() {
@@ -682,6 +769,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         );
         return;
       }
+      final changesForEmail = _projectChangesForEmail(state, p);
       final err = await SupabaseService.updateProjectRow(
         projectId: widget.projectId,
         name: name,
@@ -710,6 +798,14 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       await _loadProject();
       _projectAi?.clearAllSuggestions();
       widget.onChanged?.call();
+      await _notifyEmail(
+        'Project update email',
+        (token) => BackendApi().notifyProjectUpdated(
+          idToken: token,
+          projectId: widget.projectId,
+          changes: changesForEmail,
+        ),
+      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -720,10 +816,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
   Widget build(BuildContext context) {
     final chrome = AsanaSlideChrome(widget.palette);
     if (_loading) {
-      return ColoredBox(
-        color: chrome.body,
-        child: const Center(child: CircularProgressIndicator()),
-      );
+      return const StartupLoadingView(label: 'Loading');
     }
     final p = _project;
     if (p == null) {

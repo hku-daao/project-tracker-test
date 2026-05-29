@@ -348,13 +348,18 @@ class AsanaProjectAiSuggestionBuilder {
 
   static DateTime? _parseYmd(String raw) {
     final t = raw.trim();
-    final m = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$').firstMatch(t);
+    final m = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(t);
     if (m != null) {
-      return DateTime(
-        int.parse(m.group(1)!),
-        int.parse(m.group(2)!),
-        int.parse(m.group(3)!),
-      );
+      final year = int.parse(m.group(1)!);
+      final month = int.parse(m.group(2)!);
+      final day = int.parse(m.group(3)!);
+      final parsed = DateTime(year, month, day);
+      if (parsed.year != year ||
+          parsed.month != month ||
+          parsed.day != day) {
+        return null;
+      }
+      return parsed;
     }
     try {
       final d = DateTime.parse(t);
