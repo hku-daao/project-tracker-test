@@ -12,17 +12,23 @@ class AsanaRowTypeLetter extends StatelessWidget {
     super.key,
     required this.letter,
     this.completed = false,
+    this.deleted = false,
   });
 
   final String letter;
   final bool completed;
+  final bool deleted;
 
   @override
   Widget build(BuildContext context) {
-    final bg = completed
+    final bg = deleted
+        ? const Color(0xFFFFEBEE)
+        : completed
         ? const Color(0xFFE8F5E9)
         : const Color(0xFFECEFF1);
-    final fg = completed
+    final fg = deleted
+        ? const Color(0xFFC62828)
+        : completed
         ? const Color(0xFF2E7D32)
         : kAsanaTextPrimary;
 

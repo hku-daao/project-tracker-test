@@ -1354,14 +1354,14 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           AsanaDetailSlideFooter(
             backgroundColor: chrome.footer,
             borderColor: chrome.footerBorder,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                for (var i = 0; i < footerButtons.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 8),
-                  footerButtons[i],
-                ],
-              ],
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: footerButtons,
+              ),
             ),
           ),
         ],

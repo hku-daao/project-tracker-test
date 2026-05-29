@@ -402,6 +402,7 @@ class _CheckboxFilterPanelBodyState extends State<_CheckboxFilterPanelBody> {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -421,7 +422,7 @@ class _CheckboxFilterPanelBodyState extends State<_CheckboxFilterPanelBody> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Align(
-            alignment: Alignment.centerRight,
+            alignment: mobile ? Alignment.centerLeft : Alignment.centerRight,
             child: FilledButton(
               onPressed: () {
                 if (_selected.contains('all') || _selected.contains('__all__')) {

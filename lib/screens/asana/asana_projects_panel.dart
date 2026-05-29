@@ -328,6 +328,8 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
     await showMenu<String>(
       context: buttonContext,
       position: _menuPosition(buttonContext),
+      color: Theme.of(buttonContext).colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
       items: const [
         PopupMenuItem(value: 'due_asc', child: Text('Due date ↑')),
         PopupMenuItem(value: 'due_desc', child: Text('Due date ↓')),
@@ -499,6 +501,10 @@ class _ProjectTableRow extends StatelessWidget {
   final VoidCallback? onRowTap;
 
   bool get _completed => project.status.trim() == 'Completed';
+  bool get _deleted {
+    final s = project.status.trim().toLowerCase();
+    return s == 'deleted' || s == 'delete';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -530,6 +536,7 @@ class _ProjectTableRow extends StatelessWidget {
                     child: AsanaRowTypeLetter(
                       letter: 'P',
                       completed: _completed,
+                      deleted: _deleted,
                     ),
                   ),
                 ),

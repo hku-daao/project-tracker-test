@@ -169,14 +169,23 @@ class _AsanaHomePanelState extends State<AsanaHomePanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              dateLine,
-              style: asanaTextStyle(
-                Theme.of(context).textTheme.bodyMedium,
-                fontSize: 14,
-                color: kAsanaTextSecondary,
-                height: 1.3,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    dateLine,
+                    style: asanaTextStyle(
+                      Theme.of(context).textTheme.bodyMedium,
+                      fontSize: 14,
+                      color: kAsanaTextSecondary,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const _HomeHeaderBrand(),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -488,6 +497,40 @@ class _TaskCounts {
   final int upcoming;
 }
 
+class _HomeHeaderBrand extends StatelessWidget {
+  const _HomeHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheH = (22 * dpr).round().clamp(1, 4096);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          'assets/images/logo.png',
+          height: 22,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          cacheHeight: cacheH,
+          semanticLabel: 'Project Tracker logo',
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Project Tracker',
+          style: asanaTextStyle(
+            Theme.of(context).textTheme.bodyMedium,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: kAsanaTextPrimary,
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _PersonTaskSummary {
   const _PersonTaskSummary({
     required this.name,
@@ -519,6 +562,14 @@ String _homeLabeledMetaLine({
 }) {
   final v = value.trim().isEmpty ? '—' : value.trim();
   return '$label: $v';
+}
+
+String _firstNameOnly(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty || trimmed == '—') return trimmed.isEmpty ? '—' : trimmed;
+  final first = trimmed.split(',').first.trim();
+  if (first.isEmpty) return trimmed;
+  return first.split(RegExp(r'\s+')).first;
 }
 
 Widget _homeListViewport({
@@ -954,7 +1005,7 @@ class _HomeTaskCompactRow extends StatelessWidget {
     final metaLine = [
       _homeLabeledMetaLine(label: middleHeader, value: middle),
       _homeLabeledMetaLine(
-        label: 'Due Date',
+        label: 'Due',
         value: _formatDueDate(task.endDate),
       ),
     ].join(' · ');
@@ -1025,8 +1076,6 @@ class _HomePeopleCard extends StatelessWidget {
       fillHeight: fillHeight,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final useMetricAcronym =
-              AsanaHomePanel.homeUseCompact(constraints.maxWidth);
           final list = rows.isEmpty
               ? Align(
                   alignment: Alignment.topLeft,
@@ -1046,7 +1095,7 @@ class _HomePeopleCard extends StatelessWidget {
                     return _HomePeopleRow(
                       palette: palette,
                       summary: rows[index],
-                      useMetricAcronym: useMetricAcronym,
+                      useMetricAcronym: false,
                     );
                   },
                 );
@@ -1110,6 +1159,29 @@ class _HomePeopleRow extends StatelessWidget {
       ),
     ];
 
+    final metrics = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            chips[0],
+            const SizedBox(width: 6),
+            chips[1],
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            chips[2],
+            const SizedBox(width: 6),
+            chips[3],
+          ],
+        ),
+      ],
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -1140,25 +1212,7 @@ class _HomePeopleRow extends StatelessWidget {
               ),
             ),
           const SizedBox(width: 8),
-          if (useMetricAcronym)
-            Expanded(
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                alignment: WrapAlignment.end,
-                children: chips,
-              ),
-            )
-          else
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < chips.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 6),
-                  chips[i],
-                ],
-              ],
-            ),
+          metrics,
         ],
       ),
     );
@@ -1478,7 +1532,9 @@ class _HomeProjectRow extends StatelessWidget {
                 _homeFixedCell(
                   width: AsanaHomePanel._homePicColWidth,
                   child: Text(
-                    AsanaProjectFilter.picLine(project, appState),
+                    _firstNameOnly(
+                      AsanaProjectFilter.picLine(project, appState),
+                    ),
                     style: valueStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1539,10 +1595,12 @@ class _HomeProjectCompactRow extends StatelessWidget {
     final metaLine = [
       _homeLabeledMetaLine(
         label: 'PIC',
-        value: AsanaProjectFilter.picLine(project, appState),
+        value: _firstNameOnly(
+          AsanaProjectFilter.picLine(project, appState),
+        ),
       ),
       _homeLabeledMetaLine(
-        label: 'Due Date',
+        label: 'Due',
         value: _formatDueDate(project.endDate),
       ),
     ].join(' · ');

@@ -224,6 +224,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                           child: AsanaRowTypeLetter(
                             letter: 'S',
                             completed: completed,
+                            deleted: s.isDeleted,
                           ),
                         ),
                       ),

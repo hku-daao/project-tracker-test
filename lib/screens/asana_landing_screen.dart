@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../web_deep_link.dart';
@@ -12,6 +13,9 @@ import 'asana/asana_home_panel.dart';
 import 'asana/asana_projects_panel.dart';
 import 'asana/asana_tasks_panel.dart';
 import 'asana/asana_theme.dart';
+
+const String _kAsanaFeedbackFormUrl =
+    'https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=TrX5QnckukG_CXoNKoP_CXmxjjVqONdDujd4tWBFFN9UMk1ZS0EzMFZSSlFSMkhXTjI5UE82QThKTC4u';
 
 /// Header / body / footer colors for the right-hand detail slide.
 class AsanaSlideChrome {
@@ -263,6 +267,13 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
 
   AsanaLandingPalette get _palette => AsanaLandingPalette.byId(_themeId);
 
+  Future<void> _openFeedbackForm() async {
+    await launchUrl(
+      Uri.parse(_kAsanaFeedbackFormUrl),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
   Widget _buildMainContent({
     required AsanaLandingPalette palette,
     required String searchQuery,
@@ -424,6 +435,12 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                     }
                   }),
                 ),
+              _SidebarNavTile(
+                label: 'Feedback',
+                palette: palette,
+                selected: false,
+                onTap: _openFeedbackForm,
+              ),
               _ThemeSidebarExpandable(
                 palette: palette,
                 expanded: _themeMenuExpanded,
@@ -462,7 +479,8 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
     final inlineSidebar = !sidebarOverlay && _sidebarOpen;
     final overlaySidebar = sidebarOverlay && _sidebarOpen;
     final sidebarVisible = inlineSidebar || overlaySidebar;
-    final searchWidth = screenWidth / 3;
+    final compactBanner = screenWidth < 600;
+    final searchWidth = compactBanner ? screenWidth * 0.42 : screenWidth / 3;
     final asanaTheme = buildAsanaTheme(
       Theme.of(context),
       seedColor: palette.accent,
@@ -570,10 +588,14 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _AsanaBannerLogo(height: titleFontSize * 1.6),
-                            const SizedBox(width: 8),
+                            SizedBox(width: compactBanner ? 6 : 8),
                             Text(
-                              'Project Tracker',
-                              style: titleStyle,
+                              compactBanner ? 'Project\nTracker' : 'Project Tracker',
+                              style: titleStyle?.copyWith(
+                                fontSize: compactBanner ? 12 : titleFontSize,
+                                height: compactBanner ? 1.05 : 1.2,
+                              ),
+                              maxLines: compactBanner ? 2 : 1,
                             ),
                           ],
                         ),

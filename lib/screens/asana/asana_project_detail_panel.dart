@@ -591,14 +591,14 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         AsanaDetailSlideFooter(
           backgroundColor: chrome.footer,
           borderColor: chrome.footerBorder,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              for (var i = 0; i < buttons.length; i++) ...[
-                if (i > 0) const SizedBox(width: 8),
-                buttons[i],
-              ],
-            ],
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: buttons,
+            ),
           ),
         ),
       ],

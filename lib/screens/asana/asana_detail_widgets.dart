@@ -62,13 +62,16 @@ class AsanaDetailTwoColumnRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveLabelWidth = MediaQuery.sizeOf(context).width < 600
+        ? labelWidth / 2
+        : labelWidth;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomPadding),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: labelWidth,
+            width: effectiveLabelWidth,
             child: Text(label, style: asanaDetailLabelStyle(context)),
           ),
           Expanded(child: child),
@@ -110,6 +113,9 @@ class AsanaDetailSuggestedValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveLabelWidth = MediaQuery.sizeOf(context).width < 600
+        ? labelWidth / 2
+        : labelWidth;
     final labelStyle = asanaDetailLabelStyle(context).copyWith(
       color: labelColor ?? kAsanaTextSecondary,
     );
@@ -154,7 +160,7 @@ class AsanaDetailSuggestedValueRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: labelWidth),
+          SizedBox(width: effectiveLabelWidth),
           Expanded(child: field),
         ],
       ),

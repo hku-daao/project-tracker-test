@@ -26,12 +26,7 @@ bool _preferAsanaShellOnWeb(String? view) {
   if (!AppEnvironment.isTesting && !isTestWebHost) return false;
   if (view == 'project') return false;
   if (view == 'asana' || view == 'newui' || view == 'new-ui') return true;
-  // Stale session values from the old overview / original home.
-  return view == null ||
-      view.isEmpty ||
-      view == 'original' ||
-      view == 'default' ||
-      view == 'overview';
+  return false;
 }
 
 Widget _bootstrapShellChild() {
