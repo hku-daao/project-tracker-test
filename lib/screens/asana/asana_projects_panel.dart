@@ -153,6 +153,7 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
               palette: widget.palette,
               child: LayoutBuilder(
               builder: (context, constraints) {
+                final mobileList = constraints.maxWidth < 600;
                 final tableWidth = constraints.maxWidth <
                         _ProjectTableLayout.minTableWidth
                     ? _ProjectTableLayout.minTableWidth
@@ -166,6 +167,28 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  );
+                }
+
+                if (mobileList) {
+                  return ListView.builder(
+                    itemCount: projects.length,
+                    itemBuilder: (context, index) {
+                      final p = projects[index];
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (index > 0)
+                            Divider(height: 1, color: Colors.grey.shade300),
+                          _ProjectMobileRow(
+                            tableColors: tableColors,
+                            project: p,
+                            appState: state,
+                            onTap: () => widget.onOpenProject?.call(p.id),
+                          ),
+                        ],
+                      );
+                    },
                   );
                 }
 
@@ -610,6 +633,107 @@ class _ProjectTableRow extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProjectMobileRow extends StatelessWidget {
+  const _ProjectMobileRow({
+    required this.tableColors,
+    required this.project,
+    required this.appState,
+    this.onTap,
+  });
+
+  final AsanaTableColors tableColors;
+  final ProjectRecord project;
+  final AppState appState;
+  final VoidCallback? onTap;
+
+  bool get _completed => project.status.trim() == 'Completed';
+  bool get _deleted {
+    final s = project.status.trim().toLowerCase();
+    return s == 'deleted' || s == 'delete';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name =
+        project.name.trim().isEmpty ? '(Unnamed project)' : project.name.trim();
+    final nameStyle = asanaTableRowNameStyle(
+      context,
+      completed: _completed,
+    );
+    final valueStyle = asanaTableRowValueStyle(
+      context,
+      completed: _completed,
+    );
+    final metaLine = [
+      'Cr: ${AsanaProjectFilter.creatorLine(project, appState)}',
+      'PIC: ${AsanaProjectFilter.picLine(project, appState)}',
+    ].join(' · ');
+    final dateLine = [
+      'Start: ${_formatDueDate(project.startDate)}',
+      'Due: ${_formatDueDate(project.endDate)}',
+    ].join(' · ');
+
+    return Material(
+      color: tableColors.projectRow,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: AsanaRowTypeLetter(
+                  letter: 'P',
+                  completed: _completed,
+                  deleted: _deleted,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      name,
+                      style: nameStyle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      metaLine,
+                      style: valueStyle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        Text(
+                          dateLine,
+                          style: valueStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        AsanaStatusChip(status: project.status),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
