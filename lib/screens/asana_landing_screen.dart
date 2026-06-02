@@ -397,7 +397,40 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
     super.initState();
     if (kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openInitialDeepLink();
         syncWebLocationForAsanaDesign();
+      });
+    }
+  }
+
+  void _openInitialDeepLink() {
+    final subtaskId = readSubtaskIdFromUrlOrSession();
+    if (subtaskId != null && subtaskId.isNotEmpty) {
+      setState(() {
+        _selectedNav = 'All Tasks & Sub-tasks';
+        _detailStack
+          ..clear()
+          ..add(AsanaDetailSelection.subtask(subtaskId));
+      });
+      return;
+    }
+    final taskId = readTaskIdFromUrlOrSession();
+    if (taskId != null && taskId.isNotEmpty) {
+      setState(() {
+        _selectedNav = 'Tasks';
+        _detailStack
+          ..clear()
+          ..add(AsanaDetailSelection.task(taskId));
+      });
+      return;
+    }
+    final projectId = readProjectIdFromUrlOrSession();
+    if (projectId != null && projectId.isNotEmpty) {
+      setState(() {
+        _selectedNav = 'Projects';
+        _detailStack
+          ..clear()
+          ..add(AsanaDetailSelection.project(projectId));
       });
     }
   }

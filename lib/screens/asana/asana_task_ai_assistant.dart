@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../priority.dart';
 import '../../services/deepseek_service.dart';
+import '../../services/supabase_service.dart';
 import 'asana_project_ai_assistant.dart';
 import '../../utils/hk_time.dart';
 import '../asana_landing_screen.dart';
@@ -25,6 +28,22 @@ enum AsanaTaskAiFieldKey {
   comment,
   websiteLink,
   projectStatus,
+}
+
+class AsanaAiAuditContext {
+  const AsanaAiAuditContext({
+    required this.entityType,
+    this.entityId,
+    this.staffId,
+    this.staffDisplayName,
+    this.actionType = 'suggest',
+  });
+
+  final String entityType;
+  final String? entityId;
+  final String? staffId;
+  final String? staffDisplayName;
+  final String actionType;
 }
 
 /// Name, description, and comment use full slide width (no label column inset).
@@ -969,6 +988,7 @@ class AsanaTaskAiController extends ChangeNotifier {
     this.subtaskSnapshot,
     this.onApplySubtaskName,
     this.onApplyReason,
+    this.auditContext,
   })  : assert(
           mode == AsanaTaskAiAssistantMode.taskFields
               ? formSnapshot != null && apply != null
@@ -991,11 +1011,14 @@ class AsanaTaskAiController extends ChangeNotifier {
   final AsanaSubtaskAiFormSnapshot Function()? subtaskSnapshot;
   final void Function(String name)? onApplySubtaskName;
   final void Function(String reason)? onApplyReason;
+  final AsanaAiAuditContext Function()? auditContext;
 
   final TextEditingController promptController = TextEditingController();
   bool busy = false;
   String? error;
   List<AsanaTaskAiSuggestionLine> lines = [];
+  String? _auditLogId;
+  Map<String, dynamic> _auditFieldSuggestions = {};
 
   /// Summary of what the assistant inferred (shown collapsed and expanded).
   String? overallFeedback;
@@ -1019,6 +1042,26 @@ class AsanaTaskAiController extends ChangeNotifier {
     if (lines.length != n) notifyListeners();
   }
 
+  void acceptSuggestion(AsanaTaskAiSuggestionLine line) {
+    line.onAdopt?.call();
+    _markAuditSuggestion(line, true);
+    _dismissLine(line);
+  }
+
+  void rejectSuggestion(AsanaTaskAiSuggestionLine line) {
+    _markAuditSuggestion(line, false);
+    _dismissLine(line);
+  }
+
+  void _dismissLine(AsanaTaskAiSuggestionLine line) {
+    if (line.fieldKey == AsanaTaskAiFieldKey.websiteLink &&
+        line.linkIndex != null) {
+      dismissWebsiteLink(line.linkIndex!);
+    } else {
+      dismissField(line.fieldKey);
+    }
+  }
+
   void dismissWebsiteLink(int index) {
     final n = lines.length;
     lines.removeWhere(
@@ -1040,6 +1083,8 @@ class AsanaTaskAiController extends ChangeNotifier {
     error = null;
     overallFeedback = null;
     collapsedSummary = null;
+    _auditLogId = null;
+    _auditFieldSuggestions = {};
     notifyListeners();
   }
 
@@ -1084,6 +1129,94 @@ class AsanaTaskAiController extends ChangeNotifier {
     if (v == null) return null;
     final t = v.toString().trim();
     return t.isEmpty ? null : t;
+  }
+
+  Future<void> _recordAudit({
+    required String prompt,
+    required Map<String, dynamic> raw,
+  }) async {
+    final ctx = auditContext?.call();
+    if (ctx == null) return;
+    final suggestions = _buildAuditSuggestions(lines);
+    _auditFieldSuggestions = suggestions;
+    _auditLogId = await SupabaseService.insertAiAssistantAuditLog(
+      entityType: ctx.entityType,
+      entityId: ctx.entityId,
+      staffId: ctx.staffId,
+      staffDisplayName: ctx.staffDisplayName,
+      actionType: ctx.actionType,
+      userPrompt: prompt,
+      aiResponse: raw,
+      fieldSuggestions: suggestions,
+    );
+  }
+
+  void attachCreatedEntityId(String entityId) {
+    final id = _auditLogId;
+    if (id == null || entityId.trim().isEmpty) return;
+    unawaited(
+      SupabaseService.updateAiAssistantAuditEntityId(
+        auditLogId: id,
+        entityId: entityId,
+      ),
+    );
+  }
+
+  Map<String, dynamic> _buildAuditSuggestions(
+    List<AsanaTaskAiSuggestionLine> source,
+  ) {
+    final out = <String, dynamic>{};
+    for (var i = 0; i < source.length; i++) {
+      final line = source[i];
+      if (!line.adoptable) continue;
+      final key = _auditSuggestionKey(line, i);
+      out[key] = {
+        'field': line.fieldKey.name,
+        if (line.fieldLabel != null) 'fieldLabel': line.fieldLabel,
+        'accepted': null,
+        'oldValue': line.currentValue,
+        'newValue': line.suggestedText,
+      };
+    }
+    return out;
+  }
+
+  String _auditSuggestionKey(AsanaTaskAiSuggestionLine line, int fallbackIndex) {
+    if (line.fieldKey == AsanaTaskAiFieldKey.websiteLink) {
+      return 'websiteLink_${line.linkIndex ?? fallbackIndex}';
+    }
+    return line.fieldKey.name;
+  }
+
+  void _markAuditSuggestion(AsanaTaskAiSuggestionLine line, bool accepted) {
+    if (_auditFieldSuggestions.isEmpty) return;
+    String? key;
+    for (final entry in _auditFieldSuggestions.entries) {
+      final v = entry.value;
+      if (v is! Map) continue;
+      if (v['field'] != line.fieldKey.name) continue;
+      if (v['newValue'] != line.suggestedText) continue;
+      key = entry.key;
+      break;
+    }
+    if (key == null) return;
+    final existing = Map<String, dynamic>.from(
+      _auditFieldSuggestions[key] as Map,
+    );
+    existing['accepted'] = accepted;
+    _auditFieldSuggestions = {
+      ..._auditFieldSuggestions,
+      key: existing,
+    };
+    final id = _auditLogId;
+    if (id != null) {
+      unawaited(
+        SupabaseService.updateAiAssistantAuditSuggestions(
+          auditLogId: id,
+          fieldSuggestions: _auditFieldSuggestions,
+        ),
+      );
+    }
   }
 
   void _refreshCollapsedSummary() {
@@ -1131,6 +1264,7 @@ class AsanaTaskAiController extends ChangeNotifier {
           applyWebsiteLink: onApplyWebsiteLink,
         );
         overallFeedback = deriveOverallFeedback(raw, lines);
+        unawaited(_recordAudit(prompt: prompt, raw: raw));
       } else if (mode == AsanaTaskAiAssistantMode.projectFields) {
         final form = projectSnapshot!();
         final raw = await DeepseekService.suggestAsanaProjectDraft(
@@ -1143,6 +1277,7 @@ class AsanaTaskAiController extends ChangeNotifier {
           apply: projectApply!,
         );
         overallFeedback = deriveOverallFeedback(raw, lines);
+        unawaited(_recordAudit(prompt: prompt, raw: raw));
       } else if (mode == AsanaTaskAiAssistantMode.subtaskFields) {
         final form = subtaskSnapshot!();
         final raw = await DeepseekService.suggestAsanaSubtaskDraft(
@@ -1158,6 +1293,7 @@ class AsanaTaskAiController extends ChangeNotifier {
           applyWebsiteLink: onApplyWebsiteLink,
         );
         overallFeedback = deriveOverallFeedback(raw, lines);
+        unawaited(_recordAudit(prompt: prompt, raw: raw));
       } else {
         final form = formSnapshot!();
         final raw = await DeepseekService.suggestAsanaTaskDraft(
@@ -1170,6 +1306,7 @@ class AsanaTaskAiController extends ChangeNotifier {
           apply: apply!,
         );
         overallFeedback = deriveOverallFeedback(raw, lines);
+        unawaited(_recordAudit(prompt: prompt, raw: raw));
       }
       busy = false;
       _refreshCollapsedSummary();
@@ -1550,25 +1687,10 @@ class AsanaTaskAiInlineSuggestions extends StatelessWidget {
                 line: line,
                 colors: colors,
                 onAdopt: line.adoptable
-                    ? () {
-                        line.onAdopt?.call();
-                        if (fieldKey == AsanaTaskAiFieldKey.websiteLink &&
-                            line.linkIndex != null) {
-                          controller.dismissWebsiteLink(line.linkIndex!);
-                        } else {
-                          controller.dismissField(fieldKey);
-                        }
-                      }
+                    ? () => controller.acceptSuggestion(line)
                     : null,
                 onReject: line.adoptable
-                    ? () {
-                        if (fieldKey == AsanaTaskAiFieldKey.websiteLink &&
-                            line.linkIndex != null) {
-                          controller.dismissWebsiteLink(line.linkIndex!);
-                        } else {
-                          controller.dismissField(fieldKey);
-                        }
-                      }
+                    ? () => controller.rejectSuggestion(line)
                     : null,
               ),
             );

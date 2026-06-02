@@ -1205,7 +1205,6 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       await _showInfo('Invalid date range', 'Start date cannot be after due date.');
       return;
     }
-    _taskAi?.clearAllSuggestions();
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
@@ -1232,6 +1231,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       }
       final newId = ins.taskId;
       if (newId == null || newId.isEmpty) return;
+      _taskAi?.attachCreatedEntityId(newId);
+      _taskAi?.clearAllSuggestions();
       final uploadErr = await _uploadPendingCreateAttachments(
         newId,
         state,
@@ -1873,6 +1874,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     _taskAi ??= AsanaTaskAiController(
       mode: AsanaTaskAiAssistantMode.taskFields,
       readOnly: () => _saving,
+      auditContext: () => AsanaAiAuditContext(
+        entityType: 'task',
+        entityId: widget.createMode ? null : widget.taskId,
+        staffId: state.userStaffId,
+        staffDisplayName: _creatorDisplayName(state),
+        actionType: widget.createMode ? 'create' : 'update',
+      ),
       formSnapshot: () => _aiFormSnapshot(
         state,
         canSuggestAssignees: _taskAiCanSuggestAssignees,
@@ -1885,6 +1893,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     _commentAi ??= AsanaTaskAiController(
       mode: AsanaTaskAiAssistantMode.commentOnly,
       readOnly: () => _saving,
+      auditContext: () => AsanaAiAuditContext(
+        entityType: 'task',
+        entityId: task.id,
+        staffId: context.read<AppState>().userStaffId,
+        staffDisplayName: _creatorDisplayName(context.read<AppState>()),
+        actionType: 'update',
+      ),
       commentSnapshot: () => AsanaCommentAiFormSnapshot(
         taskName: task.name.trim().isNotEmpty
             ? task.name.trim()

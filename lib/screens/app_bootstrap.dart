@@ -23,7 +23,6 @@ import 'task_detail_screen.dart';
 /// Mobile: unchanged — [HomeScreen]; pinned Overview still opens via [_StartupShell._maybeOpenPinnedView].
 bool _preferAsanaShellOnWeb(String? view) {
   if (!kIsWeb) return false;
-  if (!AppEnvironment.isTesting && !isTestWebHost) return false;
   if (view == 'project') return false;
   if (view == 'original') return false;
   if (view == 'asana' || view == 'newui' || view == 'new-ui') return true;
@@ -216,6 +215,11 @@ class _AppBootstrapState extends State<AppBootstrap> {
   void _openWebDeepLinkIfPending() {
     // Prefer URL, then session (populated by [captureWebDeepLinkForSession] before path strategy).
     // URL-only would miss deep links after [usePathUrlStrategy] strips the query from [href].
+    final rawView = readDashboardViewFromUrlOrSession();
+    final viewTag = rawView?.trim().toLowerCase();
+    if (_preferAsanaShellOnWeb(viewTag)) {
+      return;
+    }
     final subId = readSubtaskIdFromUrlOrSession();
     if (subId != null && subId.isNotEmpty) {
       rootNavigatorKey.currentState?.push(
@@ -250,8 +254,6 @@ class _AppBootstrapState extends State<AppBootstrap> {
       );
       return;
     }
-    final rawView = readDashboardViewFromUrlOrSession();
-    final viewTag = rawView?.trim().toLowerCase();
     // Shell already shows Overview / Project / Original — avoid a second route (flash of Home).
     if (viewTag == 'overview' || viewTag == 'default') {
       syncWebStaleDetailSessionsIfUrlHasNoTaskOrSubtask();

@@ -131,6 +131,21 @@ String? readProjectIdFromUrlOrSession() {
 String? readDashboardViewFromUrlOrSession() {
   final fromUrl = _paramFromLocation('view');
   if (fromUrl != null && fromUrl.isNotEmpty) return fromUrl;
+  final ids = _idsFromLocation();
+  final project = _paramFromLocation('project');
+  if ((ids.$1 != null && ids.$1!.isNotEmpty) ||
+      (ids.$2 != null && ids.$2!.isNotEmpty) ||
+      (project != null && project.isNotEmpty)) {
+    return 'asana';
+  }
+  final sessionSubtask = html.window.sessionStorage[_kSubtaskKey]?.trim();
+  final sessionTask = html.window.sessionStorage[_kTaskKey]?.trim();
+  final sessionProject = html.window.sessionStorage[_kProjectKey]?.trim();
+  if ((sessionSubtask != null && sessionSubtask.isNotEmpty) ||
+      (sessionTask != null && sessionTask.isNotEmpty) ||
+      (sessionProject != null && sessionProject.isNotEmpty)) {
+    return 'asana';
+  }
   final s = html.window.sessionStorage[_kViewKey]?.trim();
   if (s != null && s.isNotEmpty) return s;
   return null;
@@ -236,15 +251,9 @@ void syncWebLocationForDefaultHome() {
 
 /// Asana-style landing shell ([AsanaLandingScreen]).
 void syncWebLocationForAsanaDesign() {
-  html.window.sessionStorage.remove(_kTaskKey);
-  html.window.sessionStorage.remove(_kSubtaskKey);
-  html.window.sessionStorage.remove(_kProjectKey);
   html.window.sessionStorage[_kViewKey] = 'asana';
   _replaceQueryParams((q) {
     q['view'] = 'asana';
-    q.remove('task');
-    q.remove('subtask');
-    q.remove('project');
   });
 }
 

@@ -81,6 +81,71 @@ class SupabaseService {
   /// HTTP when many [TaskListCard]s mount after prefetch. Cleared when the singular task set changes.
   static final Map<String, List<SingularSubtask>> _subtaskListMemoryCache = {};
 
+  static Future<String?> insertAiAssistantAuditLog({
+    required String entityType,
+    String? entityId,
+    String? staffId,
+    String? staffDisplayName,
+    required String actionType,
+    required String userPrompt,
+    required Map<String, dynamic> aiResponse,
+    required Map<String, dynamic> fieldSuggestions,
+  }) async {
+    if (!_enabled) return null;
+    try {
+      final row = await Supabase.instance.client
+          .from('ai_assistant_audit_logs')
+          .insert({
+            'staff_id': staffId,
+            'staff_display_name': staffDisplayName,
+            'entity_type': entityType,
+            'entity_id': entityId,
+            'action_type': actionType,
+            'user_prompt': userPrompt,
+            'ai_response': aiResponse,
+            'field_suggestions': fieldSuggestions,
+          })
+          .select('id')
+          .maybeSingle();
+      return row?['id']?.toString();
+    } catch (e) {
+      debugPrint('AI audit insert failed: $e');
+      return null;
+    }
+  }
+
+  static Future<void> updateAiAssistantAuditSuggestions({
+    required String auditLogId,
+    required Map<String, dynamic> fieldSuggestions,
+  }) async {
+    if (!_enabled || auditLogId.trim().isEmpty) return;
+    try {
+      await Supabase.instance.client
+          .from('ai_assistant_audit_logs')
+          .update({'field_suggestions': fieldSuggestions})
+          .eq('id', auditLogId.trim());
+    } catch (e) {
+      debugPrint('AI audit update failed: $e');
+    }
+  }
+
+  static Future<void> updateAiAssistantAuditEntityId({
+    required String auditLogId,
+    required String entityId,
+  }) async {
+    if (!_enabled || auditLogId.trim().isEmpty || entityId.trim().isEmpty) {
+      return;
+    }
+    try {
+      await Supabase.instance.client
+          .from('ai_assistant_audit_logs')
+          .update({'entity_id': entityId.trim()})
+          .eq('id', auditLogId.trim());
+    } catch (e) {
+      debugPrint('AI audit entity update failed: $e');
+    }
+  }
+
   /// Clears [_subtaskListMemoryCache] (e.g. when [AppState] singular task ids change).
   static void clearSubtaskListMemoryCache() => _subtaskListMemoryCache.clear();
 

@@ -650,6 +650,16 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
     _projectAi ??= AsanaTaskAiController(
       mode: AsanaTaskAiAssistantMode.projectFields,
       readOnly: () => _saving,
+      auditContext: () {
+        final state = context.read<AppState>();
+        return AsanaAiAuditContext(
+          entityType: 'project',
+          entityId: widget.projectId,
+          staffId: state.userStaffId,
+          staffDisplayName: _labelForAssigneeId(state.userStaffAppId ?? '', state),
+          actionType: 'update',
+        );
+      },
       projectSnapshot: () => _aiFormSnapshot(context.read<AppState>()),
       projectApply: _aiApplyHandlers(),
     );

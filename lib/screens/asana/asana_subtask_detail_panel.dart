@@ -691,6 +691,13 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     _subtaskAi ??= AsanaTaskAiController(
       mode: AsanaTaskAiAssistantMode.subtaskFields,
       readOnly: () => _saving,
+      auditContext: () => AsanaAiAuditContext(
+        entityType: 'subtask',
+        entityId: _effectiveCreateMode ? null : _subtask?.id,
+        staffId: state.userStaffId,
+        staffDisplayName: _nameFor(state, state.userStaffAppId),
+        actionType: _effectiveCreateMode ? 'create' : 'update',
+      ),
       subtaskSnapshot: () => AsanaSubtaskAiFormSnapshot(
         subtaskName: _nameController.text.trim(),
         currentComment: _commentController.text.trim(),
@@ -804,6 +811,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         }
         final newSubtaskId = ins.subtaskId;
         if (newSubtaskId != null && newSubtaskId.isNotEmpty) {
+          _subtaskAi?.attachCreatedEntityId(newSubtaskId);
           final uploadErr =
               await _uploadPendingCreateAttachments(newSubtaskId, state);
           if (uploadErr != null && mounted) {
