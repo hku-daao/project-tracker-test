@@ -22,11 +22,7 @@ import 'task_fetch_visibility.dart';
 
 /// Row from `public.attachment` (singular task).
 class TaskAttachmentRow {
-  const TaskAttachmentRow({
-    required this.id,
-    this.content,
-    this.description,
-  });
+  const TaskAttachmentRow({required this.id, this.content, this.description});
   final String id;
   final String? content;
   final String? description;
@@ -75,7 +71,8 @@ class SupabaseService {
 
   /// Coalesces concurrent [fetchSubtasksForTask] calls for the same parent task id so landing
   /// prefetch, many [TaskListCard]s, and [SingularTaskDetailView] do not stampede Supabase.
-  static final Map<String, Future<List<SingularSubtask>>> _fetchSubtasksInflight = {};
+  static final Map<String, Future<List<SingularSubtask>>>
+  _fetchSubtasksInflight = {};
 
   /// Short-lived list cache filled by landing batch prefetch and single-task loads; avoids duplicate
   /// HTTP when many [TaskListCard]s mount after prefetch. Cleared when the singular task set changes.
@@ -150,15 +147,20 @@ class SupabaseService {
   static void clearSubtaskListMemoryCache() => _subtaskListMemoryCache.clear();
 
   /// Optional listeners when [invalidateSubtasksCacheForTask] runs so list cards can reload without a full screen refresh.
-  static final List<void Function(String taskId)> _subtaskCacheInvalidateListeners = [];
+  static final List<void Function(String taskId)>
+  _subtaskCacheInvalidateListeners = [];
 
-  static void addSubtaskCacheInvalidateListener(void Function(String taskId) listener) {
+  static void addSubtaskCacheInvalidateListener(
+    void Function(String taskId) listener,
+  ) {
     if (!_subtaskCacheInvalidateListeners.contains(listener)) {
       _subtaskCacheInvalidateListeners.add(listener);
     }
   }
 
-  static void removeSubtaskCacheInvalidateListener(void Function(String taskId) listener) {
+  static void removeSubtaskCacheInvalidateListener(
+    void Function(String taskId) listener,
+  ) {
     _subtaskCacheInvalidateListeners.remove(listener);
   }
 
@@ -174,7 +176,9 @@ class SupabaseService {
     final tid = taskId.trim();
     if (tid.isEmpty) return;
     _subtaskListMemoryCache.remove(tid);
-    for (final f in List<void Function(String)>.from(_subtaskCacheInvalidateListeners)) {
+    for (final f in List<void Function(String)>.from(
+      _subtaskCacheInvalidateListeners,
+    )) {
       f(tid);
     }
   }
@@ -191,12 +195,16 @@ class SupabaseService {
   }
 
   /// Same ordering as landing cards / task detail sub-task lists.
-  static void sortSingularSubtasksNewestFirstInPlace(List<SingularSubtask> out) {
+  static void sortSingularSubtasksNewestFirstInPlace(
+    List<SingularSubtask> out,
+  ) {
     out.sort((a, b) {
       final ca = a.createDate;
       final cb = b.createDate;
       if (ca == null && cb == null) {
-        return b.subtaskName.toLowerCase().compareTo(a.subtaskName.toLowerCase());
+        return b.subtaskName.toLowerCase().compareTo(
+          a.subtaskName.toLowerCase(),
+        );
       }
       if (ca == null) return 1;
       if (cb == null) return -1;
@@ -536,8 +544,9 @@ class SupabaseService {
       if (clearCompletionDate) {
         map['completion_date'] = null;
       } else if (completionDateAt != null) {
-        map['completion_date'] =
-            HkTime.timestampForDbFromStoredUtc(completionDateAt.toUtc());
+        map['completion_date'] = HkTime.timestampForDbFromStoredUtc(
+          completionDateAt.toUtc(),
+        );
       }
       if (stampSubmitDateNow) {
         map['submit_date'] = HkTime.timestampForDb();
@@ -583,7 +592,10 @@ class SupabaseService {
         if (!_subtaskRowStatusNotDeleted(row)) continue;
         final sid = row['id']?.toString().trim();
         if (sid == null || sid.isEmpty) continue;
-        await Supabase.instance.client.from('subtask').update(map).eq('id', sid);
+        await Supabase.instance.client
+            .from('subtask')
+            .update(map)
+            .eq('id', sid);
       }
       invalidateSubtasksCacheForTask(tid);
       return null;
@@ -712,9 +724,7 @@ class SupabaseService {
   }) async {
     return replaceAttachmentsForTask(
       taskId: taskId,
-      rows: [
-        (content: content, description: null),
-      ],
+      rows: [(content: content, description: null)],
     );
   }
 
@@ -764,8 +774,9 @@ class SupabaseService {
     }
 
     final pidRaw = row['project_id']?.toString().trim();
-    final String? projectId =
-        (pidRaw != null && pidRaw.isNotEmpty) ? pidRaw : null;
+    final String? projectId = (pidRaw != null && pidRaw.isNotEmpty)
+        ? pidRaw
+        : null;
     String? projectName;
     String? projectDescription;
     if (projectId != null && projectSummaries != null) {
@@ -816,7 +827,7 @@ class SupabaseService {
 
   /// Loads `project.name` / `project.description` for singular-task rows.
   static Future<Map<String, ({String name, String description})>>
-      fetchProjectSummariesByIds(Set<String> ids) async {
+  fetchProjectSummariesByIds(Set<String> ids) async {
     final out = <String, ({String name, String description})>{};
     if (!_enabled || ids.isEmpty) return out;
     final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
@@ -857,9 +868,7 @@ class SupabaseService {
           assigneeNames.add(name);
         } else {
           final appId = staffUuidToAppId[v]?.trim();
-          assigneeNames.add(
-            appId != null && appId.isNotEmpty ? appId : v,
-          );
+          assigneeNames.add(appId != null && appId.isNotEmpty ? appId : v);
         }
       }
     }
@@ -876,9 +885,7 @@ class SupabaseService {
             picNames.add(name);
           } else {
             final appId = staffUuidToAppId[s]?.trim();
-            picNames.add(
-              appId != null && appId.isNotEmpty ? appId : s,
-            );
+            picNames.add(appId != null && appId.isNotEmpty ? appId : s);
           }
         }
       }
@@ -897,12 +904,14 @@ class SupabaseService {
       endDate: _parseDate(row['end_date']),
       status: row['status'] as String? ?? 'Not started',
       createByStaffUuid: cb?.isNotEmpty == true ? cb : null,
-      createByDisplayName:
-          cb != null && cb.isNotEmpty ? (staffUuidToName[cb] ?? cb) : null,
+      createByDisplayName: cb != null && cb.isNotEmpty
+          ? (staffUuidToName[cb] ?? cb)
+          : null,
       createDate: _parseDateTimeNullable(row['create_date']),
       updateByStaffUuid: ub?.isNotEmpty == true ? ub : null,
-      updateByDisplayName:
-          ub != null && ub.isNotEmpty ? (staffUuidToName[ub] ?? ub) : null,
+      updateByDisplayName: ub != null && ub.isNotEmpty
+          ? (staffUuidToName[ub] ?? ub)
+          : null,
       updateDate: _parseDateTimeNullable(row['update_date']),
     );
   }
@@ -955,7 +964,10 @@ class SupabaseService {
           .order('holiday_date', ascending: true);
       final list = res as List;
       return list
-          .map((raw) => CalendarHoliday.fromMap(Map<String, dynamic>.from(raw as Map)))
+          .map(
+            (raw) =>
+                CalendarHoliday.fromMap(Map<String, dynamic>.from(raw as Map)),
+          )
           .toList();
     } catch (e) {
       debugPrint('fetchCalendarHolidaysBetween: $e');
@@ -991,7 +1003,9 @@ class SupabaseService {
     }
   }
 
-  static Future<List<Task>> fetchSingularTasksForProject(String projectId) async {
+  static Future<List<Task>> fetchSingularTasksForProject(
+    String projectId,
+  ) async {
     if (!_enabled) return [];
     final pid = projectId.trim();
     if (pid.isEmpty) return [];
@@ -1007,8 +1021,10 @@ class SupabaseService {
           staffUuidToName = maps.staffUuidToName;
         }
       } catch (_) {}
-      final res =
-          await Supabase.instance.client.from('task').select().eq('project_id', pid);
+      final res = await Supabase.instance.client
+          .from('task')
+          .select()
+          .eq('project_id', pid);
       final summaries = await fetchProjectSummariesByIds({pid});
       final out = <Task>[];
       for (final raw in (res as List)) {
@@ -1033,6 +1049,7 @@ class SupabaseService {
   static Future<({String? error, String? projectId})> insertProjectRow({
     required String name,
     List<String?> assignees = const [],
+
     /// [`staff.id`] uuids; persisted as JSON array in [`project.pic`].
     List<String> picStaffUuids = const [],
     String? description,
@@ -1098,6 +1115,7 @@ class SupabaseService {
     String? name,
     String? description,
     List<String?>? assigneeSlots,
+
     /// When non-null, replaces [`project.pic`] JSON array (`staff.id` uuids).
     List<String>? picStaffUuids,
     DateTime? startDate,
@@ -1199,8 +1217,7 @@ class SupabaseService {
       return s.isEmpty ? null : s;
     }
     if (v is Map) {
-      final dynamic inner =
-          v['value'] ?? v['Value'] ?? v['name'] ?? v['label'];
+      final dynamic inner = v['value'] ?? v['Value'] ?? v['name'] ?? v['label'];
       if (inner != null) {
         final s = inner.toString().trim();
         if (s.isNotEmpty) return s;
@@ -1472,8 +1489,9 @@ class SupabaseService {
 
     var subUuids = List<String>.from(visibility.subordinateStaffUuids);
     if (visibility.subordinateStaffAppIds.isNotEmpty) {
-      final resolved =
-          await fetchStaffRowIdsForAppIds(visibility.subordinateStaffAppIds);
+      final resolved = await fetchStaffRowIdsForAppIds(
+        visibility.subordinateStaffAppIds,
+      );
       final merged = <String>{
         ...subUuids.map((e) => e.trim()).where((e) => e.isNotEmpty),
         ...resolved,
@@ -1508,7 +1526,10 @@ class SupabaseService {
       }
     }
 
-    Future<void> runQuery(String label, Future<dynamic> Function() query) async {
+    Future<void> runQuery(
+      String label,
+      Future<dynamic> Function() query,
+    ) async {
       try {
         absorb(await query());
       } catch (e, st) {
@@ -1522,7 +1543,10 @@ class SupabaseService {
       futures.add(
         runQuery(
           'create_by',
-          () => supabase.from('task').select().inFilter('create_by', createByKeys),
+          () => supabase
+              .from('task')
+              .select()
+              .inFilter('create_by', createByKeys),
         ),
       );
     }
@@ -1796,8 +1820,7 @@ class SupabaseService {
           final p = row['project_id']?.toString().trim();
           if (p != null && p.isNotEmpty) projectIds.add(p);
         }
-        final projectSummaries =
-            await fetchProjectSummariesByIds(projectIds);
+        final projectSummaries = await fetchProjectSummariesByIds(projectIds);
         var parseFailures = 0;
         for (final row in singularRawRows) {
           try {
@@ -1806,8 +1829,9 @@ class SupabaseService {
               staffUuidToAppId,
               teamUuidToAppId,
               staffUuidToName,
-              projectSummaries:
-                  projectSummaries.isEmpty ? null : projectSummaries,
+              projectSummaries: projectSummaries.isEmpty
+                  ? null
+                  : projectSummaries,
             );
             if (t != null) {
               singularTasks.add(t);
@@ -2530,8 +2554,9 @@ class SupabaseService {
     final m = <String, String>{};
     if (!_enabled) return m;
     try {
-      final res =
-          await Supabase.instance.client.from('staff').select('id, app_id');
+      final res = await Supabase.instance.client
+          .from('staff')
+          .select('id, app_id');
       for (final raw in (res as List)) {
         final r = Map<String, dynamic>.from(raw as Map);
         final id = r['id']?.toString().trim() ?? '';
@@ -2581,7 +2606,9 @@ class SupabaseService {
     return SingularSubtask(
       id: id,
       taskId: taskId,
-      createByStaffId: cb?.isNotEmpty == true ? cb : null,
+      createByStaffId: cb?.isNotEmpty == true
+          ? (staffUuidToAppId[cb] ?? cb)
+          : null,
       createByStaffName: _createByDisplayName(
         row,
         staffUuidToName,
@@ -2621,9 +2648,8 @@ class SupabaseService {
     final tid = taskId.trim();
     if (tid.isEmpty) return [];
     final client = Supabase.instance.client;
-    List<Map<String, dynamic>> asMapList(dynamic res) => (res as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    List<Map<String, dynamic>> asMapList(dynamic res) =>
+        (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     try {
       final res = await client
           .from('subtask')
@@ -2641,8 +2667,7 @@ class SupabaseService {
         return asMapList(res);
       } catch (_) {
         try {
-          final res =
-              await client.from('subtask').select().eq('task_id', tid);
+          final res = await client.from('subtask').select().eq('task_id', tid);
           return asMapList(res);
         } catch (_) {
           return [];
@@ -2694,9 +2719,7 @@ class SupabaseService {
 
   /// Deleted sub-tasks only, grouped by parent `task_id` (landing Overview/Default filters).
   static Future<Map<String, List<SingularSubtask>>>
-      fetchDeletedSubtasksGroupedForLandingPrefetch(
-    List<String> taskIds,
-  ) async {
+  fetchDeletedSubtasksGroupedForLandingPrefetch(List<String> taskIds) async {
     final out = <String, List<SingularSubtask>>{};
     final ids =
         taskIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList()
@@ -2784,7 +2807,9 @@ class SupabaseService {
 
   /// Deprecated path: use [searchParentTaskIdsForTokens] for one round-trip.
   /// Single-token query uses the same RPC and materialized view.
-  static Future<Set<String>> fetchTaskIdsHavingSubtaskToken(String tokenLower) async {
+  static Future<Set<String>> fetchTaskIdsHavingSubtaskToken(
+    String tokenLower,
+  ) async {
     final t = tokenLower.trim();
     if (t.isEmpty) return {};
     return searchParentTaskIdsForTokens([t]);
@@ -2801,7 +2826,9 @@ class SupabaseService {
     });
   }
 
-  static Future<List<SingularSubtask>> _fetchSubtasksForTaskImpl(String tid) async {
+  static Future<List<SingularSubtask>> _fetchSubtasksForTaskImpl(
+    String tid,
+  ) async {
     final cached = _subtaskListMemoryCache[tid];
     if (cached != null) return List<SingularSubtask>.from(cached);
 
@@ -2834,7 +2861,7 @@ class SupabaseService {
   /// Few HTTP calls instead of one per task — used by landing prefetch only.
   /// Seeds [_subtaskListMemoryCache] per id so [fetchSubtasksForTask] hits memory on cards.
   static Future<Map<String, List<SingularSubtask>>>
-      fetchSubtasksGroupedForLandingPrefetch(List<String> taskIds) async {
+  fetchSubtasksGroupedForLandingPrefetch(List<String> taskIds) async {
     final out = <String, List<SingularSubtask>>{};
     final ids =
         taskIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList()
@@ -2867,7 +2894,10 @@ class SupabaseService {
       final end = min(i + chunkSize, ids.length);
       final chunk = ids.sublist(i, end);
       try {
-        final res = await client.from('subtask').select().inFilter('task_id', chunk);
+        final res = await client
+            .from('subtask')
+            .select()
+            .inFilter('task_id', chunk);
         for (final raw in (res as List)) {
           pendingRows.add(Map<String, dynamic>.from(raw as Map));
         }
@@ -2897,7 +2927,8 @@ class SupabaseService {
     if (!_enabled) return null;
     try {
       final maps = await _loadMaps();
-      final staffMap = maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
+      final staffMap =
+          maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
       final staffNames = maps?.staffUuidToName ?? <String, String>{};
       final res = await Supabase.instance.client
           .from('subtask')
@@ -2930,7 +2961,8 @@ class SupabaseService {
   }) async {
     if (!_enabled) return (error: 'Supabase not configured', subtaskId: null);
     final name = subtaskName.trim();
-    if (name.isEmpty) return (error: 'subtask_name is required', subtaskId: null);
+    if (name.isEmpty)
+      return (error: 'subtask_name is required', subtaskId: null);
     try {
       var padded = List<String?>.from(assigneeStaffUuids);
       while (padded.length < 10) {
@@ -3073,13 +3105,17 @@ class SupabaseService {
       if (clearCompletionDate) {
         map['completion_date'] = null;
       } else if (completionDateAt != null) {
-        map['completion_date'] =
-            HkTime.timestampForDbFromStoredUtc(completionDateAt.toUtc());
+        map['completion_date'] = HkTime.timestampForDbFromStoredUtc(
+          completionDateAt.toUtc(),
+        );
       }
       if (stampSubmitDateNow) {
         map['submit_date'] = HkTime.timestampForDb();
       }
-      await Supabase.instance.client.from('subtask').update(map).eq('id', subtaskId);
+      await Supabase.instance.client
+          .from('subtask')
+          .update(map)
+          .eq('id', subtaskId);
       return null;
     } catch (e) {
       return e.toString();
@@ -3397,17 +3433,16 @@ class SupabaseService {
 
   /// Max of `(update_date ?? create_date)` per `subtask_id` from [`subtask_comment`].
   static Future<Map<String, DateTime?>>
-      fetchMaxSubtaskCommentActivityBySubtaskIds(
-    List<String> subtaskIds,
-  ) async {
+  fetchMaxSubtaskCommentActivityBySubtaskIds(List<String> subtaskIds) async {
     final out = <String, DateTime?>{};
     if (!_enabled || subtaskIds.isEmpty) return out;
-    final ids = subtaskIds
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final ids =
+        subtaskIds
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     const chunkSize = 80;
     final client = Supabase.instance.client;
     for (var i = 0; i < ids.length; i += chunkSize) {

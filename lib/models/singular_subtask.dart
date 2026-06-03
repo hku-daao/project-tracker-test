@@ -30,7 +30,7 @@ class SingularSubtask {
   final String id;
   final String taskId;
 
-  /// `staff.id` uuid
+  /// Creator key resolved to `staff.app_id` where possible, else `staff.id` uuid.
   final String? createByStaffId;
 
   /// Resolved from `subtask.create_by` → `staff.name` (same as [Task.createByStaffName]).
@@ -139,8 +139,7 @@ class SingularSubtask {
       pic: pic ?? this.pic,
       createDate: createDate ?? this.createDate,
       updateDate: updateDate ?? this.updateDate,
-      lastUpdated:
-          clearLastUpdated ? null : (lastUpdated ?? this.lastUpdated),
+      lastUpdated: clearLastUpdated ? null : (lastUpdated ?? this.lastUpdated),
       updateByStaffName: updateByStaffName ?? this.updateByStaffName,
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
