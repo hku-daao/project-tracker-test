@@ -1276,6 +1276,7 @@ class _SubtaskDataRow extends StatelessWidget {
           priority: subtask.priority,
           status: subtask.status,
           submission: subtask.submission,
+          indentSubtaskBadge: true,
         ),
       ],
     );
@@ -1422,6 +1423,7 @@ class _ItemTableRow extends StatelessWidget {
     required this.status,
     required this.submission,
     this.expandControl,
+    this.indentSubtaskBadge = false,
   });
 
   final double tableWidth;
@@ -1442,6 +1444,9 @@ class _ItemTableRow extends StatelessWidget {
   /// Expand/collapse control shown in the fixed name gutter (tasks with sub-tasks).
   final Widget? expandControl;
 
+  /// Expanded child sub-tasks use the task arrow gutter as their visual indent.
+  final bool indentSubtaskBadge;
+
   @override
   Widget build(BuildContext context) {
     final cols = _TaskTableLayout(tableWidth);
@@ -1455,6 +1460,11 @@ class _ItemTableRow extends StatelessWidget {
       isSubtask: isSubtask,
     );
     final rowBg = isSubtask ? tableColors.subtaskRow : tableColors.taskRow;
+    final typeLetter = AsanaRowTypeLetter(
+      letter: isSubtask ? 'S' : 'T',
+      completed: completed,
+      deleted: _rowDeleted(isSubtask: isSubtask, status: status),
+    );
 
     return Material(
       color: rowBg,
@@ -1475,14 +1485,9 @@ class _ItemTableRow extends StatelessWidget {
                 SizedBox(
                   width: _TaskTableLayout.typeCol,
                   child: Center(
-                    child: AsanaRowTypeLetter(
-                      letter: isSubtask ? 'S' : 'T',
-                      completed: completed,
-                      deleted: _rowDeleted(
-                        isSubtask: isSubtask,
-                        status: status,
-                      ),
-                    ),
+                    child: indentSubtaskBadge
+                        ? const SizedBox.shrink()
+                        : typeLetter,
                   ),
                 ),
                 const SizedBox(width: _TaskTableLayout.typeColGap),
@@ -1495,7 +1500,12 @@ class _ItemTableRow extends StatelessWidget {
                         width: _TaskTableLayout.nameGutter,
                         height: _TaskTableLayout.singleLineExtent,
                         child: Center(
-                          child: expandControl ?? const SizedBox.shrink(),
+                          child: indentSubtaskBadge
+                              ? Transform.translate(
+                                  offset: const Offset(-8, 0),
+                                  child: typeLetter,
+                                )
+                              : (expandControl ?? const SizedBox.shrink()),
                         ),
                       ),
                       Expanded(
