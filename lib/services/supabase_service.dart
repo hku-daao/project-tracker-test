@@ -2717,6 +2717,24 @@ class SupabaseService {
     return out;
   }
 
+  static Future<List<String?>> _staffRowIdSlotsForAssigneeKeys(
+    List<String?> staffKeys,
+  ) async {
+    final out = <String?>[];
+    for (final key in staffKeys.take(10)) {
+      final lookup = key?.trim();
+      if (lookup == null || lookup.isEmpty) {
+        out.add(null);
+        continue;
+      }
+      out.add(await _staffRowIdForAssigneeKey(lookup));
+    }
+    while (out.length < 10) {
+      out.add(null);
+    }
+    return out;
+  }
+
   /// Deleted sub-tasks only, grouped by parent `task_id` (landing Overview/Default filters).
   static Future<Map<String, List<SingularSubtask>>>
   fetchDeletedSubtasksGroupedForLandingPrefetch(List<String> taskIds) async {
@@ -2964,11 +2982,9 @@ class SupabaseService {
     if (name.isEmpty)
       return (error: 'subtask_name is required', subtaskId: null);
     try {
-      var padded = List<String?>.from(assigneeStaffUuids);
-      while (padded.length < 10) {
-        padded.add(null);
-      }
-      if (padded.length > 10) padded = padded.sublist(0, 10);
+      final assigneeStaffIds = await _staffRowIdSlotsForAssigneeKeys(
+        assigneeStaffUuids,
+      );
       final map = <String, dynamic>{
         'task_id': taskId,
         'subtask_name': name,
@@ -2992,14 +3008,21 @@ class SupabaseService {
         map['due_date'] = HkTime.dateOnlyHkMidnightForDb(dueDate);
       }
       for (var i = 0; i < 10; i++) {
-        final raw = padded[i]?.trim();
-        if (raw != null && raw.isNotEmpty) {
-          map['assignee_${(i + 1).toString().padLeft(2, '0')}'] = raw;
+        final staffId = assigneeStaffIds[i]?.trim();
+        if (staffId != null && staffId.isNotEmpty) {
+          map['assignee_${(i + 1).toString().padLeft(2, '0')}'] = staffId;
         }
       }
-      final pic = picStaffUuid.trim();
-      if (pic.isNotEmpty) {
-        map['pic'] = pic;
+      final picLookup = picStaffUuid.trim();
+      if (picLookup.isNotEmpty) {
+        final picStaffId = await _staffRowIdForAssigneeKey(picLookup);
+        if (picStaffId == null || picStaffId.isEmpty) {
+          return (
+            error: 'Could not resolve staff id for sub-task PIC',
+            subtaskId: null,
+          );
+        }
+        map['pic'] = picStaffId;
       }
       final cdr = changeDueReason?.trim();
       if (cdr != null && cdr.isNotEmpty) {
@@ -3078,9 +3101,12 @@ class SupabaseService {
       if (status != null) map['status'] = status;
       if (submission != null) map['submission'] = submission;
       if (assigneeSlots != null) {
+        final assigneeStaffIds = await _staffRowIdSlotsForAssigneeKeys(
+          assigneeSlots,
+        );
         for (var i = 0; i < 10; i++) {
-          final v = i < assigneeSlots.length ? assigneeSlots[i]?.trim() : null;
-          map['assignee_${(i + 1).toString().padLeft(2, '0')}'] = v;
+          map['assignee_${(i + 1).toString().padLeft(2, '0')}'] =
+              assigneeStaffIds[i];
         }
       }
       final picLookup = picStaffLookupKey?.trim();

@@ -116,9 +116,9 @@ class AsanaDetailSuggestedValueRow extends StatelessWidget {
     final effectiveLabelWidth = MediaQuery.sizeOf(context).width < 600
         ? labelWidth / 2
         : labelWidth;
-    final labelStyle = asanaDetailLabelStyle(context).copyWith(
-      color: labelColor ?? kAsanaTextSecondary,
-    );
+    final labelStyle = asanaDetailLabelStyle(
+      context,
+    ).copyWith(color: labelColor ?? kAsanaTextSecondary);
     final edge = borderColor ?? kAsanaTextSecondary.withValues(alpha: 0.35);
     final outline = OutlineInputBorder(
       borderRadius: BorderRadius.circular(6),
@@ -212,9 +212,9 @@ class AsanaDetailPlainValue extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: asanaDetailValueStyle(context).copyWith(
-        color: completed ? Colors.black38 : kAsanaTextPrimary,
-      ),
+      style: asanaDetailValueStyle(
+        context,
+      ).copyWith(color: completed ? Colors.black38 : kAsanaTextPrimary),
       maxLines: maxLines,
       overflow: maxLines != null ? TextOverflow.ellipsis : null,
     );
@@ -242,6 +242,7 @@ class AsanaHoverTextField extends StatefulWidget {
   final TextStyle? style;
   final bool readOnly;
   final String? hintText;
+
   /// Always show a visible border (create-task slide).
   final bool showOutline;
 
@@ -254,9 +255,10 @@ class _AsanaHoverTextFieldState extends State<AsanaHoverTextField> {
 
   @override
   Widget build(BuildContext context) {
-    final showBorder = widget.showOutline ||
-        (widget.canEdit && _hovering && !widget.readOnly);
-    final baseStyle = widget.style ??
+    final showBorder =
+        widget.showOutline || (widget.canEdit && _hovering && !widget.readOnly);
+    final baseStyle =
+        widget.style ??
         (widget.maxLines > 1
             ? asanaDetailMultilineValueStyle(context)
             : asanaDetailValueStyle(context));
@@ -314,10 +316,12 @@ class AsanaHoverTapValue extends StatefulWidget {
 
   final String value;
   final bool canEdit;
+
   /// Receives this field's [BuildContext] (for anchored overlays).
   final void Function(BuildContext fieldContext)? onTap;
   final VoidCallback? onClear;
   final String emptyPlaceholder;
+
   /// When set, anchored overlays can follow this field on resize / scroll.
   final LayerLink? anchorLink;
 
@@ -385,10 +389,7 @@ class _AsanaHoverTapValueState extends State<AsanaHoverTapValue> {
       ),
     );
     if (widget.anchorLink != null) {
-      child = CompositedTransformTarget(
-        link: widget.anchorLink!,
-        child: child,
-      );
+      child = CompositedTransformTarget(link: widget.anchorLink!, child: child);
     }
     return child;
   }
@@ -459,9 +460,7 @@ class AsanaDetailCircleAddButton extends StatelessWidget {
     Widget child = Tooltip(
       message: tooltip,
       child: Material(
-        color: canPress
-            ? const Color(0xFFECEFF1)
-            : const Color(0xFFF5F6F7),
+        color: canPress ? const Color(0xFFECEFF1) : const Color(0xFFF5F6F7),
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -590,10 +589,7 @@ class AsanaDetailSlideScaffold extends StatelessWidget {
     if (footer == null) {
       return ColoredBox(
         color: backgroundColor,
-        child: SingleChildScrollView(
-          padding: contentPadding,
-          child: body,
-        ),
+        child: SingleChildScrollView(padding: contentPadding, child: body),
       );
     }
 
@@ -603,10 +599,7 @@ class AsanaDetailSlideScaffold extends StatelessWidget {
       child: Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              padding: contentPadding,
-              child: body,
-            ),
+            child: SingleChildScrollView(padding: contentPadding, child: body),
           ),
           footer!,
         ],
@@ -627,19 +620,23 @@ class AsanaTaskDetailActionStyles {
   static const Color deleteRed = Color(0xFFC62828);
   static const double _cornerRadius = 8;
 
-  static const EdgeInsets _padding =
-      EdgeInsets.symmetric(horizontal: 20, vertical: 12);
-  static const EdgeInsets _mobilePadding =
-      EdgeInsets.symmetric(horizontal: 18, vertical: 11);
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: 20,
+    vertical: 12,
+  );
+  static const EdgeInsets _mobilePadding = EdgeInsets.symmetric(
+    horizontal: 18,
+    vertical: 11,
+  );
 
   static final RoundedRectangleBorder _shape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(_cornerRadius),
   );
 
-  static ButtonStyle _rounded(ButtonStyle style) {
+  static ButtonStyle _rounded(ButtonStyle style, {Size? minimumSize}) {
     return style.copyWith(
       shape: WidgetStatePropertyAll(_shape),
-      minimumSize: WidgetStateProperty.resolveWith((states) => Size.zero),
+      minimumSize: WidgetStatePropertyAll(minimumSize ?? Size.zero),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
@@ -652,10 +649,19 @@ class AsanaTaskDetailActionStyles {
   }
 
   static TextStyle? _responsiveTextStyle(BuildContext? context) {
-    if (context != null && MediaQuery.sizeOf(context).width < 600) {
-      return Theme.of(context).textTheme.labelLarge?.copyWith(fontSize: 12.6);
+    if (context == null) return null;
+    final base = Theme.of(context).textTheme.labelLarge;
+    if (MediaQuery.sizeOf(context).width < 600) {
+      return base?.copyWith(fontSize: 12.6);
     }
-    return null;
+    return base;
+  }
+
+  static Size _responsiveActionMinimumSize(BuildContext? context) {
+    if (context != null && MediaQuery.sizeOf(context).width < 600) {
+      return const Size(76, 40);
+    }
+    return const Size(88, 40);
   }
 
   static bool isMobile(BuildContext context) =>
@@ -673,6 +679,7 @@ class AsanaTaskDetailActionStyles {
         textStyle: _responsiveTextStyle(context),
         elevation: 0,
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -688,6 +695,7 @@ class AsanaTaskDetailActionStyles {
         textStyle: _responsiveTextStyle(context),
         elevation: 0,
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -700,6 +708,7 @@ class AsanaTaskDetailActionStyles {
         textStyle: _responsiveTextStyle(context),
         elevation: 0,
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -712,6 +721,7 @@ class AsanaTaskDetailActionStyles {
         textStyle: _responsiveTextStyle(context),
         elevation: 0,
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -727,6 +737,7 @@ class AsanaTaskDetailActionStyles {
         textStyle: _responsiveTextStyle(context),
         elevation: 0,
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -742,6 +753,7 @@ class AsanaTaskDetailActionStyles {
         padding: _responsivePadding(context),
         textStyle: _responsiveTextStyle(context),
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 
@@ -760,6 +772,7 @@ class AsanaTaskDetailActionStyles {
           BorderSide(color: Color(0xFFB71C1C), width: 1.5),
         ),
       ),
+      minimumSize: _responsiveActionMinimumSize(context),
     );
   }
 }
@@ -781,10 +794,7 @@ Future<bool?> showAsanaConfirmDialog({
         backgroundColor: palette.panelBackground,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: const Color(0xFFEDEAE9),
-            width: 1,
-          ),
+          side: BorderSide(color: const Color(0xFFEDEAE9), width: 1),
         ),
         elevation: 12,
         child: Container(
@@ -826,7 +836,10 @@ Future<bool?> showAsanaConfirmDialog({
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text('Cancel'),
                   ),
@@ -834,12 +847,17 @@ Future<bool?> showAsanaConfirmDialog({
                   FilledButton(
                     onPressed: () => Navigator.of(ctx).pop(true),
                     style: FilledButton.styleFrom(
-                      backgroundColor: isDestructive ? const Color(0xFFC62828) : palette.accent,
+                      backgroundColor: isDestructive
+                          ? const Color(0xFFC62828)
+                          : palette.accent,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                     child: Text(confirmText),
                   ),

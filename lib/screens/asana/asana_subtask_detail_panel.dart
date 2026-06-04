@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -26,6 +27,7 @@ import 'asana_blocking_loading_overlay.dart';
 import 'asana_detail_widgets.dart';
 import 'asana_filter_widgets.dart';
 import 'asana_task_ai_assistant.dart';
+import 'asana_theme.dart';
 import 'asana_value_chips.dart';
 
 class _SubtaskAttachmentDraft {
@@ -35,8 +37,8 @@ class _SubtaskAttachmentDraft {
     String? desc,
     this.pendingBytes,
     this.pendingFilename,
-  })  : urlController = TextEditingController(text: url ?? ''),
-        descController = TextEditingController(text: desc ?? '');
+  }) : urlController = TextEditingController(text: url ?? ''),
+       descController = TextEditingController(text: desc ?? '');
 
   final String? id;
   final TextEditingController urlController;
@@ -49,6 +51,78 @@ class _SubtaskAttachmentDraft {
   void dispose() {
     urlController.dispose();
     descController.dispose();
+  }
+}
+
+class _SubtaskCommentDisplayTile extends StatelessWidget {
+  const _SubtaskCommentDisplayTile({required this.comment});
+
+  final SubtaskCommentRowDisplay comment;
+
+  DateTime? get _displayTimestamp {
+    final created = comment.createTimestampUtc;
+    final updated = comment.updateTimestampUtc;
+    if (updated != null && created != null && updated.isAfter(created)) {
+      return updated;
+    }
+    return created ?? updated;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final deleted = comment.isDeleted;
+    final timestamp = _displayTimestamp;
+    final edited =
+        comment.updateTimestampUtc != null &&
+        comment.createTimestampUtc != null &&
+        comment.updateTimestampUtc!.isAfter(comment.createTimestampUtc!);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(comment.displayStaffName, style: asanaDetailLabelStyle(context)),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            decoration: BoxDecoration(
+              color: deleted ? const Color(0xFFF9FAFB) : Colors.white,
+              border: Border.all(color: const Color(0xFFEDEAE9)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  comment.description,
+                  style: asanaDetailMultilineValueStyle(context).copyWith(
+                    color: deleted ? kAsanaTextSecondary : kAsanaTextPrimary,
+                  ),
+                ),
+                if (timestamp != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      edited
+                          ? 'Edited ${HkTime.formatInstantAsHk(timestamp, 'yyyy-MM-dd HH:mm')}'
+                          : HkTime.formatInstantAsHk(
+                              timestamp,
+                              'yyyy-MM-dd HH:mm',
+                            ),
+                      style: asanaDetailLabelStyle(
+                        context,
+                      ).copyWith(fontWeight: FontWeight.normal, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -73,7 +147,8 @@ class AsanaSubtaskDetailPanel extends StatefulWidget {
   final VoidCallback? onChanged;
 
   @override
-  State<AsanaSubtaskDetailPanel> createState() => _AsanaSubtaskDetailPanelState();
+  State<AsanaSubtaskDetailPanel> createState() =>
+      _AsanaSubtaskDetailPanelState();
 }
 
 class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
@@ -88,6 +163,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   final _reasonController = TextEditingController();
   final _commentController = TextEditingController();
   final List<_SubtaskAttachmentDraft> _attachments = [];
+  List<SubtaskCommentRowDisplay> _comments = [];
 
   final Set<String> _assigneeIds = {};
   String? _picAssigneeId;
@@ -96,15 +172,16 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   DateTime? _dueDate;
   String? _draftStatus;
   DateTime _anchorCreateDate = HkTime.todayDateOnlyHk();
-  
+
   bool _assigneePickerLoading = false;
   String? _assigneePickerError;
   List<TeamOptionRow> _pickerTeams = [];
   List<StaffForAssignment> _pickerStaff = [];
   final ValueNotifier<AsanaAssigneePickerSnapshot> _assigneeSnapshot =
       ValueNotifier(const AsanaAssigneePickerSnapshot(loading: true));
-  final ValueNotifier<AsanaAssigneePickerSnapshot> _picSnapshot =
-      ValueNotifier(const AsanaAssigneePickerSnapshot(loading: true));
+  final ValueNotifier<AsanaAssigneePickerSnapshot> _picSnapshot = ValueNotifier(
+    const AsanaAssigneePickerSnapshot(loading: true),
+  );
 
   final LayerLink _assigneeAnchorLink = LayerLink();
   final LayerLink _picAnchorLink = LayerLink();
@@ -150,7 +227,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   @override
   void didUpdateWidget(covariant AsanaSubtaskDetailPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.subtaskId != widget.subtaskId || oldWidget.createMode != widget.createMode) {
+    if (oldWidget.subtaskId != widget.subtaskId ||
+        oldWidget.createMode != widget.createMode) {
       if (_effectiveCreateMode) {
         _createdInPlace = false;
         _resetCreateDraft();
@@ -167,12 +245,16 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     _reasonController.clear();
     _commentController.clear();
     _clearAttachments();
+    _comments = [];
     _assigneeIds.clear();
     _picAssigneeId = null;
     _localPriority = priorityStandard;
     _draftStatus = 'Incomplete';
     final today = HkTime.todayDateOnlyHk();
-    _anchorCreateDate = HkTime.firstBusinessDayOnOrAfter(today, _holidaySkipYmd);
+    _anchorCreateDate = HkTime.firstBusinessDayOnOrAfter(
+      today,
+      _holidaySkipYmd,
+    );
     _startDate = _anchorCreateDate;
     _dueDate = _defaultDueForPriority(_localPriority);
     _subtask = null;
@@ -181,7 +263,11 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
 
   DateTime _defaultDueForPriority(int priority) {
     final days = priority == priorityUrgent ? 1 : 3;
-    return HkTime.addBusinessDaysAfter(_anchorCreateDate, days, _holidaySkipYmd);
+    return HkTime.addBusinessDaysAfter(
+      _anchorCreateDate,
+      days,
+      _holidaySkipYmd,
+    );
   }
 
   @override
@@ -207,7 +293,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
         );
         _holidaySkipYmd = HkTime.holidaySkipYmdFromCalendarRows(rows);
       } catch (_) {}
-      
+
       final row = await SupabaseService.fetchSubtaskById(widget.subtaskId!);
       if (mounted) {
         setState(() {
@@ -216,7 +302,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
           _descController.text = row?.description ?? '';
           _reasonController.text = row?.changeDueReason ?? '';
           _assigneeIds.clear();
-          if (row != null) _assigneeIds.addAll(row.assigneeIds.where((e) => e.isNotEmpty));
+          if (row != null)
+            _assigneeIds.addAll(row.assigneeIds.where((e) => e.isNotEmpty));
           _picAssigneeId = row?.pic;
           if (_picAssigneeId?.isEmpty == true) _picAssigneeId = null;
           _localPriority = row?.priority ?? priorityStandard;
@@ -226,6 +313,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
         });
         _loadAssigneeStaff();
         _loadAttachments(row);
+        _loadComments(row);
       }
     }
     if (mounted) setState(() => _loading = false);
@@ -258,6 +346,15 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     } catch (_) {}
   }
 
+  Future<void> _loadComments(SingularSubtask? row) async {
+    if (row == null || !SupabaseConfig.isConfigured) return;
+    try {
+      final list = await SupabaseService.fetchSubtaskComments(row.id);
+      if (!mounted) return;
+      setState(() => _comments = list);
+    } catch (_) {}
+  }
+
   String _nameFor(AppState state, String? key) {
     final k = key?.trim();
     if (k == null || k.isEmpty) return '';
@@ -269,16 +366,15 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     return HkTime.formatInstantAsHk(d, 'MMM d, yyyy');
   }
 
-  void _showEmailWarning(String label, String error) {
+  Future<void> _showEmailWarning(String label, String error) async {
     debugPrint('$label: $error');
     if (!mounted) return;
     final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label: $short'),
-        backgroundColor: Colors.orange,
-        duration: const Duration(seconds: 4),
-      ),
+    await showAsanaInfoDialog(
+      context: context,
+      title: label,
+      content: short,
+      palette: widget.palette,
     );
   }
 
@@ -289,14 +385,21 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (token == null) {
-        _showEmailWarning(label, 'sign-in token missing');
+        await _showEmailWarning(label, 'sign-in token missing');
         return;
       }
       final err = await send(token);
-      if (err != null) _showEmailWarning(label, err);
+      if (err != null) await _showEmailWarning(label, err);
     } catch (e) {
-      _showEmailWarning(label, e.toString());
+      await _showEmailWarning(label, e.toString());
     }
+  }
+
+  void _notifyEmailInBackground(
+    String label,
+    Future<String?> Function(String idToken) send,
+  ) {
+    unawaited(_notifyEmail(label, send));
   }
 
   void _addChange(
@@ -321,8 +424,18 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     SingularSubtask s,
   ) {
     final changes = <Map<String, String>>[];
-    _addChange(changes, 'subtaskName', s.subtaskName, _nameController.text.trim());
-    _addChange(changes, 'description', s.description, _descController.text.trim());
+    _addChange(
+      changes,
+      'subtaskName',
+      s.subtaskName,
+      _nameController.text.trim(),
+    );
+    _addChange(
+      changes,
+      'description',
+      s.description,
+      _descController.text.trim(),
+    );
     _addChange(
       changes,
       'assignees',
@@ -344,20 +457,24 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     if (_effectiveCreateMode) return true;
     final s = _subtask;
     if (s == null) return false;
-    final myUuid = state.userStaffId?.trim();
-    if (myUuid == null || myUuid.isEmpty) return false;
-    return s.createByStaffId?.trim() == myUuid;
+    return _matchesCurrentStaff(state, s.createByStaffId);
   }
 
   bool _isPic(AppState state, SingularSubtask s) {
-    final mine = state.userStaffAppId?.trim();
-    final pic = s.pic?.trim();
-    return mine != null && mine.isNotEmpty && pic != null && mine == pic;
+    return _matchesCurrentStaff(state, s.pic);
   }
 
   bool _isAssignee(AppState state, SingularSubtask s) {
-    final mine = state.userStaffAppId?.trim();
-    return mine != null && mine.isNotEmpty && s.assigneeIds.contains(mine);
+    return s.assigneeIds.any((id) => _matchesCurrentStaff(state, id));
+  }
+
+  bool _matchesCurrentStaff(AppState state, String? staffKey) {
+    final key = staffKey?.trim();
+    if (key == null || key.isEmpty) return false;
+    final myAppId = state.userStaffAppId?.trim();
+    if (myAppId != null && myAppId.isNotEmpty && myAppId == key) return true;
+    final myUuid = state.userStaffId?.trim();
+    return myUuid != null && myUuid.isNotEmpty && myUuid == key;
   }
 
   bool _canMarkComplete(SingularSubtask s) {
@@ -391,7 +508,9 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     _picSnapshot.value = AsanaAssigneePickerSnapshot(
       loading: _assigneePickerLoading,
       teams: _pickerTeamsForRole(),
-      staff: _pickerStaff.where((s) => _assigneeIds.contains(s.assigneeId)).toList(),
+      staff: _pickerStaff
+          .where((s) => _assigneeIds.contains(s.assigneeId))
+          .toList(),
       error: _assigneePickerError,
     );
   }
@@ -422,8 +541,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
         _pickerStaff = parentAssignees.isEmpty
             ? data.staff
             : data.staff
-                .where((s) => parentAssignees.contains(s.assigneeId))
-                .toList();
+                  .where((s) => parentAssignees.contains(s.assigneeId))
+                  .toList();
       } else {
         _pickerTeams = [];
         _pickerStaff = [];
@@ -456,7 +575,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
       _picAssigneeId = null;
     } else if (_assigneeIds.length == 1) {
       _picAssigneeId = _assigneeIds.first;
-    } else if (_picAssigneeId != null && !_assigneeIds.contains(_picAssigneeId)) {
+    } else if (_picAssigneeId != null &&
+        !_assigneeIds.contains(_picAssigneeId)) {
       _picAssigneeId = null;
     }
     _publishAssigneeSnapshot();
@@ -481,7 +601,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   }
 
   bool get _canOpenAnchoredPicker =>
-      DateTime.now().millisecondsSinceEpoch > _anchoredPickerReopenBlockedUntilMs;
+      DateTime.now().millisecondsSinceEpoch >
+      _anchoredPickerReopenBlockedUntilMs;
 
   void _blockAnchoredPickerReopen() {
     _anchoredPickerReopenBlockedUntilMs =
@@ -489,10 +610,11 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   }
 
   List<({String id, String name})> _assigneeRowsForDisplay(AppState state) {
-    final rows = _assigneeIds
-        .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    final rows =
+        _assigneeIds
+            .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
     return rows;
   }
 
@@ -574,8 +696,10 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     if (!_canOpenAnchoredPicker) return;
     final ids = _assigneeIds.toList()
       ..sort(
-        (a, b) => _labelForAssigneeId(a, state)
-            .compareTo(_labelForAssigneeId(b, state)),
+        (a, b) => _labelForAssigneeId(
+          a,
+          state,
+        ).compareTo(_labelForAssigneeId(b, state)),
       );
     final choice = await showAsanaAnchoredOptionMenu<String>(
       anchorLink: _picAnchorLink,
@@ -616,10 +740,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
       onClosed: _blockAnchoredPickerReopen,
       options: priorityOptions
           .map(
-            (p) => AsanaAnchoredOption(
-              value: p,
-              label: priorityToDisplayName(p),
-            ),
+            (p) =>
+                AsanaAnchoredOption(value: p, label: priorityToDisplayName(p)),
           )
           .toList(),
     );
@@ -687,7 +809,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
   void _ensureSubtaskAi(AppState state) {
     if (!_effectiveCreateMode && _subtask == null) return;
     final p = _parentTask;
-    
+
     _subtaskAi ??= AsanaTaskAiController(
       mode: AsanaTaskAiAssistantMode.subtaskFields,
       readOnly: () => _saving,
@@ -740,7 +862,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     final s = _subtask;
     if (!_effectiveCreateMode && s == null) return;
     final state = context.read<AppState>();
-    
+
     final newName = _nameController.text.trim();
     if (newName.isEmpty) {
       await showAsanaInfoDialog(
@@ -798,7 +920,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           picStaffUuid: _picAssigneeId ?? '',
           creatorStaffLookupKey: state.userStaffAppId,
           initialComment: commentText.isNotEmpty ? commentText : null,
-          changeDueReason: _needsChangeDueReason() ? _reasonController.text.trim() : null,
+          changeDueReason: _needsChangeDueReason()
+              ? _reasonController.text.trim()
+              : null,
         );
         if (ins.error != null && mounted) {
           await showAsanaInfoDialog(
@@ -812,8 +936,10 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         final newSubtaskId = ins.subtaskId;
         if (newSubtaskId != null && newSubtaskId.isNotEmpty) {
           _subtaskAi?.attachCreatedEntityId(newSubtaskId);
-          final uploadErr =
-              await _uploadPendingCreateAttachments(newSubtaskId, state);
+          final uploadErr = await _uploadPendingCreateAttachments(
+            newSubtaskId,
+            state,
+          );
           if (uploadErr != null && mounted) {
             await showAsanaInfoDialog(
               context: context,
@@ -824,7 +950,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
             return;
           }
         }
-        if (newSubtaskId != null && newSubtaskId.isNotEmpty && _attachments.isNotEmpty) {
+        if (newSubtaskId != null &&
+            newSubtaskId.isNotEmpty &&
+            _attachments.isNotEmpty) {
           final attErr = await SupabaseService.replaceSubtaskAttachments(
             subtaskId: newSubtaskId,
             taskId: widget.parentTaskId!,
@@ -890,7 +1018,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           assigneeSlots: _assigneeIds.toList(),
           picStaffLookupKey: _picAssigneeId ?? '',
           updateChangeDueReason: true,
-          changeDueReason: _needsChangeDueReason() ? _reasonController.text.trim() : null,
+          changeDueReason: _needsChangeDueReason()
+              ? _reasonController.text.trim()
+              : null,
           updaterStaffLookupKey: state.userStaffAppId,
         );
         if (err != null && mounted) {
@@ -922,6 +1052,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         } else {
           commentId = ins.commentId;
           _commentController.clear();
+          await _loadComments(s);
         }
       }
       if (isCreator) {
@@ -940,7 +1071,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           return;
         }
       }
-      
+
       _subtaskAi?.clearAllSuggestions();
       await _load();
       widget.onChanged?.call();
@@ -1019,10 +1150,8 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     if (s.submission?.trim() == 'Submitted') {
       await _notifyEmail(
         'Sub-task accepted email',
-        (token) => BackendApi().notifySubtaskAccepted(
-          idToken: token,
-          subtaskId: s.id,
-        ),
+        (token) =>
+            BackendApi().notifySubtaskAccepted(idToken: token, subtaskId: s.id),
       );
     }
   }
@@ -1071,6 +1200,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           return;
         }
         _commentController.clear();
+        await _loadComments(s);
       }
       final isCreator = _isCreator(state);
       final err = await SupabaseService.updateSubtaskRow(
@@ -1092,7 +1222,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       _subtaskAi?.clearAllSuggestions();
       await _load();
       widget.onChanged?.call();
-      await _notifyEmail(
+      _notifyEmailInBackground(
         'Sub-task submission email',
         (token) => BackendApi().notifySubtaskSubmission(
           idToken: token,
@@ -1114,10 +1244,8 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     );
     await _notifyEmail(
       'Sub-task returned email',
-      (token) => BackendApi().notifySubtaskReturned(
-        idToken: token,
-        subtaskId: s.id,
-      ),
+      (token) =>
+          BackendApi().notifySubtaskReturned(idToken: token, subtaskId: s.id),
     );
   }
 
@@ -1201,7 +1329,8 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     if (!mounted) return;
     if (result is AsanaAttachmentUploadFile) {
       if (widget.createMode) {
-        final picked = await FirebaseAttachmentUploadService.pickFileForUpload();
+        final picked =
+            await FirebaseAttachmentUploadService.pickFileForUpload();
         if (!mounted) return;
         if (picked.error != null) {
           await showAsanaInfoDialog(
@@ -1248,10 +1377,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     } else if (result is AsanaAttachmentWebsiteLink) {
       setState(() {
         _attachments.add(
-          _SubtaskAttachmentDraft(
-            url: result.url,
-            desc: result.description,
-          ),
+          _SubtaskAttachmentDraft(url: result.url, desc: result.description),
         );
       });
     }
@@ -1320,10 +1446,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     });
   }
 
-  Widget _attachmentTile(
-    BuildContext context,
-    _SubtaskAttachmentDraft draft,
-  ) {
+  Widget _attachmentTile(BuildContext context, _SubtaskAttachmentDraft draft) {
     if (draft.isPendingFile) {
       final name = draft.pendingFilename?.trim().isNotEmpty == true
           ? draft.pendingFilename!.trim()
@@ -1465,7 +1588,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
   @override
   Widget build(BuildContext context) {
     final chrome = AsanaSlideChrome(widget.palette);
-    if (_loading) {
+    if (_loading && !_saving) {
       return const StartupLoadingView(label: 'Loading');
     }
     final s = _subtask;
@@ -1535,7 +1658,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
             _aiSuggestions(AsanaTaskAiFieldKey.taskName),
           ] else
             Text(
-              s?.subtaskName.trim().isEmpty ?? true ? '(Unnamed sub-task)' : s!.subtaskName.trim(),
+              s?.subtaskName.trim().isEmpty ?? true
+                  ? '(Unnamed sub-task)'
+                  : s!.subtaskName.trim(),
               style: asanaDetailTitleStyle(context),
             ),
           const SizedBox(height: 12),
@@ -1574,11 +1699,14 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                     ? AsanaAssigneeFieldValue(
                         assignees: _assigneeRowsForDisplay(state),
                         canEdit: true,
-                        onOpenPicker: _saving ? null : (_) => _pickAssignees(anchorContext),
+                        onOpenPicker: _saving
+                            ? null
+                            : (_) => _pickAssignees(anchorContext),
                         onRemove: _saving ? null : _removeAssignee,
                       )
                     : AsanaDetailPlainValue(
-                        text: s?.assigneeIds
+                        text:
+                            s?.assigneeIds
                                 .map((id) => _nameFor(state, id))
                                 .where((n) => n.isNotEmpty)
                                 .join(', ') ??
@@ -1596,7 +1724,15 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                 child: isCreator
                     ? AsanaAssigneeFieldValue(
                         assignees: _picAssigneeId != null
-                            ? [(id: _picAssigneeId!, name: _labelForAssigneeId(_picAssigneeId!, state))]
+                            ? [
+                                (
+                                  id: _picAssigneeId!,
+                                  name: _labelForAssigneeId(
+                                    _picAssigneeId!,
+                                    state,
+                                  ),
+                                ),
+                              ]
                             : [],
                         canEdit: _assigneeIds.isNotEmpty,
                         showAddButtonWhenNotEmpty: false,
@@ -1606,7 +1742,8 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                         onRemove: _saving ? null : _removePic,
                       )
                     : AsanaDetailPlainValue(
-                        text: s?.picDisplayName((k) => _nameFor(state, k)) ?? '',
+                        text:
+                            s?.picDisplayName((k) => _nameFor(state, k)) ?? '',
                       ),
               ),
             ),
@@ -1646,8 +1783,12 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                     ? MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: GestureDetector(
-                          onTap: _saving ? null : () => _pickStatus(anchorContext),
-                          child: AsanaDetailStatusPill(status: _draftStatus ?? s?.status ?? 'Todo'),
+                          onTap: _saving
+                              ? null
+                              : () => _pickStatus(anchorContext),
+                          child: AsanaDetailStatusPill(
+                            status: _draftStatus ?? s?.status ?? 'Todo',
+                          ),
                         ),
                       )
                     : AsanaDetailStatusPill(status: s?.status ?? 'Todo'),
@@ -1660,7 +1801,9 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
               builder: (anchorContext) => AsanaHoverTapValue(
                 value: _date(_startDate),
                 canEdit: isCreator,
-                onTap: _saving ? null : (_) => _pickStartDueRange(anchorContext),
+                onTap: _saving
+                    ? null
+                    : (_) => _pickStartDueRange(anchorContext),
               ),
             ),
           ),
@@ -1671,12 +1814,16 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
               builder: (anchorContext) => AsanaHoverTapValue(
                 value: _date(_dueDate),
                 canEdit: isCreator,
-                onTap: _saving ? null : (_) => _pickStartDueRange(anchorContext),
+                onTap: _saving
+                    ? null
+                    : (_) => _pickStartDueRange(anchorContext),
               ),
             ),
           ),
           if (isCreator) _aiSuggestions(AsanaTaskAiFieldKey.dueDate),
-          if (isCreator && (_needsChangeDueReason() || _reasonController.text.trim().isNotEmpty))
+          if (isCreator &&
+              (_needsChangeDueReason() ||
+                  _reasonController.text.trim().isNotEmpty))
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1733,13 +1880,18 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
             if ((s?.updateByStaffName ?? '').trim().isNotEmpty)
               AsanaDetailTwoColumnRow(
                 label: 'Last updated by',
-                child: AsanaDetailPlainValue(text: s!.updateByStaffName!.trim()),
+                child: AsanaDetailPlainValue(
+                  text: s!.updateByStaffName!.trim(),
+                ),
               ),
             if (s?.lastUpdated != null)
               AsanaDetailTwoColumnRow(
                 label: 'Last updated',
                 child: AsanaDetailPlainValue(
-                  text: HkTime.formatInstantAsHk(s!.lastUpdated, 'MMM d, yyyy HH:mm'),
+                  text: HkTime.formatInstantAsHk(
+                    s!.lastUpdated,
+                    'MMM d, yyyy HH:mm',
+                  ),
                 ),
               ),
           ],
@@ -1747,10 +1899,11 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
             padding: EdgeInsets.symmetric(vertical: 16),
             child: Divider(height: 1),
           ),
-          AsanaDetailSectionHeader(
-            title: 'Comments',
-            showAddButton: false,
-          ),
+          AsanaDetailSectionHeader(title: 'Comments', showAddButton: false),
+          if (!_effectiveCreateMode && _comments.isNotEmpty) ...[
+            for (final c in _comments) _SubtaskCommentDisplayTile(comment: c),
+            const SizedBox(height: 8),
+          ],
           AsanaDetailLabelValue(
             label: 'New comment',
             child: AsanaHoverTextField(
@@ -1781,7 +1934,8 @@ class _ParentAssigneeGridMenu extends StatefulWidget {
   final void Function(Set<String>) onDone;
 
   @override
-  State<_ParentAssigneeGridMenu> createState() => _ParentAssigneeGridMenuState();
+  State<_ParentAssigneeGridMenu> createState() =>
+      _ParentAssigneeGridMenuState();
 }
 
 class _ParentAssigneeGridMenuState extends State<_ParentAssigneeGridMenu> {
@@ -1867,8 +2021,10 @@ class _ParentAssigneeGridMenuState extends State<_ParentAssigneeGridMenu> {
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFE4E6EB),
                   foregroundColor: const Color(0xFF1F2937),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),

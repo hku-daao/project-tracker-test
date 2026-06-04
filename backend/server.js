@@ -5880,11 +5880,10 @@ async function handleNotifyTaskSubmission(req, res) {
       sendJson(req, res, 400, { error: 'Task has no PIC' });
       return;
     }
-    const { data: picStaff, error: pErr } = await supabase
-      .from('staff')
-      .select('id, email, name, display_name')
-      .eq('id', picId)
-      .maybeSingle();
+    const { data: picStaff, error: pErr } = await fetchStaffRowForCreateBy(
+      supabase,
+      picId,
+    );
     if (pErr || !picStaff) {
       sendJson(req, res, 400, { error: 'PIC staff not found' });
       return;
@@ -6191,11 +6190,10 @@ async function handleNotifySubtaskSubmission(req, res) {
       sendJson(req, res, 400, { error: 'Sub-task has no PIC' });
       return;
     }
-    const { data: picStaff, error: pErr } = await supabase
-      .from('staff')
-      .select('id, email, name, display_name')
-      .eq('id', picId)
-      .maybeSingle();
+    const { data: picStaff, error: pErr } = await fetchStaffRowForCreateBy(
+      supabase,
+      picId,
+    );
     if (pErr || !picStaff) {
       sendJson(req, res, 400, { error: 'PIC staff not found' });
       return;
@@ -6321,11 +6319,7 @@ async function handleNotifySubtaskAccepted(req, res) {
       sendJson(req, res, 400, { error: 'Sub-task has no PIC' });
       return;
     }
-    const { data: picStaff } = await supabase
-      .from('staff')
-      .select('id, email, name, display_name')
-      .eq('id', picId)
-      .maybeSingle();
+    const { data: picStaff } = await fetchStaffRowForCreateBy(supabase, picId);
     if (!picStaff) {
       sendJson(req, res, 400, { error: 'PIC staff not found' });
       return;
@@ -6428,11 +6422,7 @@ async function handleNotifySubtaskReturned(req, res) {
       sendJson(req, res, 400, { error: 'Sub-task has no PIC' });
       return;
     }
-    const { data: picStaff } = await supabase
-      .from('staff')
-      .select('id, email, name, display_name')
-      .eq('id', picId)
-      .maybeSingle();
+    const { data: picStaff } = await fetchStaffRowForCreateBy(supabase, picId);
     if (!picStaff) {
       sendJson(req, res, 400, { error: 'PIC staff not found' });
       return;
