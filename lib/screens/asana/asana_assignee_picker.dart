@@ -591,8 +591,12 @@ class _AsanaPickerNameCell extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.only(right: 4, top: 4, bottom: 4),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _AsanaMiniCheck(selected: selected),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _AsanaMiniCheck(selected: selected),
+            ),
             const SizedBox(width: 5),
             Expanded(
               child: Text(
