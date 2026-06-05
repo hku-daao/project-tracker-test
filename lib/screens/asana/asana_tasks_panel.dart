@@ -10,7 +10,6 @@ import '../../app_state.dart';
 import '../../models/singular_subtask.dart';
 import '../../models/task.dart';
 import '../../services/asana_filter_cookie_storage.dart';
-import '../../services/landing_task_filters_storage.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
 import '../../widgets/task_list_card.dart';
@@ -79,21 +78,19 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
   void didUpdateWidget(covariant AsanaTasksPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_filtersReady) return;
+    if (oldWidget.flatTasksAndSubtasks != widget.flatTasksAndSubtasks) {
+      _loadSavedFilters();
+      return;
+    }
     if (oldWidget.searchQuery != widget.searchQuery ||
-        oldWidget.flatTasksAndSubtasks != widget.flatTasksAndSubtasks ||
         oldWidget.refreshToken != widget.refreshToken) {
       _rebuildTaskList();
     }
   }
 
   Future<void> _loadSavedFilters() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      final data = await LandingTaskFiltersStorage.load(uid);
-      if (data != null && mounted) {
-        setState(() => _filters.applyAsanaPanelFilters(data));
-      }
-    }
+    setState(() => _filtersReady = false);
+    _filters.resetToDefaults();
     final cookieData = AsanaFilterCookieStorage.load(_cookieStorageKey);
     if (cookieData != null && mounted) {
       setState(() => _filters.applyCookieJson(cookieData));
@@ -343,13 +340,13 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
               AsanaFilterDropdown(
                 title: 'Due date',
                 value: _dueDateLabel(),
-                buttonWidth: 188,
+                buttonWidth: 168,
                 onPressed: _showDueDateRangePicker,
               ),
               AsanaFilterDropdown(
                 title: 'Sort',
                 value: _sortLabel(),
-                buttonWidth: 152,
+                buttonWidth: 136,
                 onPressed: _showSortMenu,
               ),
               AsanaFilterDropdown(

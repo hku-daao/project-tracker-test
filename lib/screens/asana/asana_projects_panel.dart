@@ -180,13 +180,13 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
               AsanaFilterDropdown(
                 title: 'Due date',
                 value: _dueDateLabel(),
-                buttonWidth: 188,
+                buttonWidth: 168,
                 onPressed: _showDueDateRangePicker,
               ),
               AsanaFilterDropdown(
                 title: 'Sort',
                 value: _sortLabel(),
-                buttonWidth: 152,
+                buttonWidth: 136,
                 onPressed: _showSortMenu,
               ),
             ],
@@ -608,12 +608,13 @@ class _ProjectTableLayout {
   /// Aligns project name with task list (matches [_TaskTableLayout.nameGutter]).
   static const double nameGutter = 36;
 
-  /// Plain-text columns (name, due, creator, PIC, assignees) each followed by a gap.
-  static const int textColumnGapCount = 5;
+  /// Plain-text columns each followed by a gap before the next column.
+  static const int textColumnGapCount = 6;
   static const double singleLineExtent = 24;
   static const double hPad = 12;
 
-  static const double _flexWeightSum = 0.24 + 0.10 + 0.09 + 0.14 + 0.16;
+  static const double _flexWeightSum =
+      0.22 + 0.09 + 0.08 + 0.13 + 0.14 + 0.12;
 
   late final double _inner =
       (tableWidth -
@@ -624,11 +625,12 @@ class _ProjectTableLayout {
               kAsanaTableStatusColWidth)
           .clamp(320, double.infinity);
 
-  double get nameCol => _inner * (0.24 / _flexWeightSum);
-  double get dueCol => _inner * (0.10 / _flexWeightSum);
-  double get creatorCol => _inner * (0.09 / _flexWeightSum);
-  double get picCol => _inner * (0.14 / _flexWeightSum);
-  double get assigneeCol => _inner * (0.16 / _flexWeightSum);
+  double get nameCol => _inner * (0.22 / _flexWeightSum);
+  double get dueCol => _inner * (0.09 / _flexWeightSum);
+  double get creatorCol => _inner * (0.08 / _flexWeightSum);
+  double get picCol => _inner * (0.13 / _flexWeightSum);
+  double get assigneeCol => _inner * (0.14 / _flexWeightSum);
+  double get updatedCol => _inner * (0.12 / _flexWeightSum);
   double get statusCol => kAsanaTableStatusColWidth;
 }
 
@@ -687,6 +689,13 @@ class _ProjectTableHeader extends StatelessWidget {
           asanaTableHeaderLabel(
             width: cols.assigneeCol,
             label: 'Assignees',
+            style: style,
+            rowHeight: _ProjectTableLayout.singleLineExtent,
+          ),
+          asanaTextColumnGap(),
+          asanaTableHeaderLabel(
+            width: cols.updatedCol,
+            label: 'Last updated',
             style: style,
             rowHeight: _ProjectTableLayout.singleLineExtent,
           ),
@@ -820,6 +829,16 @@ class _ProjectTableRow extends StatelessWidget {
                 ),
                 asanaTextColumnGap(),
                 SizedBox(
+                  width: cols.updatedCol,
+                  child: Text(
+                    _formatUpdatedDate(project.updateDate),
+                    style: rowValueStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                asanaTextColumnGap(),
+                SizedBox(
                   width: cols.statusCol,
                   child: AsanaTableCellChip(
                     child: AsanaStatusChip(status: project.status),
@@ -936,4 +955,9 @@ String _formatDueDate(DateTime? d) {
   final day = DateTime(d.year, d.month, d.day);
   if (day == today) return 'Today';
   return HkTime.formatInstantAsHk(d, 'MMM d');
+}
+
+String _formatUpdatedDate(DateTime? d) {
+  if (d == null) return '—';
+  return HkTime.formatInstantAsHk(d, 'MMM d, HH:mm');
 }

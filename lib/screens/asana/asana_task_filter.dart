@@ -16,7 +16,9 @@ class AsanaFlatRow {
 
 /// Landing-style task filters for [AsanaTasksPanel] (mirrors Overview / Tasks tab).
 class AsanaTaskFilterState {
-  AsanaTaskFilterState();
+  AsanaTaskFilterState() {
+    resetToDefaults();
+  }
 
   /// `all` | `assigned` | `created`
   Set<String> scopes = {};
@@ -29,8 +31,8 @@ class AsanaTaskFilterState {
   Set<String> overdueOptions = {};
 
   /// `due` | `created` | `updated` | `name`
-  String sortKey = 'due';
-  bool sortAscending = true;
+  String sortKey = 'created';
+  bool sortAscending = false;
   List<String> assigneeStaffIds = [];
   List<String> picStaffIds = [];
   List<String> creatorStaffIds = [];
@@ -48,9 +50,13 @@ class AsanaTaskFilterState {
     'scopes': scopes.toList(),
     'statuses': statuses.toList(),
     'submissions': submissions.toList(),
+    'createDateStart': createDateStart?.millisecondsSinceEpoch,
+    'createDateEnd': createDateEnd?.millisecondsSinceEpoch,
     'sortKey': sortKey,
     'sortAscending': sortAscending,
     'overdueOptions': overdueOptions.toList(),
+    'creatorStaffIds': creatorStaffIds,
+    'picStaffIds': picStaffIds,
   };
 
   void applyCookieJson(Map<String, dynamic> data) {
@@ -58,6 +64,10 @@ class AsanaTaskFilterState {
     statuses = _stringSet(data['statuses']);
     submissions = _stringSet(data['submissions']);
     overdueOptions = _stringSet(data['overdueOptions']);
+    createDateStart = _dateFromMs(data['createDateStart']);
+    createDateEnd = _dateFromMs(data['createDateEnd']);
+    creatorStaffIds = _stringList(data['creatorStaffIds']);
+    picStaffIds = _stringList(data['picStaffIds']);
     final rawSortKey = data['sortKey'] as String?;
     if (rawSortKey == 'due' ||
         rawSortKey == 'created' ||
@@ -73,13 +83,24 @@ class AsanaTaskFilterState {
       if (e != null) e.toString(),
   };
 
+  static List<String> _stringList(Object? value) => [
+    for (final e in value is List ? value : const [])
+      if (e != null) e.toString(),
+  ];
+
+  static DateTime? _dateFromMs(Object? value) {
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    return null;
+  }
+
   void resetToDefaults() {
-    scopes.clear();
-    statuses.clear();
-    submissions.clear();
+    scopes = {};
+    statuses = {statusIncomplete};
+    submissions = {submissionPending};
     overdueOptions.clear();
-    sortKey = 'due';
-    sortAscending = true;
+    sortKey = 'created';
+    sortAscending = false;
     assigneeStaffIds = [];
     picStaffIds = [];
     creatorStaffIds = [];

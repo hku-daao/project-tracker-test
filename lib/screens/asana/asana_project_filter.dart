@@ -2,7 +2,9 @@ import '../../app_state.dart';
 import '../../models/project_record.dart';
 
 class AsanaProjectFilterState {
-  AsanaProjectFilterState();
+  AsanaProjectFilterState() {
+    resetToDefaults();
+  }
 
   Set<String> scopes = {};
 
@@ -13,8 +15,8 @@ class AsanaProjectFilterState {
 
   DateTime? createDateStart;
   DateTime? createDateEnd;
-  String sortKey = 'due';
-  bool sortAscending = true;
+  String sortKey = 'created';
+  bool sortAscending = false;
 
   bool get createDateEngaged =>
       createDateStart != null || createDateEnd != null;
@@ -22,6 +24,10 @@ class AsanaProjectFilterState {
   Map<String, dynamic> toCookieJson() => {
     'scopes': scopes.toList(),
     'statuses': statuses.toList(),
+    'creatorStaffIds': creatorStaffIds,
+    'picStaffIds': picStaffIds,
+    'createDateStart': createDateStart?.millisecondsSinceEpoch,
+    'createDateEnd': createDateEnd?.millisecondsSinceEpoch,
     'sortKey': sortKey,
     'sortAscending': sortAscending,
   };
@@ -29,6 +35,10 @@ class AsanaProjectFilterState {
   void applyCookieJson(Map<String, dynamic> data) {
     scopes = _stringSet(data['scopes']);
     statuses = _stringSet(data['statuses']);
+    creatorStaffIds = _stringList(data['creatorStaffIds']);
+    picStaffIds = _stringList(data['picStaffIds']);
+    createDateStart = _dateFromMs(data['createDateStart']);
+    createDateEnd = _dateFromMs(data['createDateEnd']);
     final rawSortKey = data['sortKey'] as String?;
     if (rawSortKey == 'due' ||
         rawSortKey == 'created' ||
@@ -44,13 +54,24 @@ class AsanaProjectFilterState {
       if (e != null) e.toString(),
   };
 
+  static List<String> _stringList(Object? value) => [
+    for (final e in value is List ? value : const [])
+      if (e != null) e.toString(),
+  ];
+
+  static DateTime? _dateFromMs(Object? value) {
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    return null;
+  }
+
   void resetToDefaults() {
-    scopes.clear();
-    statuses.clear();
+    scopes = {};
+    statuses = {};
     creatorStaffIds = [];
     picStaffIds = [];
-    sortKey = 'due';
-    sortAscending = true;
+    sortKey = 'created';
+    sortAscending = false;
     createDateStart = null;
     createDateEnd = null;
   }
