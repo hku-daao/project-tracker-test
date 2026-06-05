@@ -363,8 +363,11 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
               palette: widget.palette,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  const mobileFlatList = false;
-                  const mobileTaskList = false;
+                  final mobileFlatList =
+                      widget.flatTasksAndSubtasks && constraints.maxWidth < 600;
+                  final mobileTaskList =
+                      !widget.flatTasksAndSubtasks &&
+                      constraints.maxWidth < 600;
                   final tableWidth =
                       constraints.maxWidth < _TaskTableLayout.minTableWidth
                       ? _TaskTableLayout.minTableWidth

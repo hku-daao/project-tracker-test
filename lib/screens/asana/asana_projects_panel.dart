@@ -195,7 +195,7 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
               palette: widget.palette,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  const mobileList = false;
+                  final mobileList = constraints.maxWidth < 600;
                   final tableWidth =
                       constraints.maxWidth < _ProjectTableLayout.minTableWidth
                       ? _ProjectTableLayout.minTableWidth

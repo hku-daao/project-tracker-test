@@ -285,38 +285,41 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    if (SupabaseConfig.isConfigured) {
-      try {
-        final rows = await SupabaseService.fetchCalendarHolidaysBetween(
-          HkTime.todayDateOnlyHk().subtract(const Duration(days: 30)),
-          HkTime.todayDateOnlyHk().add(const Duration(days: 365)),
-        );
-        _holidaySkipYmd = HkTime.holidaySkipYmdFromCalendarRows(rows);
-      } catch (_) {}
+    try {
+      if (SupabaseConfig.isConfigured) {
+        try {
+          final rows = await SupabaseService.fetchCalendarHolidaysBetween(
+            HkTime.todayDateOnlyHk().subtract(const Duration(days: 30)),
+            HkTime.todayDateOnlyHk().add(const Duration(days: 365)),
+          );
+          _holidaySkipYmd = HkTime.holidaySkipYmdFromCalendarRows(rows);
+        } catch (_) {}
 
-      final row = await SupabaseService.fetchSubtaskById(widget.subtaskId!);
-      if (mounted) {
-        setState(() {
-          _subtask = row;
-          _nameController.text = row?.subtaskName ?? '';
-          _descController.text = row?.description ?? '';
-          _reasonController.text = row?.changeDueReason ?? '';
-          _assigneeIds.clear();
-          if (row != null)
-            _assigneeIds.addAll(row.assigneeIds.where((e) => e.isNotEmpty));
-          _picAssigneeId = row?.pic;
-          if (_picAssigneeId?.isEmpty == true) _picAssigneeId = null;
-          _localPriority = row?.priority ?? priorityStandard;
-          _startDate = row?.startDate;
-          _dueDate = row?.dueDate;
-          _draftStatus = row?.status;
-        });
-        _loadAssigneeStaff();
-        _loadAttachments(row);
-        _loadComments(row);
+        final row = await SupabaseService.fetchSubtaskById(widget.subtaskId!);
+        if (mounted) {
+          setState(() {
+            _subtask = row;
+            _nameController.text = row?.subtaskName ?? '';
+            _descController.text = row?.description ?? '';
+            _reasonController.text = row?.changeDueReason ?? '';
+            _assigneeIds.clear();
+            if (row != null)
+              _assigneeIds.addAll(row.assigneeIds.where((e) => e.isNotEmpty));
+            _picAssigneeId = row?.pic;
+            if (_picAssigneeId?.isEmpty == true) _picAssigneeId = null;
+            _localPriority = row?.priority ?? priorityStandard;
+            _startDate = row?.startDate;
+            _dueDate = row?.dueDate;
+            _draftStatus = row?.status;
+          });
+          _loadAssigneeStaff();
+          _loadAttachments(row);
+          _loadComments(row);
+        }
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   void _clearAttachments() {
@@ -1589,7 +1592,10 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
   Widget build(BuildContext context) {
     final chrome = AsanaSlideChrome(widget.palette);
     if (_loading && !_saving) {
-      return const StartupLoadingView(label: 'Loading');
+      return AsanaDetailSlideScaffold(
+        backgroundColor: chrome.body,
+        body: const SizedBox.shrink(),
+      );
     }
     final s = _subtask;
     if (!_effectiveCreateMode && s == null) {
@@ -1735,6 +1741,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                               ]
                             : [],
                         canEdit: _assigneeIds.isNotEmpty,
+                        emptyPlaceholder: 'Select assignees first',
                         showAddButtonWhenNotEmpty: false,
                         onOpenPicker: _saving || _assigneeIds.isEmpty
                             ? null

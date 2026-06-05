@@ -68,8 +68,8 @@ class _AttachmentDraft {
     this.pendingBytes,
     this.pendingFilename,
     this.isWebsiteLink = false,
-  })  : urlController = TextEditingController(text: url ?? ''),
-        descController = TextEditingController(text: desc ?? '');
+  }) : urlController = TextEditingController(text: url ?? ''),
+       descController = TextEditingController(text: desc ?? '');
 
   final String? id;
   final TextEditingController urlController;
@@ -78,8 +78,7 @@ class _AttachmentDraft {
   String? pendingFilename;
   bool isWebsiteLink;
 
-  bool get isPendingFile =>
-      pendingBytes != null && pendingBytes!.isNotEmpty;
+  bool get isPendingFile => pendingBytes != null && pendingBytes!.isNotEmpty;
 
   void dispose() {
     urlController.dispose();
@@ -125,6 +124,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   final LayerLink _picAnchorLink = LayerLink();
   final LayerLink _priorityAnchorLink = LayerLink();
   final LayerLink _attachmentAddAnchorLink = LayerLink();
+
   /// Value-column width/left for anchored menus (assignee field row).
   final GlobalKey _detailPopupWidthAlignKey = GlobalKey();
   List<AsanaAnchoredOption<String>> _projectMenuOptions = [];
@@ -271,8 +271,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     _disposePostedCommentControllers();
     _clearAttachments();
     final today = HkTime.todayDateOnlyHk();
-    _anchorCreateDate =
-        HkTime.firstBusinessDayOnOrAfter(today, _holidaySkipYmd);
+    _anchorCreateDate = HkTime.firstBusinessDayOnOrAfter(
+      today,
+      _holidaySkipYmd,
+    );
     _startDate = _anchorCreateDate;
     _dueDate = _defaultDueForPriority(_localPriority);
   }
@@ -390,7 +392,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   bool get _canOpenAnchoredPicker =>
-      DateTime.now().millisecondsSinceEpoch > _anchoredPickerReopenBlockedUntilMs;
+      DateTime.now().millisecondsSinceEpoch >
+      _anchoredPickerReopenBlockedUntilMs;
 
   void _blockAnchoredPickerReopen() {
     _anchoredPickerReopenBlockedUntilMs =
@@ -410,10 +413,11 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   List<({String id, String name})> _assigneeRowsForDisplay(AppState state) {
-    final rows = _selectedAssigneeIds
-        .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    final rows =
+        _selectedAssigneeIds
+            .map((id) => (id: id, name: _labelForAssigneeId(id, state)))
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
     return rows;
   }
 
@@ -448,8 +452,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (!_canOpenAnchoredPicker) return;
     final ids = _selectedAssigneeIds.toList()
       ..sort(
-        (a, b) => _labelForAssigneeId(a, state)
-            .compareTo(_labelForAssigneeId(b, state)),
+        (a, b) => _labelForAssigneeId(
+          a,
+          state,
+        ).compareTo(_labelForAssigneeId(b, state)),
       );
     final choice = await showAsanaAnchoredOptionMenu<String>(
       anchorLink: _picAnchorLink,
@@ -480,18 +486,12 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (lk != null && lk.isNotEmpty) {
       _myStaffUuid = await SupabaseService.staffRowIdForAssigneeKey(lk);
     }
-    final loads = <Future<void>>[
-      _loadProjectsIfCreator(),
-    ];
+    final loads = <Future<void>>[_loadProjectsIfCreator()];
     if (widget.createMode) {
       loads.add(_loadCalendarHolidaysForCreate());
       _loadAssigneePicker();
     } else {
-      loads.addAll([
-        _loadSubtasks(),
-        _loadComments(),
-        _loadAttachments(),
-      ]);
+      loads.addAll([_loadSubtasks(), _loadComments(), _loadAttachments()]);
       _loadAssigneePicker();
     }
     await Future.wait(loads);
@@ -523,7 +523,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (id == null || !SupabaseConfig.isConfigured) return;
     try {
       final list = await SupabaseService.fetchSubtasksForTask(id);
-      if (mounted) setState(() => _subtasks = list.where((s) => !s.isDeleted).toList());
+      if (mounted)
+        setState(() => _subtasks = list.where((s) => !s.isDeleted).toList());
     } catch (_) {}
   }
 
@@ -560,8 +561,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     }
     for (final c in _comments) {
       if (!_postedCommentControllers.containsKey(c.id)) {
-        _postedCommentControllers[c.id] =
-            TextEditingController(text: c.description);
+        _postedCommentControllers[c.id] = TextEditingController(
+          text: c.description,
+        );
         _postedCommentSavedText[c.id] = c.description;
       } else {
         final ctrl = _postedCommentControllers[c.id]!;
@@ -622,7 +624,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               id: r.id,
               url: r.content,
               desc: r.description,
-              isWebsiteLink: content.isNotEmpty &&
+              isWebsiteLink:
+                  content.isNotEmpty &&
                   !isAppFirebaseStorageAttachmentUrl(content),
             ),
           );
@@ -633,8 +636,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _loadProjectsIfCreator() async {
     final state = context.read<AppState>();
-    final task =
-        widget.createMode ? null : state.taskById(widget.taskId ?? '');
+    final task = widget.createMode ? null : state.taskById(widget.taskId ?? '');
     if (!widget.createMode && (task == null || !_isCreator(state, task))) {
       return;
     }
@@ -652,13 +654,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           .where(eligible)
           .toList();
       final pid = task?.projectId?.trim();
-      if (pid != null &&
-          pid.isNotEmpty &&
-          !linkable.any((p) => p.id == pid)) {
+      if (pid != null && pid.isNotEmpty && !linkable.any((p) => p.id == pid)) {
         final extra = await SupabaseService.fetchProjectById(pid);
         if (extra != null) linkable.add(extra);
       }
-      linkable.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      linkable.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
       if (mounted) {
         setState(() {
           _myProjects = linkable;
@@ -678,7 +680,11 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   bool _isCreator(AppState state, Task task) {
     final mine = state.userStaffAppId?.trim();
     final cb = task.createByAssigneeKey?.trim();
-    if (mine != null && mine.isNotEmpty && cb != null && cb.isNotEmpty && mine == cb) {
+    if (mine != null &&
+        mine.isNotEmpty &&
+        cb != null &&
+        cb.isNotEmpty &&
+        mine == cb) {
       return true;
     }
     return _uuidEquals(_myStaffUuid, task.createByAssigneeKey);
@@ -831,9 +837,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   DateTime? _commentDisplayTimestamp(SingularCommentRowDisplay c) {
     final created = c.createTimestampUtc;
     final updated = c.updateTimestampUtc;
-    if (updated != null &&
-        created != null &&
-        updated.isAfter(created)) {
+    if (updated != null && created != null && updated.isAfter(created)) {
       return updated;
     }
     return created ?? updated;
@@ -844,15 +848,17 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     SingularCommentRowDisplay c,
   ) {
     if (_isOwnComment(c) && !_postedCommentControllers.containsKey(c.id)) {
-      _postedCommentControllers[c.id] =
-          TextEditingController(text: c.description);
+      _postedCommentControllers[c.id] = TextEditingController(
+        text: c.description,
+      );
       _postedCommentSavedText[c.id] = c.description;
     }
 
     final deleted = c.isDeleted;
     final canEdit = _isOwnComment(c);
     final postedAt = _commentDisplayTimestamp(c);
-    final edited = c.updateTimestampUtc != null &&
+    final edited =
+        c.updateTimestampUtc != null &&
         c.createTimestampUtc != null &&
         c.updateTimestampUtc!.isAfter(c.createTimestampUtc!);
     final body = canEdit
@@ -866,9 +872,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               readOnly: _saving || _savingPostedCommentId == c.id,
               maxLines: 8,
               minLines: 2,
-              style: asanaDetailMultilineValueStyle(context).copyWith(
-                color: kAsanaTextPrimary,
-              ),
+              style: asanaDetailMultilineValueStyle(
+                context,
+              ).copyWith(color: kAsanaTextPrimary),
             ),
           )
         : Text(
@@ -882,10 +888,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            c.displayStaffName,
-            style: asanaDetailLabelStyle(context),
-          ),
+          Text(c.displayStaffName, style: asanaDetailLabelStyle(context)),
           const SizedBox(height: 4),
           Container(
             width: double.infinity,
@@ -907,10 +910,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                       edited
                           ? 'Edited ${_formatCommentPostedTs(postedAt)}'
                           : _formatCommentPostedTs(postedAt),
-                      style: asanaDetailLabelStyle(context).copyWith(
-                        fontWeight: FontWeight.normal,
-                        fontSize: 11,
-                      ),
+                      style: asanaDetailLabelStyle(
+                        context,
+                      ).copyWith(fontWeight: FontWeight.normal, fontSize: 11),
                     ),
                   ),
                 ],
@@ -954,10 +956,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       onClosed: _blockAnchoredPickerReopen,
       options: priorityOptions
           .map(
-            (p) => AsanaAnchoredOption(
-              value: p,
-              label: priorityToDisplayName(p),
-            ),
+            (p) =>
+                AsanaAnchoredOption(value: p, label: priorityToDisplayName(p)),
           )
           .toList(),
     );
@@ -977,7 +977,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     }
     if (_projectMenuOptions.isEmpty) {
       if (_myProjects.isEmpty) {
-        await _showInfo('Projects still loading', 'Please try again in a moment.');
+        await _showInfo(
+          'Projects still loading',
+          'Please try again in a moment.',
+        );
         _loadProjectsIfCreator();
       }
       return;
@@ -993,11 +996,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   List<String?> _createAttachmentAclKeys(AppState state, String picKey) {
-    return [
-      state.userStaffAppId,
-      picKey,
-      ..._selectedAssigneeIds,
-    ];
+    return [state.userStaffAppId, picKey, ..._selectedAssigneeIds];
   }
 
   Future<void> _showAttachmentSourceMenu(
@@ -1116,33 +1115,35 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
               : AsanaDetailPlainValue(text: readOnlyAssigneesText),
         ),
       ),
-      if (showAiSuggestions)
-        _aiSuggestions(AsanaTaskAiFieldKey.assignees),
+      if (showAiSuggestions) _aiSuggestions(AsanaTaskAiFieldKey.assignees),
       AsanaDetailTwoColumnRow(
         label: 'PIC',
         child: canEditAssignees
             ? (_selectedAssigneeIds.length > 1
-                ? AsanaHoverTapValue(
-                    anchorLink: _picAnchorLink,
-                    value: _picAssigneeId != null
-                        ? _labelForAssigneeId(_picAssigneeId!, state)
-                        : '',
-                    canEdit: !_saving,
-                    emptyPlaceholder: 'Choose person in charge',
-                    onTap: (ctx) => _pickPic(ctx, state),
-                  )
-                : AsanaDetailPlainValue(
-                    text: _selectedAssigneeIds.length == 1
-                        ? _labelForAssigneeId(
-                            _selectedAssigneeIds.first,
-                            state,
-                          )
-                        : '',
-                  ))
+                  ? AsanaHoverTapValue(
+                      anchorLink: _picAnchorLink,
+                      value: _picAssigneeId != null
+                          ? _labelForAssigneeId(_picAssigneeId!, state)
+                          : '',
+                      canEdit: !_saving,
+                      emptyPlaceholder: 'Choose person in charge',
+                      onTap: (ctx) => _pickPic(ctx, state),
+                    )
+                  : _selectedAssigneeIds.length == 1
+                  ? AsanaDetailPlainValue(
+                      text: _labelForAssigneeId(
+                        _selectedAssigneeIds.first,
+                        state,
+                      ),
+                    )
+                  : const AsanaAssigneeFieldValue(
+                      assignees: [],
+                      canEdit: false,
+                      emptyPlaceholder: 'Select assignees first',
+                    ))
             : AsanaDetailPlainValue(text: readOnlyPicText),
       ),
-      if (showAiSuggestions)
-        _aiSuggestions(AsanaTaskAiFieldKey.pic),
+      if (showAiSuggestions) _aiSuggestions(AsanaTaskAiFieldKey.pic),
     ];
   }
 
@@ -1176,12 +1177,18 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _createTask(AppState state) async {
     if (!SupabaseConfig.isConfigured) {
-      await _showInfo('Supabase not configured', 'Please configure Supabase before continuing.');
+      await _showInfo(
+        'Supabase not configured',
+        'Please configure Supabase before continuing.',
+      );
       return;
     }
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      await _showInfo('Task name required', 'Please fill in the task name before continuing.');
+      await _showInfo(
+        'Task name required',
+        'Please fill in the task name before continuing.',
+      );
       return;
     }
     if (!await _validateAssigneesAndPic()) return;
@@ -1202,14 +1209,16 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (_startDate != null &&
         _dueDate != null &&
         _startDate!.isAfter(_dueDate!)) {
-      await _showInfo('Invalid date range', 'Start date cannot be after due date.');
+      await _showInfo(
+        'Invalid date range',
+        'Start date cannot be after due date.',
+      );
       return;
     }
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
-      final slots =
-          await SupabaseService.assigneeSlotsForTask(directorIds);
+      final slots = await SupabaseService.assigneeSlotsForTask(directorIds);
       final ins = await SupabaseService.insertTaskTableRow(
         taskName: name,
         assignees: slots,
@@ -1221,8 +1230,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         dueDate: _dueDate,
         creatorStaffLookupKey: state.userStaffAppId,
         picStaffLookupKey: picKey,
-        changeDueReason:
-            _needsChangeDueReason() ? _reasonController.text.trim() : null,
+        changeDueReason: _needsChangeDueReason()
+            ? _reasonController.text.trim()
+            : null,
         projectId: _selectedProjectId,
       );
       if (ins.error != null && mounted) {
@@ -1262,9 +1272,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       }
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (token == null) {
-        debugPrint(
-          'notifyTaskAssigned: skipped - Firebase ID token is null',
-        );
+        debugPrint('notifyTaskAssigned: skipped - Firebase ID token is null');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1305,7 +1313,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _save(AppState state, Task task) async {
     if (!SupabaseConfig.isConfigured) {
-      await _showInfo('Supabase not configured', 'Please configure Supabase before continuing.');
+      await _showInfo(
+        'Supabase not configured',
+        'Please configure Supabase before continuing.',
+      );
       return;
     }
     if (!_canEditMetadata(state, task)) {
@@ -1330,7 +1341,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (_startDate != null &&
         _dueDate != null &&
         _startDate!.isAfter(_dueDate!)) {
-      await _showInfo('Invalid date range', 'Start date cannot be after due date.');
+      await _showInfo(
+        'Invalid date range',
+        'Start date cannot be after due date.',
+      );
       return;
     }
     if (_isCreator(state, task) && !await _validateAssigneesAndPic()) return;
@@ -1348,7 +1362,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           : task.pic;
       final selProj = _selectedProjectId?.trim();
       final curProj = task.projectId?.trim();
-      final clearProject = (selProj == null || selProj.isEmpty) &&
+      final clearProject =
+          (selProj == null || selProj.isEmpty) &&
           curProj != null &&
           curProj.isNotEmpty;
 
@@ -1366,8 +1381,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         updateByStaffLookupKey: state.userStaffAppId,
         picStaffLookupKey: picKey,
         updateChangeDueReason: true,
-        changeDueReason:
-            _needsChangeDueReason() ? _reasonController.text.trim() : null,
+        changeDueReason: _needsChangeDueReason()
+            ? _reasonController.text.trim()
+            : null,
         clearProjectId: clearProject,
         projectId: !clearProject && selProj != null && selProj.isNotEmpty
             ? selProj
@@ -1507,10 +1523,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       if (task.submission?.trim() == 'Submitted') {
         await _notifyEmail(
           'Task accepted email',
-          (token) => BackendApi().notifyTaskAccepted(
-            idToken: token,
-            taskId: task.id,
-          ),
+          (token) =>
+              BackendApi().notifyTaskAccepted(idToken: token, taskId: task.id),
         );
       }
     } finally {
@@ -1521,7 +1535,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _submitTask(AppState state, Task task) async {
     if (_subtasks.any(subtaskPreventsParentTaskSubmission)) {
-      await _showInfo('Sub-tasks incomplete', 'Complete all sub-tasks before submitting.');
+      await _showInfo(
+        'Sub-tasks incomplete',
+        'Complete all sub-tasks before submitting.',
+      );
       return;
     }
     _setSaving(true);
@@ -1538,14 +1555,15 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         return;
       }
       state.replaceTask(
-        task.copyWith(submission: 'Submitted', submitDate: DateTime.now().toUtc()),
+        task.copyWith(
+          submission: 'Submitted',
+          submitDate: DateTime.now().toUtc(),
+        ),
       );
       await _notifyEmail(
         'Task submission email',
-        (token) => BackendApi().notifyTaskSubmission(
-          idToken: token,
-          taskId: task.id,
-        ),
+        (token) =>
+            BackendApi().notifyTaskSubmission(idToken: token, taskId: task.id),
       );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
@@ -1573,10 +1591,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       state.replaceTask(task.copyWith(submission: 'Returned'));
       await _notifyEmail(
         'Task returned email',
-        (token) => BackendApi().notifyTaskReturned(
-          idToken: token,
-          taskId: task.id,
-        ),
+        (token) =>
+            BackendApi().notifyTaskReturned(idToken: token, taskId: task.id),
       );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
@@ -1698,8 +1714,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       projectId: clearProject ? null : _selectedProjectId,
       projectName: projectName,
       clearProject: clearProject,
-      changeDueReason:
-          _needsChangeDueReason() ? _reasonController.text.trim() : null,
+      changeDueReason: _needsChangeDueReason()
+          ? _reasonController.text.trim()
+          : null,
       updateDate: DateTime.now(),
       lastUpdated: DateTime.now(),
     );
@@ -1858,11 +1875,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       applyReason: (v) => setState(() => _reasonController.text = v),
       applyWebsiteLink: (url, desc) => setState(() {
         _attachments.add(
-          _AttachmentDraft(
-            url: url,
-            desc: desc,
-            isWebsiteLink: true,
-          ),
+          _AttachmentDraft(url: url, desc: desc, isWebsiteLink: true),
         );
       }),
       applyComment: (v) => setState(() => _commentController.text = v),
@@ -1914,12 +1927,14 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   void _applyWebsiteLinkFromAi(String url, String desc) {
     setState(() {
-      _attachments.add(_AttachmentDraft(
-        id: 'ai_${DateTime.now().millisecondsSinceEpoch}',
-        url: url,
-        desc: desc,
-        isWebsiteLink: true,
-      ));
+      _attachments.add(
+        _AttachmentDraft(
+          id: 'ai_${DateTime.now().millisecondsSinceEpoch}',
+          url: url,
+          desc: desc,
+          isWebsiteLink: true,
+        ),
+      );
     });
   }
 
@@ -2150,7 +2165,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       task: task,
       isCreator: _isCreator(state, task),
       isPic: _isPic(state, task),
-      isAssigneeOnly: _isTaskAssignee(state, task) &&
+      isAssigneeOnly:
+          _isTaskAssignee(state, task) &&
           !_isCreator(state, task) &&
           !_isPic(state, task),
       canDelete: _isCreator(state, task),
@@ -2158,13 +2174,9 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
     );
 
-    final showCommentAi =
-        _canWriteComments(state, task) && !canEdit;
+    final showCommentAi = _canWriteComments(state, task) && !canEdit;
     if (canEdit) {
-      _ensureTaskAi(
-        state,
-        canSuggestAssignees: _isCreator(state, task),
-      );
+      _ensureTaskAi(state, canSuggestAssignees: _isCreator(state, task));
     }
     if (showCommentAi) {
       _ensureCommentAi(task);
@@ -2181,7 +2193,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
             task: task,
             isCreator: _isCreator(state, task),
             isPic: _isPic(state, task),
-            isAssigneeOnly: _isTaskAssignee(state, task) &&
+            isAssigneeOnly:
+                _isTaskAssignee(state, task) &&
                 !_isCreator(state, task) &&
                 !_isPic(state, task),
             canDelete: _isCreator(state, task),
@@ -2209,243 +2222,230 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AsanaHoverTextField(
-                    controller: _nameController,
+            controller: _nameController,
+            canEdit: canEdit,
+            readOnly: _saving,
+            maxLines: 6,
+            minLines: 1,
+            style: asanaDetailTitleStyle(context),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.taskName),
+          const SizedBox(height: 12),
+          AsanaDetailLabelValue(
+            label: 'Description',
+            child: AsanaHoverTextField(
+              controller: _descController,
+              canEdit: canEdit,
+              readOnly: _saving,
+              maxLines: 8,
+              minLines: 2,
+              hintText: 'Please fill in task description',
+              style: asanaDetailMultilineValueStyle(context),
+            ),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.description),
+          AsanaDetailTwoColumnRow(
+            label: 'Project',
+            child: canEdit && _myProjects.isNotEmpty
+                ? AsanaHoverTapValue(
+                    anchorLink: _projectAnchorLink,
+                    value: _projectLabel(task),
+                    canEdit: true,
+                    emptyPlaceholder: 'Select project (optional)',
+                    onTap: _pickProject,
+                  )
+                : AsanaDetailPlainValue(text: task.projectName?.trim() ?? ''),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.project),
+          ..._buildAssigneePicSection(
+            context,
+            state,
+            canEditAssignees: canEdit && _isCreator(state, task),
+            creatorLabel: task.createByStaffName?.trim() ?? '',
+            readOnlyAssigneesText: task.assigneeIds
+                .map((id) => _nameFor(state, id))
+                .where((n) => n.isNotEmpty)
+                .join(', '),
+            readOnlyPicText: _nameFor(state, task.pic),
+            showAiSuggestions: canEdit,
+          ),
+          AsanaDetailSectionHeader(
+            title: 'Sub-tasks',
+            showAddButton: true,
+            addTooltip: 'Create sub-task',
+            onAdd: widget.onPushCreateSubtask != null
+                ? (_) => widget.onPushCreateSubtask!()
+                : null,
+            addEnabled:
+                canEdit &&
+                !singularTaskStatusIsCompleted(task) &&
+                !_saving &&
+                widget.onPushCreateSubtask != null,
+          ),
+          if (_subtasks.isNotEmpty)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return AsanaDetailSubtaskList(
+                  viewportWidth: constraints.maxWidth,
+                  subtasks: _subtasks,
+                  tableColors: tc,
+                  appState: state,
+                  nameAndDueOnly: true,
+                  onOpenSubtask: widget.onPushSubtask,
+                );
+              },
+            ),
+          if (_subtasks.isNotEmpty) const SizedBox(height: 8),
+          AsanaDetailTwoColumnRow(
+            label: 'Priority',
+            child: Builder(
+              builder: (anchorContext) => CompositedTransformTarget(
+                link: _priorityAnchorLink,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: canEdit
+                      ? MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: _saving
+                                ? null
+                                : () => _pickPriority(anchorContext),
+                            child: AsanaPriorityChip(priority: _localPriority),
+                          ),
+                        )
+                      : AsanaPriorityChip(priority: task.priority),
+                ),
+              ),
+            ),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.priority),
+          AsanaDetailTwoColumnRow(
+            label: 'Status',
+            child: AsanaDetailStatusPill(
+              status: TaskListCard.statusLabel(task),
+            ),
+          ),
+          AsanaDetailTwoColumnRow(
+            label: 'Start date',
+            child: AsanaHoverTapValue(
+              value: _formatDate(_startDate),
+              canEdit: canEdit,
+              onTap: _saving ? null : _pickStartDueRange,
+            ),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.startDate),
+          AsanaDetailTwoColumnRow(
+            label: 'Due date',
+            child: AsanaHoverTapValue(
+              value: _formatDate(_dueDate),
+              canEdit: canEdit,
+              onTap: _saving ? null : _pickStartDueRange,
+            ),
+          ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.dueDate),
+          if (_needsChangeDueReason() ||
+              (task.changeDueReason ?? '').trim().isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AsanaDetailLabelValue(
+                  label: 'Reason',
+                  child: AsanaHoverTextField(
+                    controller: _reasonController,
                     canEdit: canEdit,
                     readOnly: _saving,
-                    maxLines: 6,
-                    minLines: 1,
-                    style: asanaDetailTitleStyle(context),
+                    maxLines: 4,
+                    minLines: 2,
+                    style: asanaDetailMultilineValueStyle(context),
                   ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.taskName),
-                  const SizedBox(height: 12),
-                  AsanaDetailLabelValue(
-                    label: 'Description',
-                    child: AsanaHoverTextField(
-                      controller: _descController,
-                      canEdit: canEdit,
-                      readOnly: _saving,
-                      maxLines: 8,
-                      minLines: 2,
-                        hintText: 'Please fill in task description',
-                      style: asanaDetailMultilineValueStyle(context),
-                    ),
-                  ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.description),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Project',
-                    child: canEdit && _myProjects.isNotEmpty
-                        ? AsanaHoverTapValue(
-                            anchorLink: _projectAnchorLink,
-                            value: _projectLabel(task),
-                            canEdit: true,
-                            emptyPlaceholder: 'Select project (optional)',
-                            onTap: _pickProject,
-                          )
-                        : AsanaDetailPlainValue(
-                            text: task.projectName?.trim() ?? '',
-                          ),
-                  ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.project),
-                  ..._buildAssigneePicSection(
-                    context,
-                    state,
-                    canEditAssignees: canEdit && _isCreator(state, task),
-                    creatorLabel: task.createByStaffName?.trim() ?? '',
-                    readOnlyAssigneesText: task.assigneeIds
-                        .map((id) => _nameFor(state, id))
-                        .where((n) => n.isNotEmpty)
-                        .join(', '),
-                    readOnlyPicText: _nameFor(state, task.pic),
-                    showAiSuggestions: canEdit,
-                  ),
-                  AsanaDetailSectionHeader(
-                    title: 'Sub-tasks',
-                    showAddButton: true,
-                    addTooltip: 'Create sub-task',
-                    onAdd: widget.onPushCreateSubtask != null
-                        ? (_) => widget.onPushCreateSubtask!()
-                        : null,
-                    addEnabled: canEdit &&
-                        !singularTaskStatusIsCompleted(task) &&
-                        !_saving &&
-                        widget.onPushCreateSubtask != null,
-                  ),
-                  if (_subtasks.isNotEmpty)
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        return AsanaDetailSubtaskList(
-                          viewportWidth: constraints.maxWidth,
-                          subtasks: _subtasks,
-                          tableColors: tc,
-                          appState: state,
-                          nameAndDueOnly: true,
-                          onOpenSubtask: widget.onPushSubtask,
-                        );
-                      },
-                    ),
-                  if (_subtasks.isNotEmpty) const SizedBox(height: 8),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Priority',
-                    child: Builder(
-                      builder: (anchorContext) => CompositedTransformTarget(
-                        link: _priorityAnchorLink,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: canEdit
-                              ? MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  child: GestureDetector(
-                                    onTap: _saving
-                                        ? null
-                                        : () => _pickPriority(anchorContext),
-                                    child: AsanaPriorityChip(
-                                      priority: _localPriority,
-                                    ),
-                                  ),
-                                )
-                              : AsanaPriorityChip(priority: task.priority),
-                        ),
+                ),
+                if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.reason),
+              ],
+            ),
+          AsanaDetailTwoColumnRow(
+            label: 'Submission',
+            child: AsanaDetailSubmissionPill(submission: task.submission),
+          ),
+          if ((task.updateByStaffName ?? '').trim().isNotEmpty)
+            AsanaDetailTwoColumnRow(
+              label: 'Last updated by',
+              child: AsanaDetailPlainValue(
+                text: task.updateByStaffName!.trim(),
+              ),
+            ),
+          if (task.lastUpdated != null)
+            AsanaDetailTwoColumnRow(
+              label: 'Last updated',
+              child: AsanaDetailPlainValue(
+                text: _formatDateTime(task.lastUpdated),
+              ),
+            ),
+          AsanaDetailSectionHeader(
+            title: 'Attachments',
+            showAddButton: true,
+            addTooltip: 'Add attachment',
+            addAnchorLink: _attachmentAddAnchorLink,
+            onAdd: (ctx) => _showAttachmentSourceMenu(ctx, task: task),
+            addEnabled: _canEditAttachments(state, task) && !_saving,
+          ),
+          if (_loadingExtras)
+            const LinearProgressIndicator()
+          else if (_attachments.isEmpty)
+            const SizedBox(height: 4)
+          else
+            Builder(
+              builder: (attachmentCtx) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _attachments
+                    .map(
+                      (e) => _attachmentDraftTile(
+                        context,
+                        e,
+                        createMode: false,
+                        editAnchorContext: attachmentCtx,
                       ),
-                    ),
+                    )
+                    .toList(),
+              ),
+            ),
+          if (canEdit)
+            _aiSuggestions(AsanaTaskAiFieldKey.websiteLink)
+          else if (showCommentAi)
+            _aiSuggestions(
+              AsanaTaskAiFieldKey.websiteLink,
+              controller: _commentAi,
+            ),
+          AsanaDetailLabelValue(
+            label: 'Comments',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_canWriteComments(state, task)) ...[
+                  AsanaHoverTextField(
+                    controller: _commentController,
+                    canEdit: true,
+                    readOnly: _saving,
+                    maxLines: 4,
+                    minLines: 2,
+                    style: asanaDetailMultilineValueStyle(context),
                   ),
                   if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.priority),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Status',
-                    child: AsanaDetailStatusPill(
-                      status: TaskListCard.statusLabel(task),
-                    ),
-                  ),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Start date',
-                    child: AsanaHoverTapValue(
-                      value: _formatDate(_startDate),
-                      canEdit: canEdit,
-                      onTap: _saving ? null : _pickStartDueRange,
-                    ),
-                  ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.startDate),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Due date',
-                    child: AsanaHoverTapValue(
-                      value: _formatDate(_dueDate),
-                      canEdit: canEdit,
-                      onTap: _saving ? null : _pickStartDueRange,
-                    ),
-                  ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.dueDate),
-                  if (_needsChangeDueReason() ||
-                      (task.changeDueReason ?? '').trim().isNotEmpty)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        AsanaDetailLabelValue(
-                          label: 'Reason',
-                          child: AsanaHoverTextField(
-                            controller: _reasonController,
-                            canEdit: canEdit,
-                            readOnly: _saving,
-                            maxLines: 4,
-                            minLines: 2,
-                            style: asanaDetailMultilineValueStyle(context),
-                          ),
-                        ),
-                        if (canEdit)
-                          _aiSuggestions(AsanaTaskAiFieldKey.reason),
-                      ],
-                    ),
-                  AsanaDetailTwoColumnRow(
-                    label: 'Submission',
-                    child: AsanaDetailSubmissionPill(submission: task.submission),
-                  ),
-                  if ((task.updateByStaffName ?? '').trim().isNotEmpty)
-                    AsanaDetailTwoColumnRow(
-                      label: 'Last updated by',
-                      child: AsanaDetailPlainValue(
-                        text: task.updateByStaffName!.trim(),
-                      ),
-                    ),
-                  if (task.lastUpdated != null)
-                    AsanaDetailTwoColumnRow(
-                      label: 'Last updated',
-                      child: AsanaDetailPlainValue(
-                        text: _formatDateTime(task.lastUpdated),
-                      ),
-                    ),
-                  AsanaDetailSectionHeader(
-                    title: 'Attachments',
-                    showAddButton: true,
-                    addTooltip: 'Add attachment',
-                    addAnchorLink: _attachmentAddAnchorLink,
-                    onAdd: (ctx) =>
-                        _showAttachmentSourceMenu(ctx, task: task),
-                    addEnabled: _canEditAttachments(state, task) && !_saving,
-                  ),
-                  if (_loadingExtras)
-                    const LinearProgressIndicator()
-                  else if (_attachments.isEmpty)
-                    const SizedBox(height: 4)
-                  else
-                    Builder(
-                      builder: (attachmentCtx) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _attachments
-                            .map(
-                              (e) => _attachmentDraftTile(
-                                context,
-                                e,
-                                createMode: false,
-                                editAnchorContext: attachmentCtx,
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                  if (canEdit)
-                    _aiSuggestions(AsanaTaskAiFieldKey.websiteLink)
+                    _aiSuggestions(AsanaTaskAiFieldKey.comment)
                   else if (showCommentAi)
                     _aiSuggestions(
-                      AsanaTaskAiFieldKey.websiteLink,
+                      AsanaTaskAiFieldKey.comment,
                       controller: _commentAi,
                     ),
-                  AsanaDetailLabelValue(
-                    label: 'Comments',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (_canWriteComments(state, task)) ...[
-                          AsanaHoverTextField(
-                            controller: _commentController,
-                            canEdit: true,
-                            readOnly: _saving,
-                            maxLines: 4,
-                            minLines: 2,
-                            style: asanaDetailMultilineValueStyle(context),
-                          ),
-                          if (canEdit)
-                            _aiSuggestions(AsanaTaskAiFieldKey.comment)
-                          else if (showCommentAi)
-                            _aiSuggestions(
-                              AsanaTaskAiFieldKey.comment,
-                              controller: _commentAi,
-                            ),
-                        ],
-                        if (_comments.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          ..._comments.map(
-                            (c) => _buildCommentDisplayTile(context, c),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
                 ],
-              ),
+                if (_comments.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ..._comments.map((c) => _buildCommentDisplayTile(context, c)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2527,9 +2527,7 @@ class _ActionBar extends StatelessWidget {
     if (!deleted && isCreator && canMarkComplete) return true;
     if (!deleted && isCreator && canUndoAcceptOrReturn) return true;
     if (!deleted && isPic && _canPicSubmit(task)) return true;
-    if (!deleted &&
-        isCreator &&
-        task.submission?.trim() == 'Submitted') {
+    if (!deleted && isCreator && task.submission?.trim() == 'Submitted') {
       return true;
     }
     if (canDelete) return true;
@@ -2556,8 +2554,7 @@ class _ActionBar extends StatelessWidget {
 
     final t = task!;
     final deleted = (t.dbStatus ?? '').trim().toLowerCase() == 'deleted';
-    final showUpdate =
-        !deleted && (isCreator || isPic || isAssigneeOnly);
+    final showUpdate = !deleted && (isCreator || isPic || isAssigneeOnly);
     final mobileButtons = AsanaTaskDetailActionStyles.isMobile(context);
     final buttons = <Widget>[];
 

@@ -768,13 +768,29 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                                                     ),
                                                   ),
                                                 ),
-                                            onPushSubtask: (id) => setState(
-                                              () => _detailStack.add(
-                                                AsanaDetailSelection.subtask(
-                                                  id,
+                                            onPushSubtask: (id) {
+                                              AsanaBlockingLoadingOverlay.show(
+                                                context,
+                                              );
+                                              setState(
+                                                () => _detailStack.add(
+                                                  AsanaDetailSelection.subtask(
+                                                    id,
+                                                  ),
                                                 ),
-                                              ),
-                                            ),
+                                              );
+                                              WidgetsBinding.instance
+                                                  .addPostFrameCallback((_) {
+                                                    Future<void>.delayed(
+                                                      const Duration(
+                                                        milliseconds: 450,
+                                                      ),
+                                                      () {
+                                                        AsanaBlockingLoadingOverlay.hide();
+                                                      },
+                                                    );
+                                                  });
+                                            },
                                             onTaskCreated: _handleTaskCreated,
                                             onProjectCreated:
                                                 _handleProjectCreated,
