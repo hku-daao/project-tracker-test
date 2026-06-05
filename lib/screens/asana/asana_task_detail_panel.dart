@@ -316,8 +316,34 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       loading: _assigneePickerLoading,
       teams: _pickerTeamsForRole(),
       staff: List<StaffForAssignment>.from(_pickerStaff),
+      projectStaff: _projectAssigneeStaff(),
+      hasProjectTeam: _selectedProjectRecord() != null,
       error: _assigneePickerError,
     );
+  }
+
+  ProjectRecord? _selectedProjectRecord() {
+    final id = _selectedProjectId?.trim();
+    if (id == null || id.isEmpty) return null;
+    for (final p in _myProjects) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  List<StaffForAssignment> _projectAssigneeStaff() {
+    final project = _selectedProjectRecord();
+    if (project == null || project.assigneeStaffUuids.isEmpty) {
+      return const [];
+    }
+    final allowed = project.assigneeStaffUuids.map((u) => u.trim()).toSet();
+    return _pickerStaff
+        .where(
+          (s) =>
+              allowed.contains(s.staffUuid?.trim()) ||
+              allowed.contains(s.assigneeId.trim()),
+        )
+        .toList();
   }
 
   Future<void> _loadAssigneePicker() async {
@@ -450,13 +476,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _pickPic(BuildContext anchorContext, AppState state) async {
     if (!_canOpenAnchoredPicker) return;
-    final ids = _selectedAssigneeIds.toList()
-      ..sort(
-        (a, b) => _labelForAssigneeId(
-          a,
-          state,
-        ).compareTo(_labelForAssigneeId(b, state)),
-      );
+    final ids = _picMenuAssigneeIds(state);
     final choice = await showAsanaAnchoredOptionMenu<String>(
       anchorLink: _picAnchorLink,
       anchorContext: anchorContext,
@@ -473,6 +493,35 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     if (choice != null && mounted) {
       setState(() => _picAssigneeId = choice);
     }
+  }
+
+  List<String> _picMenuAssigneeIds(AppState state) {
+    final projectPicKeys = _selectedProjectRecord()?.picStaffUuids
+            .map((u) => u.trim())
+            .where((u) => u.isNotEmpty)
+            .toSet() ??
+        const <String>{};
+    final ids = _selectedAssigneeIds.toList();
+    ids.sort((a, b) {
+      final aProjectPic = _staffKeyMatchesProjectKeys(a, projectPicKeys);
+      final bProjectPic = _staffKeyMatchesProjectKeys(b, projectPicKeys);
+      if (aProjectPic != bProjectPic) return aProjectPic ? -1 : 1;
+      return _labelForAssigneeId(a, state).compareTo(_labelForAssigneeId(b, state));
+    });
+    return ids;
+  }
+
+  bool _staffKeyMatchesProjectKeys(String staffKey, Set<String> projectKeys) {
+    final key = staffKey.trim();
+    if (key.isEmpty || projectKeys.isEmpty) return false;
+    if (projectKeys.contains(key)) return true;
+    for (final staff in _pickerStaff) {
+      if (staff.assigneeId.trim() == key) {
+        final uuid = staff.staffUuid?.trim();
+        return uuid != null && projectKeys.contains(uuid);
+      }
+    }
+    return false;
   }
 
   Future<void> _bootstrap() async {
@@ -637,23 +686,28 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   Future<void> _loadProjectsIfCreator() async {
     final state = context.read<AppState>();
     final task = widget.createMode ? null : state.taskById(widget.taskId ?? '');
-    if (!widget.createMode && (task == null || !_isCreator(state, task))) {
+    final canEditProject = widget.createMode || (task != null && _isCreator(state, task));
+    final currentProjectId = task?.projectId?.trim();
+    if (!canEditProject &&
+        (currentProjectId == null || currentProjectId.isEmpty)) {
       return;
     }
     final me = _myStaffUuid;
-    if (me == null || me.isEmpty || !SupabaseConfig.isConfigured) return;
+    if (canEditProject && (me == null || me.isEmpty)) return;
+    if (!SupabaseConfig.isConfigured) return;
     try {
-      final all = await SupabaseService.fetchAllProjectsFromSupabase();
+      final all = canEditProject
+          ? await SupabaseService.fetchAllProjectsFromSupabase()
+          : <ProjectRecord>[];
       bool eligible(ProjectRecord p) {
         final s = p.status.trim();
         return s == 'Not started' || s == 'In progress';
       }
 
-      final linkable = all
-          .where((p) => p.staffMayLinkTasks(me))
-          .where(eligible)
-          .toList();
-      final pid = task?.projectId?.trim();
+      final linkable = canEditProject
+          ? all.where((p) => p.staffMayLinkTasks(me!)).where(eligible).toList()
+          : <ProjectRecord>[];
+      final pid = currentProjectId;
       if (pid != null && pid.isNotEmpty && !linkable.any((p) => p.id == pid)) {
         final extra = await SupabaseService.fetchProjectById(pid);
         if (extra != null) linkable.add(extra);
@@ -666,6 +720,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           _myProjects = linkable;
           _rebuildProjectMenuOptions();
         });
+        _publishAssigneeSnapshot();
       }
     } catch (_) {}
   }
@@ -993,6 +1048,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     );
     if (!mounted || choice == null) return;
     setState(() => _selectedProjectId = choice.isEmpty ? null : choice);
+    _publishAssigneeSnapshot();
   }
 
   List<String?> _createAttachmentAclKeys(AppState state, String picKey) {
@@ -1708,6 +1764,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     return task.copyWith(
       name: _nameController.text.trim(),
       description: _descController.text.trim(),
+      assigneeIds: _selectedAssigneeIds.toList(),
+      pic: _picAssigneeId,
       priority: _localPriority,
       startDate: _startDate,
       endDate: _dueDate,
@@ -1861,7 +1919,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     return AsanaTaskAiApply(
       applyName: (v) => setState(() => _nameController.text = v),
       applyDescription: (v) => setState(() => _descController.text = v),
-      applyProject: (id) => setState(() => _selectedProjectId = id),
+      applyProject: (id) {
+        setState(() => _selectedProjectId = id);
+        _publishAssigneeSnapshot();
+      },
       applyAssignees: (ids) => setState(() {
         _selectedAssigneeIds
           ..clear()
@@ -1999,20 +2060,17 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AsanaDetailLabelValue(
-            label: 'Name',
-            child: AsanaHoverTextField(
-              controller: _nameController,
-              canEdit: canEdit,
-              readOnly: _saving,
-              showOutline: true,
-              maxLines: 3,
-              minLines: 1,
-              hintText: 'Please fill in task name',
-              style: asanaDetailValueStyle(context),
-            ),
+          AsanaHoverTextField(
+            controller: _nameController,
+            canEdit: canEdit,
+            readOnly: _saving,
+            maxLines: 6,
+            minLines: 1,
+            hintText: 'Please fill in task name',
+            style: asanaDetailTitleStyle(context),
           ),
           _aiSuggestions(AsanaTaskAiFieldKey.taskName),
+          const SizedBox(height: 12),
           AsanaDetailLabelValue(
             label: 'Description',
             child: AsanaHoverTextField(

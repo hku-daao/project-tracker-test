@@ -10,10 +10,13 @@ class AsanaBlockingLoadingOverlay {
   static int _depth = 0;
 
   static void show(BuildContext context) {
-    _depth++;
-    if (_entry != null) return;
+    if (_entry != null) {
+      _depth++;
+      return;
+    }
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
+    _depth++;
 
     _entry = OverlayEntry(
       builder: (ctx) {

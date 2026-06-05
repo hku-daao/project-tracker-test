@@ -354,11 +354,13 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
 
   void _dismissAllDetails() {
     if (_detailStack.isEmpty) return;
+    AsanaBlockingLoadingOverlay.hideAll();
     setState(_detailStack.clear);
   }
 
   void _popDetail() {
     if (_detailStack.isEmpty) return;
+    AsanaBlockingLoadingOverlay.hideAll();
     setState(() {
       if (_detailStack.length > 1) {
         _detailStack.removeLast();

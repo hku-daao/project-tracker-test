@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../config/supabase_config.dart';
+import '../../models/project_record.dart';
 import '../../models/singular_subtask.dart';
 import '../../models/staff_for_assignment.dart';
 import '../../models/task.dart';
@@ -154,6 +155,7 @@ class AsanaSubtaskDetailPanel extends StatefulWidget {
 class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
   SingularSubtask? _subtask;
   Task? _parentTask;
+  ProjectRecord? _parentProject;
   bool _loading = true;
   bool _saving = false;
   bool _createdInPlace = false;
@@ -204,6 +206,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
           setState(() {
             _resetCreateDraft();
           });
+          _loadParentContext(widget.parentTaskId);
           _loadAssigneeStaff();
         }
       });
@@ -272,6 +275,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
 
   @override
   void dispose() {
+    AsanaBlockingLoadingOverlay.hideAll();
     _nameController.dispose();
     _descController.dispose();
     _reasonController.dispose();
@@ -312,6 +316,7 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
             _dueDate = row?.dueDate;
             _draftStatus = row?.status;
           });
+          await _loadParentContext(row?.taskId);
           _loadAssigneeStaff();
           _loadAttachments(row);
           _loadComments(row);
@@ -506,6 +511,8 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
       loading: _assigneePickerLoading,
       teams: _pickerTeamsForRole(),
       staff: List<StaffForAssignment>.from(_pickerStaff),
+      projectStaff: _projectAssigneeStaff(),
+      hasProjectTeam: _parentProject != null,
       error: _assigneePickerError,
     );
     _picSnapshot.value = AsanaAssigneePickerSnapshot(
@@ -516,6 +523,66 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
           .toList(),
       error: _assigneePickerError,
     );
+  }
+
+  Future<void> _loadParentContext(String? taskId) async {
+    final id = taskId?.trim();
+    if (id == null || id.isEmpty || !SupabaseConfig.isConfigured) {
+      if (mounted) {
+        setState(() {
+          _parentTask = null;
+          _parentProject = null;
+        });
+        _publishAssigneeSnapshot();
+      }
+      return;
+    }
+    Task? parent = context.read<AppState>().taskById(id);
+    parent ??= await SupabaseService.fetchSingularTaskModelById(id);
+    final projectId = parent?.projectId?.trim();
+    if (projectId == null || projectId.isEmpty || !SupabaseConfig.isConfigured) {
+      if (mounted) {
+        setState(() {
+          _parentTask = parent;
+          _parentProject = null;
+        });
+        _publishAssigneeSnapshot();
+      }
+      return;
+    }
+    try {
+      final project = await SupabaseService.fetchProjectById(projectId);
+      if (mounted) {
+        setState(() {
+          _parentTask = parent;
+          _parentProject = project;
+        });
+        _publishAssigneeSnapshot();
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _parentTask = parent;
+          _parentProject = null;
+        });
+        _publishAssigneeSnapshot();
+      }
+    }
+  }
+
+  List<StaffForAssignment> _projectAssigneeStaff() {
+    final project = _parentProject;
+    if (project == null || project.assigneeStaffUuids.isEmpty) {
+      return const [];
+    }
+    final allowed = project.assigneeStaffUuids.map((u) => u.trim()).toSet();
+    return _pickerStaff
+        .where(
+          (s) =>
+              allowed.contains(s.staffUuid?.trim()) ||
+              allowed.contains(s.assigneeId.trim()),
+        )
+        .toList();
   }
 
   Future<void> _loadAssigneeStaff() async {
@@ -592,17 +659,6 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     return state.assigneeById(id)?.name ?? id;
   }
 
-  List<AsanaFilterCheckboxOption> _parentAssigneeOptions(AppState state) {
-    final ids = _parentTask?.assigneeIds ?? const <String>[];
-    return [
-      for (final id in ids)
-        AsanaFilterCheckboxOption(
-          key: id,
-          label: state.assigneeById(id)?.name ?? id,
-        ),
-    ]..sort((a, b) => a.label.compareTo(b.label));
-  }
-
   bool get _canOpenAnchoredPicker =>
       DateTime.now().millisecondsSinceEpoch >
       _anchoredPickerReopenBlockedUntilMs;
@@ -634,24 +690,6 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
 
   Future<void> _pickAssignees(BuildContext anchorContext) async {
     if (!_canOpenAnchoredPicker) return;
-    final options = _parentAssigneeOptions(context.read<AppState>());
-    if (options.isNotEmpty) {
-      final selection = await showParentAssigneeGridMenu(
-        anchorLink: _assigneeAnchorLink,
-        anchorContext: anchorContext,
-        options: options,
-        initialSelection: _assigneeIds,
-      );
-      _blockAnchoredPickerReopen();
-      if (!mounted || selection == null) return;
-      setState(() {
-        _assigneeIds
-          ..clear()
-          ..addAll(selection.where((id) => options.any((o) => o.key == id)));
-        _syncPicAfterAssigneesChange();
-      });
-      return;
-    }
     await showAsanaAssigneePicker(
       anchorLink: _assigneeAnchorLink,
       anchorContext: anchorContext,
@@ -670,40 +708,9 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     );
   }
 
-  Future<Set<String>?> showParentAssigneeGridMenu({
-    required LayerLink anchorLink,
-    required BuildContext anchorContext,
-    required List<AsanaFilterCheckboxOption> options,
-    required Set<String> initialSelection,
-  }) async {
-    Set<String>? picked;
-    final width = MediaQuery.sizeOf(anchorContext).width >= 900 ? 420.0 : 320.0;
-    await showAsanaAnchoredOverlay(
-      anchorLink: anchorLink,
-      anchorContext: anchorContext,
-      panelWidth: width,
-      whenClosed: _blockAnchoredPickerReopen,
-      builder: (ctx, close) => _ParentAssigneeGridMenu(
-        options: options,
-        initialSelection: initialSelection,
-        onDone: (selection) {
-          picked = selection;
-          close();
-        },
-      ),
-    );
-    return picked;
-  }
-
   Future<void> _pickPic(BuildContext anchorContext, AppState state) async {
     if (!_canOpenAnchoredPicker) return;
-    final ids = _assigneeIds.toList()
-      ..sort(
-        (a, b) => _labelForAssigneeId(
-          a,
-          state,
-        ).compareTo(_labelForAssigneeId(b, state)),
-      );
+    final ids = _picMenuAssigneeIds(state);
     final choice = await showAsanaAnchoredOptionMenu<String>(
       anchorLink: _picAnchorLink,
       anchorContext: anchorContext,
@@ -719,6 +726,35 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     );
     if (!mounted || choice == null) return;
     setState(() => _picAssigneeId = choice);
+  }
+
+  List<String> _picMenuAssigneeIds(AppState state) {
+    final projectPicKeys = _parentProject?.picStaffUuids
+            .map((u) => u.trim())
+            .where((u) => u.isNotEmpty)
+            .toSet() ??
+        const <String>{};
+    final ids = _assigneeIds.toList();
+    ids.sort((a, b) {
+      final aProjectPic = _staffKeyMatchesProjectKeys(a, projectPicKeys);
+      final bProjectPic = _staffKeyMatchesProjectKeys(b, projectPicKeys);
+      if (aProjectPic != bProjectPic) return aProjectPic ? -1 : 1;
+      return _labelForAssigneeId(a, state).compareTo(_labelForAssigneeId(b, state));
+    });
+    return ids;
+  }
+
+  bool _staffKeyMatchesProjectKeys(String staffKey, Set<String> projectKeys) {
+    final key = staffKey.trim();
+    if (key.isEmpty || projectKeys.isEmpty) return false;
+    if (projectKeys.contains(key)) return true;
+    for (final staff in _pickerStaff) {
+      if (staff.assigneeId.trim() == key) {
+        final uuid = staff.staffUuid?.trim();
+        return uuid != null && projectKeys.contains(uuid);
+      }
+    }
+    return false;
   }
 
   Future<void> _pickStartDueRange(BuildContext anchorContext) async {
@@ -1609,7 +1645,8 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     final isPic = s != null && _isPic(state, s);
     final isAssigneeOnly =
         s != null && _isAssignee(state, s) && !isCreator && !isPic;
-    _parentTask = state.taskById(widget.parentTaskId ?? s?.taskId ?? '');
+    _parentTask =
+        state.taskById(widget.parentTaskId ?? s?.taskId ?? '') ?? _parentTask;
     final parent = _parentTask;
     final footerButtons = _buildFooterButtons(
       state: state,
@@ -1929,124 +1966,3 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
   }
 }
 
-class _ParentAssigneeGridMenu extends StatefulWidget {
-  const _ParentAssigneeGridMenu({
-    required this.options,
-    required this.initialSelection,
-    required this.onDone,
-  });
-
-  final List<AsanaFilterCheckboxOption> options;
-  final Set<String> initialSelection;
-  final void Function(Set<String>) onDone;
-
-  @override
-  State<_ParentAssigneeGridMenu> createState() =>
-      _ParentAssigneeGridMenuState();
-}
-
-class _ParentAssigneeGridMenuState extends State<_ParentAssigneeGridMenu> {
-  late final Set<String> _selected = Set<String>.from(widget.initialSelection);
-
-  void _toggle(String id) {
-    setState(() {
-      if (_selected.contains(id)) {
-        _selected.remove(id);
-      } else {
-        _selected.add(id);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final columns = width >= 900 ? 3 : 2;
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFFFFF),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFFD1D5DB)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x26000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Parent task assignees',
-              style: asanaDetailValueStyle(context, weight: FontWeight.w600),
-            ),
-            const SizedBox(height: 10),
-            GridView.count(
-              crossAxisCount: columns,
-              childAspectRatio: 3.6,
-              shrinkWrap: true,
-              mainAxisSpacing: 4,
-              crossAxisSpacing: 6,
-              children: [
-                for (final option in widget.options)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(6),
-                    onTap: () => _toggle(option.key),
-                    child: Row(
-                      children: [
-                        Checkbox(
-                          value: _selected.contains(option.key),
-                          onChanged: (_) => _toggle(option.key),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        Expanded(
-                          child: Text(
-                            option.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: asanaDetailValueStyle(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: () => widget.onDone(Set<String>.from(_selected)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE4E6EB),
-                  foregroundColor: const Color(0xFF1F2937),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

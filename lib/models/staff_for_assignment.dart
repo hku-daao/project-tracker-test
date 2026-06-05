@@ -33,11 +33,13 @@ class StaffForAssignment {
   const StaffForAssignment({
     required this.assigneeId,
     required this.name,
+    this.staffUuid,
     this.teamId,
   });
 
   /// Prefer `staff.app_id`; falls back to `staff.id` string when app_id is null.
   final String assigneeId;
+  final String? staffUuid;
   final String name;
   final String? teamId;
 }

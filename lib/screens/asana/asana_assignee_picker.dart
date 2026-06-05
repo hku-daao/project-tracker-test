@@ -12,12 +12,16 @@ class AsanaAssigneePickerSnapshot {
     this.loading = false,
     this.teams = const [],
     this.staff = const [],
+    this.projectStaff = const [],
+    this.hasProjectTeam = false,
     this.error,
   });
 
   final bool loading;
   final List<TeamOptionRow> teams;
   final List<StaffForAssignment> staff;
+  final List<StaffForAssignment> projectStaff;
+  final bool hasProjectTeam;
   final String? error;
 
   bool get hasData => staff.isNotEmpty;
@@ -174,6 +178,7 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
   final _searchController = TextEditingController();
   String? _teamId;
   bool _teamListOpen = false;
+  bool _projectTeamOpen = false;
 
   @override
   void dispose() {
@@ -213,10 +218,17 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
   Widget build(BuildContext context) {
     final snap = widget.snapshot;
     final teamChosen = _teamId != null && _teamId!.isNotEmpty;
+    final selectedTeamName = teamChosen ? (_teamName(_teamId) ?? 'Selected Team') : '';
     final members = _visibleMembers;
     final selectedInView =
         members.where((s) => widget.selectedIds.contains(s.assigneeId)).length;
     final showMemberGrid = _searching || teamChosen;
+    final projectMembers = List<StaffForAssignment>.from(snap.projectStaff)
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final hasProjectTeam = snap.hasProjectTeam;
+    final projectSelectedInView = projectMembers
+        .where((s) => widget.selectedIds.contains(s.assigneeId))
+        .length;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -261,7 +273,7 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
                   _AsanaPickerTeamRow(
                     label: teamChosen
                         ? (_teamName(_teamId) ?? 'Team')
-                        : 'Select team',
+                        : 'Select Team',
                     open: _teamListOpen,
                     onTap: () => setState(() => _teamListOpen = !_teamListOpen),
                   ),
@@ -287,7 +299,7 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
                     Text(
                       members.isEmpty
                           ? 'No names match'
-                          : '$selectedInView of ${members.length} selected',
+                          : '$selectedInView of ${members.length} selected from $selectedTeamName',
                       style: asanaDetailLabelStyle(context),
                     ),
                     const SizedBox(height: 6),
@@ -296,6 +308,36 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
                       selectedIds: widget.selectedIds,
                       onToggle: widget.onToggle,
                     ),
+                  ],
+                  if (hasProjectTeam) ...[
+                    const SizedBox(height: 8),
+                    _AsanaPickerTeamRow(
+                      label: 'Project Team',
+                      open: _projectTeamOpen,
+                      onTap: () => setState(
+                        () => _projectTeamOpen = !_projectTeamOpen,
+                      ),
+                    ),
+                    if (_projectTeamOpen) ...[
+                      const SizedBox(height: 6),
+                      if (projectMembers.isEmpty)
+                        Text(
+                          'No project assignees available',
+                          style: asanaDetailLabelStyle(context),
+                        )
+                      else ...[
+                        Text(
+                          '$projectSelectedInView of ${projectMembers.length} selected from Project Team',
+                          style: asanaDetailLabelStyle(context),
+                        ),
+                        const SizedBox(height: 6),
+                        _AsanaPickerNameGrid(
+                          members: projectMembers,
+                          selectedIds: widget.selectedIds,
+                          onToggle: widget.onToggle,
+                        ),
+                      ],
+                    ],
                   ],
                 ],
               ],

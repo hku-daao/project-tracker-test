@@ -1437,6 +1437,7 @@ class SupabaseService {
           StaffForAssignment(
             assigneeId: assigneeId,
             name: name,
+            staffUuid: id.isNotEmpty ? id : null,
             teamId: teamId,
           ),
         );
