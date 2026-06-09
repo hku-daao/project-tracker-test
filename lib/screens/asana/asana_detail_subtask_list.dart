@@ -11,7 +11,7 @@ class AsanaDetailSubtaskTableLayout {
   AsanaDetailSubtaskTableLayout(this.tableWidth, {this.nameAndDueOnly = false});
 
   static const double minTableWidth = 1104;
-  static const double minNameDueTableWidth = 360;
+  static const double minNameDueTableWidth = 480;
   static const double typeCol = 48;
   static const double typeColGap = 10;
   static const double nameGutter = 36;
@@ -23,23 +23,23 @@ class AsanaDetailSubtaskTableLayout {
   final double tableWidth;
   final bool nameAndDueOnly;
 
-  late final double _inner = (tableWidth -
-          (nameAndDueOnly
-              ? 0
-              : typeCol + typeColGap) -
-          kAsanaTextColumnGap *
-              (nameAndDueOnly
-                  ? nameDueTextColumnGapCount
-                  : textColumnGapCount) -
-          hPad * 2)
-      .clamp(200, double.infinity);
+  late final double _inner =
+      (tableWidth -
+              (nameAndDueOnly ? 0 : typeCol + typeColGap) -
+              kAsanaTextColumnGap *
+                  (nameAndDueOnly
+                      ? nameDueTextColumnGapCount
+                      : textColumnGapCount) -
+              hPad * 2)
+          .clamp(200, double.infinity);
 
-  double get nameCol => nameAndDueOnly ? _inner * 0.72 : _inner * 0.32;
-  double get dueCol => nameAndDueOnly ? _inner * 0.28 : _inner * 0.08;
+  double get nameCol => nameAndDueOnly ? _inner * 0.63 : _inner * 0.32;
+  double get dueCol => nameAndDueOnly ? _inner * 0.15 : _inner * 0.08;
   double get projectCol => _inner * 0.12;
   double get creatorCol => _inner * 0.10;
   double get picCol => _inner * 0.10;
   double get statusCol => _inner * 0.09;
+  double get compactStatusCol => _inner * 0.22;
   double get submissionCol => _inner * 0.10;
 }
 
@@ -89,15 +89,27 @@ class AsanaDetailSubtaskList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (subtasks.isEmpty) return const SizedBox.shrink();
 
+    final compactMobile = nameAndDueOnly && viewportWidth < 480;
     final minWidth = nameAndDueOnly
         ? AsanaDetailSubtaskTableLayout.minNameDueTableWidth
         : AsanaDetailSubtaskTableLayout.minTableWidth;
-    final tableWidth =
-        viewportWidth < minWidth ? minWidth : viewportWidth;
+    final tableWidth = compactMobile
+        ? viewportWidth
+        : (viewportWidth < minWidth ? minWidth : viewportWidth);
     final cols = AsanaDetailSubtaskTableLayout(
       tableWidth,
       nameAndDueOnly: nameAndDueOnly,
     );
+    final compactDueCol = compactMobile ? 56.0 : cols.dueCol;
+    final compactNameStatusPool =
+        tableWidth - AsanaDetailSubtaskTableLayout.hPad * 2 - 8 - compactDueCol;
+    final compactStatusCol = compactMobile ? 86.0 : cols.compactStatusCol;
+    final compactNameCol = compactMobile
+        ? (compactNameStatusPool - compactStatusCol).clamp(
+            48.0,
+            double.infinity,
+          )
+        : cols.nameCol;
     final header = _headerStyle(context);
 
     Widget table = Column(
@@ -119,12 +131,10 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                   width: AsanaDetailSubtaskTableLayout.typeCol,
                   child: Text('', style: header),
                 ),
-                const SizedBox(
-                  width: AsanaDetailSubtaskTableLayout.typeColGap,
-                ),
+                const SizedBox(width: AsanaDetailSubtaskTableLayout.typeColGap),
               ],
               SizedBox(
-                width: cols.nameCol,
+                width: compactNameCol,
                 height: AsanaDetailSubtaskTableLayout.singleLineExtent,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -144,13 +154,20 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                   ],
                 ),
               ),
-              asanaTextColumnGap(),
+              SizedBox(width: compactMobile ? 8 : kAsanaTextColumnGap),
               asanaTableHeaderLabel(
-                width: cols.dueCol,
+                width: compactDueCol,
                 label: 'Due Date',
                 style: header,
                 rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
               ),
+              if (nameAndDueOnly)
+                asanaTableHeaderLabel(
+                  width: compactStatusCol,
+                  label: 'Status',
+                  style: header,
+                  rowHeight: AsanaDetailSubtaskTableLayout.singleLineExtent,
+                ),
               if (!nameAndDueOnly) ...[
                 asanaTextColumnGap(),
                 asanaTableHeaderLabel(
@@ -192,8 +209,10 @@ class AsanaDetailSubtaskList extends StatelessWidget {
         ),
         ...subtasks.map((s) {
           final completed = _subCompleted(s);
-          final rowValueStyle =
-              asanaTableRowValueStyle(context, completed: completed);
+          final rowValueStyle = asanaTableRowValueStyle(
+            context,
+            completed: completed,
+          );
           final nameStyle = asanaTableRowNameStyle(
             context,
             completed: completed,
@@ -233,14 +252,13 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                       ),
                     ],
                     SizedBox(
-                      width: cols.nameCol,
+                      width: compactNameCol,
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           if (!nameAndDueOnly)
                             const SizedBox(
-                              width:
-                                  AsanaDetailSubtaskTableLayout.nameGutter,
+                              width: AsanaDetailSubtaskTableLayout.nameGutter,
                               height: AsanaDetailSubtaskTableLayout
                                   .singleLineExtent,
                             ),
@@ -255,9 +273,9 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                         ],
                       ),
                     ),
-                    asanaTextColumnGap(),
+                    SizedBox(width: compactMobile ? 8 : kAsanaTextColumnGap),
                     SizedBox(
-                      width: cols.dueCol,
+                      width: compactDueCol,
                       child: Text(
                         _formatDue(s.dueDate),
                         style: rowValueStyle,
@@ -265,6 +283,18 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (nameAndDueOnly)
+                      SizedBox(
+                        width: compactStatusCol,
+                        child: AsanaTableCellChip(
+                          child: AsanaStatusChip(
+                            status: s.status,
+                            fontSize: compactMobile
+                                ? 12
+                                : kAsanaTableChipFontSize,
+                          ),
+                        ),
+                      ),
                     if (!nameAndDueOnly) ...[
                       asanaTextColumnGap(),
                       SizedBox(
@@ -321,7 +351,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
       ],
     );
 
-    if (viewportWidth < minWidth) {
+    if (!compactMobile && viewportWidth < minWidth) {
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SizedBox(width: tableWidth, child: table),

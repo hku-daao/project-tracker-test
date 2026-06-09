@@ -320,6 +320,11 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
             ..clear()
             ..add(AsanaDetailSelection.project(id)),
         ),
+        onOpenTask: (id) => setState(
+          () => _detailStack
+            ..clear()
+            ..add(AsanaDetailSelection.task(id)),
+        ),
         onCreateProject: () => setState(
           () => _detailStack
             ..clear()
@@ -793,6 +798,25 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
                                                     );
                                                   });
                                             },
+                                            onPushCreateTaskForProject:
+                                                (projectId) => setState(
+                                                  () => _detailStack.add(
+                                                    AsanaDetailSelection.createTask(
+                                                      initialProjectId:
+                                                          projectId,
+                                                    ),
+                                                  ),
+                                                ),
+                                            onPushTaskFromProject: (taskId) =>
+                                                setState(
+                                                  () => _detailStack
+                                                    ..clear()
+                                                    ..add(
+                                                      AsanaDetailSelection.task(
+                                                        taskId,
+                                                      ),
+                                                    ),
+                                                ),
                                             onTaskCreated: _handleTaskCreated,
                                             onProjectCreated:
                                                 _handleProjectCreated,

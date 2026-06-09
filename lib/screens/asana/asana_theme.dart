@@ -9,7 +9,7 @@ const Color kAsanaTextSecondary = Color(0xFF6D6E6F);
 const double kAsanaTextColumnGap = 16;
 
 /// Status column width (fits "Incomplete" / "In progress" chips).
-const double kAsanaTableStatusColWidth = 112;
+const double kAsanaTableStatusColWidth = 132;
 
 /// Gap widget used between text columns in task / project / home tables.
 Widget asanaTextColumnGap() => const SizedBox(width: kAsanaTextColumnGap);
@@ -57,10 +57,7 @@ const List<String> kAsanaFontFallbacks = [
 ];
 
 /// Inter-based theme for the Asana prototype shell (matches Asana Inbox-style UI).
-ThemeData buildAsanaTheme(
-  ThemeData parent, {
-  required Color seedColor,
-}) {
+ThemeData buildAsanaTheme(ThemeData parent, {required Color seedColor}) {
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
     brightness: Brightness.light,
@@ -98,18 +95,12 @@ ThemeData buildAsanaTheme(
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        textStyle: GoogleFonts.inter(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
+        textStyle: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        textStyle: GoogleFonts.inter(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
+        textStyle: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     ),
     dividerTheme: base.dividerTheme.copyWith(color: const Color(0xFFE8ECEE)),
@@ -158,11 +149,11 @@ Widget asanaTableHeaderLabel({
 /// Column header in task / project / home tables.
 TextStyle? asanaTableHeaderStyle(BuildContext context) {
   return Theme.of(context).textTheme.labelMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        fontSize: 12,
-        letterSpacing: 0.1,
-        color: kAsanaTextSecondary,
-      );
+    fontWeight: FontWeight.w600,
+    fontSize: 12,
+    letterSpacing: 0.1,
+    color: kAsanaTextSecondary,
+  );
 }
 
 /// Body cell text for table rows (matches tasks panel).
@@ -192,8 +183,11 @@ TextStyle? asanaTableRowNameStyle(
 
 /// User initials for sidebar avatar (e.g. Ken Lee → KL).
 String asanaStaffInitials(String fullName) {
-  final parts =
-      fullName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  final parts = fullName
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((p) => p.isNotEmpty)
+      .toList();
   if (parts.isEmpty) return '?';
   if (parts.length == 1) {
     final p = parts.first;

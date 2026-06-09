@@ -17,6 +17,8 @@ class AsanaDetailPanelHost extends StatelessWidget {
     this.onPop,
     this.onPushCreateSubtask,
     this.onPushSubtask,
+    this.onPushCreateTaskForProject,
+    this.onPushTaskFromProject,
     this.onTaskCreated,
     this.onProjectCreated,
     this.onProjectChanged,
@@ -31,6 +33,8 @@ class AsanaDetailPanelHost extends StatelessWidget {
   final VoidCallback? onPop;
   final void Function(String parentTaskId)? onPushCreateSubtask;
   final void Function(String subtaskId)? onPushSubtask;
+  final void Function(String projectId)? onPushCreateTaskForProject;
+  final void Function(String taskId)? onPushTaskFromProject;
   final void Function(String taskId)? onTaskCreated;
   final void Function(String projectId)? onProjectCreated;
   final VoidCallback? onProjectChanged;
@@ -42,27 +46,31 @@ class AsanaDetailPanelHost extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (selection) {
       AsanaTaskDetailSelection(:final taskId) => AsanaTaskDetailPanel(
-          taskId: taskId,
-          palette: palette,
-          refreshToken: detailRefreshToken,
-          onClose: onClose,
-          onPushCreateSubtask: onPushCreateSubtask == null
-              ? null
-              : () => onPushCreateSubtask!(taskId),
-          onPushSubtask: onPushSubtask,
-        ),
+        taskId: taskId,
+        palette: palette,
+        refreshToken: detailRefreshToken,
+        onClose: onClose,
+        onPushCreateSubtask: onPushCreateSubtask == null
+            ? null
+            : () => onPushCreateSubtask!(taskId),
+        onPushSubtask: onPushSubtask,
+      ),
       AsanaSubtaskDetailSelection(:final subtaskId) => AsanaSubtaskDetailPanel(
-          subtaskId: subtaskId,
-          palette: palette,
-          onClose: onPop ?? onClose,
-          onChanged: onSubtaskChanged,
-        ),
+        subtaskId: subtaskId,
+        palette: palette,
+        onClose: onPop ?? onClose,
+        onChanged: onSubtaskChanged,
+      ),
       AsanaProjectDetailSelection(:final projectId) => AsanaProjectDetailPanel(
-          projectId: projectId,
-          palette: palette,
-          onClose: onClose,
-          onChanged: onProjectChanged,
-        ),
+        projectId: projectId,
+        palette: palette,
+        onClose: onClose,
+        onChanged: onProjectChanged,
+        onPushCreateTask: onPushCreateTaskForProject == null
+            ? null
+            : () => onPushCreateTaskForProject!(projectId),
+        onPushTask: onPushTaskFromProject,
+      ),
       AsanaCreateSubtaskDetailSelection(:final parentTaskId) =>
         AsanaSubtaskDetailPanel(
           createMode: true,
@@ -74,17 +82,19 @@ class AsanaDetailPanelHost extends StatelessWidget {
               : (subtaskId) => onSubtaskCreated!(parentTaskId, subtaskId),
           onChanged: onSubtaskChanged,
         ),
-      AsanaCreateTaskDetailSelection() => AsanaTaskDetailPanel(
+      AsanaCreateTaskDetailSelection(:final initialProjectId) =>
+        AsanaTaskDetailPanel(
           createMode: true,
+          initialProjectId: initialProjectId,
           palette: palette,
           onClose: onClose,
           onCreated: onTaskCreated,
         ),
       AsanaCreateProjectDetailSelection() => AsanaCreateProjectDetailPanel(
-          palette: palette,
-          onClose: onClose,
-          onCreated: onProjectCreated,
-        ),
+        palette: palette,
+        onClose: onClose,
+        onCreated: onProjectCreated,
+      ),
     };
   }
 }

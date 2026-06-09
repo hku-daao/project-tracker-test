@@ -13,7 +13,6 @@ import '../../services/asana_filter_cookie_storage.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
 import '../../widgets/task_list_card.dart';
-import '../app_bootstrap.dart';
 import '../asana_landing_screen.dart';
 import 'asana_blocking_loading_overlay.dart';
 import 'asana_filter_widgets.dart';
@@ -82,8 +81,9 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
       _loadSavedFilters();
       return;
     }
-    if (oldWidget.searchQuery != widget.searchQuery ||
-        oldWidget.refreshToken != widget.refreshToken) {
+    if (oldWidget.searchQuery != widget.searchQuery) {
+      _rebuildTaskList(showBlockingOverlay: false);
+    } else if (oldWidget.refreshToken != widget.refreshToken) {
       _rebuildTaskList();
     }
   }
@@ -100,10 +100,9 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
     _rebuildTaskList();
   }
 
-  Future<void> _rebuildTaskList() async {
+  Future<void> _rebuildTaskList({bool showBlockingOverlay = true}) async {
     if (!mounted || !_filtersReady) return;
     final gen = ++_listGeneration;
-    final showBlockingOverlay = true;
     if (showBlockingOverlay) {
       AsanaBlockingLoadingOverlay.show(context);
     }
@@ -1001,9 +1000,10 @@ class _TaskTableLayout {
   /// Fixed height for name gutter + single-line row alignment.
   static const double singleLineExtent = 24;
   static const double hPad = 12;
+  static const double submissionColWidth = 116;
 
   static const double _flexWeightSum =
-      0.28 + 0.08 + 0.11 + 0.09 + 0.09 + 0.08 + 0.09;
+      0.29 + 0.065 + 0.11 + 0.075 + 0.075 + 0.0665;
 
   late final double _inner =
       (tableWidth -
@@ -1011,17 +1011,18 @@ class _TaskTableLayout {
               typeColGap -
               kAsanaTextColumnGap * textColumnGapCount -
               hPad * 2 -
-              kAsanaTableStatusColWidth)
+              kAsanaTableStatusColWidth -
+              submissionColWidth)
           .clamp(400, double.infinity);
 
-  double get taskNameCol => _inner * (0.28 / _flexWeightSum);
-  double get dueCol => _inner * (0.08 / _flexWeightSum);
+  double get taskNameCol => _inner * (0.29 / _flexWeightSum);
+  double get dueCol => _inner * (0.065 / _flexWeightSum);
   double get projectCol => _inner * (0.11 / _flexWeightSum);
-  double get creatorCol => _inner * (0.09 / _flexWeightSum);
-  double get picCol => _inner * (0.09 / _flexWeightSum);
-  double get priorityCol => _inner * (0.08 / _flexWeightSum);
+  double get creatorCol => _inner * (0.075 / _flexWeightSum);
+  double get picCol => _inner * (0.075 / _flexWeightSum);
+  double get priorityCol => _inner * (0.0665 / _flexWeightSum);
   double get statusCol => kAsanaTableStatusColWidth;
-  double get submissionCol => _inner * (0.09 / _flexWeightSum);
+  double get submissionCol => submissionColWidth;
 }
 
 TextStyle? _taskTableHeaderStyle(BuildContext context) =>
@@ -1657,7 +1658,8 @@ class _FlatMobileRow extends StatelessWidget {
     final metaParts = [
       'Cr: ${_formatCreator(creator)}',
       'PIC: ${_formatPic(appState, picKey)}',
-      if (projectName.trim().isNotEmpty) 'Pr: ${projectName.trim()}',
+      if (!isSubtask && projectName.trim().isNotEmpty)
+        'Pr: ${projectName.trim()}',
       'Due: ${_formatDueDate(dueDate)}',
     ];
     final metaLine = metaParts.join(' · ');

@@ -16,6 +16,8 @@ class AsanaDetailSlidePanel extends StatefulWidget {
     required this.onPop,
     this.onPushCreateSubtask,
     this.onPushSubtask,
+    this.onPushCreateTaskForProject,
+    this.onPushTaskFromProject,
     this.onTaskCreated,
     this.onProjectCreated,
     this.onProjectChanged,
@@ -32,6 +34,8 @@ class AsanaDetailSlidePanel extends StatefulWidget {
   final VoidCallback onPop;
   final void Function(String parentTaskId)? onPushCreateSubtask;
   final void Function(String subtaskId)? onPushSubtask;
+  final void Function(String projectId)? onPushCreateTaskForProject;
+  final void Function(String taskId)? onPushTaskFromProject;
   final void Function(String taskId)? onTaskCreated;
   final void Function(String projectId)? onProjectCreated;
   final VoidCallback? onProjectChanged;
@@ -57,21 +61,18 @@ class _AsanaDetailSlidePanelState extends State<AsanaDetailSlidePanel> {
   }
 
   static String? _baseTaskId(List<AsanaDetailSelection> stack) {
-    for (final s in stack) {
-      switch (s) {
-        case AsanaTaskDetailSelection(:final taskId):
-          return taskId;
-        case AsanaCreateSubtaskDetailSelection(:final parentTaskId):
-          return parentTaskId;
-        default:
-          break;
-      }
-    }
-    return null;
+    if (stack.isEmpty) return null;
+    return switch (stack.first) {
+      AsanaTaskDetailSelection(:final taskId) => taskId,
+      AsanaCreateSubtaskDetailSelection(:final parentTaskId) => parentTaskId,
+      _ => null,
+    };
   }
 
   /// Top overlay when drilling in from a task; sole panel when opened without a task base.
-  static AsanaDetailSelection? _overlaySelection(List<AsanaDetailSelection> stack) {
+  static AsanaDetailSelection? _overlaySelection(
+    List<AsanaDetailSelection> stack,
+  ) {
     if (stack.isEmpty) return null;
     if (stack.length > 1) return stack.last;
     return switch (stack.last) {
@@ -92,13 +93,17 @@ class _AsanaDetailSlidePanelState extends State<AsanaDetailSlidePanel> {
     final overlay = _overlaySelection(widget.stack);
     final hasOverlay = overlay != null;
     final subtaskOverlay =
-        overlay is AsanaSubtaskDetailSelection || overlay is AsanaCreateSubtaskDetailSelection;
+        overlay is AsanaSubtaskDetailSelection ||
+        overlay is AsanaCreateSubtaskDetailSelection;
 
     final currentSelection = overlay ?? widget.stack.last;
     final String slideTitle = switch (currentSelection) {
-      AsanaTaskDetailSelection() || AsanaCreateTaskDetailSelection() => 'Task Details',
-      AsanaSubtaskDetailSelection() || AsanaCreateSubtaskDetailSelection() => 'Sub-task Details',
-      AsanaProjectDetailSelection() || AsanaCreateProjectDetailSelection() => 'Project Details',
+      AsanaTaskDetailSelection() ||
+      AsanaCreateTaskDetailSelection() => 'Task Details',
+      AsanaSubtaskDetailSelection() ||
+      AsanaCreateSubtaskDetailSelection() => 'Sub-task Details',
+      AsanaProjectDetailSelection() ||
+      AsanaCreateProjectDetailSelection() => 'Project Details',
     };
 
     return Material(
@@ -157,6 +162,9 @@ class _AsanaDetailSlidePanelState extends State<AsanaDetailSlidePanel> {
                       onPop: widget.onPop,
                       onPushCreateSubtask: widget.onPushCreateSubtask,
                       onPushSubtask: widget.onPushSubtask,
+                      onPushCreateTaskForProject:
+                          widget.onPushCreateTaskForProject,
+                      onPushTaskFromProject: widget.onPushTaskFromProject,
                       onTaskCreated: widget.onTaskCreated,
                       onProjectCreated: widget.onProjectCreated,
                       onProjectChanged: widget.onProjectChanged,
@@ -170,6 +178,9 @@ class _AsanaDetailSlidePanelState extends State<AsanaDetailSlidePanel> {
                       onPop: widget.onPop,
                       onPushCreateSubtask: widget.onPushCreateSubtask,
                       onPushSubtask: widget.onPushSubtask,
+                      onPushCreateTaskForProject:
+                          widget.onPushCreateTaskForProject,
+                      onPushTaskFromProject: widget.onPushTaskFromProject,
                       onTaskCreated: widget.onTaskCreated,
                       onProjectCreated: widget.onProjectCreated,
                       onProjectChanged: widget.onProjectChanged,
@@ -197,6 +208,8 @@ class _TaskWithOverlayStack extends StatelessWidget {
     required this.onPop,
     this.onPushCreateSubtask,
     this.onPushSubtask,
+    this.onPushCreateTaskForProject,
+    this.onPushTaskFromProject,
     this.onTaskCreated,
     this.onProjectCreated,
     this.onProjectChanged,
@@ -213,6 +226,8 @@ class _TaskWithOverlayStack extends StatelessWidget {
   final VoidCallback onPop;
   final void Function(String parentTaskId)? onPushCreateSubtask;
   final void Function(String subtaskId)? onPushSubtask;
+  final void Function(String projectId)? onPushCreateTaskForProject;
+  final void Function(String taskId)? onPushTaskFromProject;
   final void Function(String taskId)? onTaskCreated;
   final void Function(String projectId)? onProjectCreated;
   final VoidCallback? onProjectChanged;
@@ -246,6 +261,8 @@ class _TaskWithOverlayStack extends StatelessWidget {
               onPop: onPop,
               onPushCreateSubtask: onPushCreateSubtask,
               onPushSubtask: onPushSubtask,
+              onPushCreateTaskForProject: onPushCreateTaskForProject,
+              onPushTaskFromProject: onPushTaskFromProject,
               onTaskCreated: onTaskCreated,
               onProjectCreated: onProjectCreated,
               onProjectChanged: onProjectChanged,
@@ -259,11 +276,11 @@ class _TaskWithOverlayStack extends StatelessWidget {
   }
 
   static String _overlayKey(AsanaDetailSelection s) => switch (s) {
-        AsanaSubtaskDetailSelection(:final subtaskId) => 'overlay-sub:$subtaskId',
-        AsanaCreateSubtaskDetailSelection(:final parentTaskId) =>
-          'overlay-create-sub:$parentTaskId',
-        _ => 'overlay-other',
-      };
+    AsanaSubtaskDetailSelection(:final subtaskId) => 'overlay-sub:$subtaskId',
+    AsanaCreateSubtaskDetailSelection(:final parentTaskId) =>
+      'overlay-create-sub:$parentTaskId',
+    _ => 'overlay-other',
+  };
 }
 
 class _DetailOverlayLayer extends StatefulWidget {
@@ -274,6 +291,8 @@ class _DetailOverlayLayer extends StatefulWidget {
     required this.onPop,
     this.onPushCreateSubtask,
     this.onPushSubtask,
+    this.onPushCreateTaskForProject,
+    this.onPushTaskFromProject,
     this.onTaskCreated,
     this.onProjectCreated,
     this.onProjectChanged,
@@ -287,6 +306,8 @@ class _DetailOverlayLayer extends StatefulWidget {
   final VoidCallback onPop;
   final void Function(String parentTaskId)? onPushCreateSubtask;
   final void Function(String subtaskId)? onPushSubtask;
+  final void Function(String projectId)? onPushCreateTaskForProject;
+  final void Function(String taskId)? onPushTaskFromProject;
   final void Function(String taskId)? onTaskCreated;
   final void Function(String projectId)? onProjectCreated;
   final VoidCallback? onProjectChanged;
@@ -336,6 +357,8 @@ class _DetailOverlayLayerState extends State<_DetailOverlayLayer>
           onPop: widget.onPop,
           onPushCreateSubtask: widget.onPushCreateSubtask,
           onPushSubtask: widget.onPushSubtask,
+          onPushCreateTaskForProject: widget.onPushCreateTaskForProject,
+          onPushTaskFromProject: widget.onPushTaskFromProject,
           onTaskCreated: widget.onTaskCreated,
           onProjectCreated: widget.onProjectCreated,
           onProjectChanged: widget.onProjectChanged,

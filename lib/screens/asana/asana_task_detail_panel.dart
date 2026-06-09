@@ -47,6 +47,7 @@ class AsanaTaskDetailPanel extends StatefulWidget {
     this.onPushCreateSubtask,
     this.onPushSubtask,
     this.onCreated,
+    this.initialProjectId,
   }) : assert(createMode || taskId != null);
 
   final String? taskId;
@@ -57,6 +58,7 @@ class AsanaTaskDetailPanel extends StatefulWidget {
   final VoidCallback? onPushCreateSubtask;
   final void Function(String subtaskId)? onPushSubtask;
   final void Function(String taskId)? onCreated;
+  final String? initialProjectId;
 
   @override
   State<AsanaTaskDetailPanel> createState() => _AsanaTaskDetailPanelState();
@@ -170,7 +172,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   void didUpdateWidget(covariant AsanaTaskDetailPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.taskId != widget.taskId ||
-        oldWidget.createMode != widget.createMode) {
+        oldWidget.createMode != widget.createMode ||
+        oldWidget.initialProjectId != widget.initialProjectId) {
       if (widget.createMode) {
         _resetCreateDraft();
       } else {
@@ -295,7 +298,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     _commentController.clear();
     _clearInlineImageDrafts();
     _localPriority = priorityStandard;
-    _selectedProjectId = null;
+    final initialProjectId = widget.initialProjectId?.trim();
+    _selectedProjectId = initialProjectId == null || initialProjectId.isEmpty
+        ? null
+        : initialProjectId;
     _selectedAssigneeIds.clear();
     _picAssigneeId = null;
     _subtasks = [];
@@ -528,7 +534,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   List<String> _picMenuAssigneeIds(AppState state) {
-    final projectPicKeys = _selectedProjectRecord()?.picStaffUuids
+    final projectPicKeys =
+        _selectedProjectRecord()?.picStaffUuids
             .map((u) => u.trim())
             .where((u) => u.isNotEmpty)
             .toSet() ??
@@ -538,7 +545,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       final aProjectPic = _staffKeyMatchesProjectKeys(a, projectPicKeys);
       final bProjectPic = _staffKeyMatchesProjectKeys(b, projectPicKeys);
       if (aProjectPic != bProjectPic) return aProjectPic ? -1 : 1;
-      return _labelForAssigneeId(a, state).compareTo(_labelForAssigneeId(b, state));
+      return _labelForAssigneeId(
+        a,
+        state,
+      ).compareTo(_labelForAssigneeId(b, state));
     });
     return ids;
   }
@@ -752,7 +762,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   Future<void> _loadProjectsIfCreator() async {
     final state = context.read<AppState>();
     final task = widget.createMode ? null : state.taskById(widget.taskId ?? '');
-    final canEditProject = widget.createMode || (task != null && _isCreator(state, task));
+    final canEditProject =
+        widget.createMode || (task != null && _isCreator(state, task));
     final currentProjectId = task?.projectId?.trim();
     if (!canEditProject &&
         (currentProjectId == null || currentProjectId.isEmpty)) {
@@ -1218,10 +1229,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   Future<void> _addTaskDescriptionInlineImage(Task task) async {
-    await _stageInlineImage(
-      entityType: 'task_description',
-      entityId: task.id,
-    );
+    await _stageInlineImage(entityType: 'task_description', entityId: task.id);
   }
 
   Future<void> _addExistingCommentInlineImage(
@@ -1242,7 +1250,10 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     final picked = await pickOneFileWithBytes();
     if (!mounted || picked == null) return;
     if (picked.bytes.isEmpty) {
-      await _showInfo('Inline image upload failed', 'Could not read file data.');
+      await _showInfo(
+        'Inline image upload failed',
+        'Could not read file data.',
+      );
       return;
     }
     final label = picked.name.trim().isNotEmpty ? picked.name.trim() : 'image';
@@ -1361,11 +1372,13 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       );
       if (ins.error != null) return ins.error;
     }
-    for (final row in List<InlineAttachmentRow>.from(_pendingInlineImageDeletes)) {
+    for (final row in List<InlineAttachmentRow>.from(
+      _pendingInlineImageDeletes,
+    )) {
       final deleteErr =
           await FirebaseAttachmentUploadService.deleteUploadedObjectByUrl(
-        row.url,
-      );
+            row.url,
+          );
       if (deleteErr != null) return deleteErr;
       final markErr = await SupabaseService.markInlineAttachmentDeleted(row.id);
       if (markErr != null) return markErr;
@@ -1588,7 +1601,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       }
       final comment = stripInlineImageMarkers(_commentController.text);
       String? draftCommentId;
-      if (comment.isNotEmpty || _hasPendingInlineImages('task_comment', 'draft')) {
+      if (comment.isNotEmpty ||
+          _hasPendingInlineImages('task_comment', 'draft')) {
         final c = await SupabaseService.insertSingularCommentRow(
           taskId: newId,
           description: comment.isNotEmpty
@@ -1771,7 +1785,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       }
       final comment = stripInlineImageMarkers(_commentController.text);
       String? commentId;
-      if (comment.isNotEmpty || _hasPendingInlineImages('task_comment', 'draft')) {
+      if (comment.isNotEmpty ||
+          _hasPendingInlineImages('task_comment', 'draft')) {
         final c = await SupabaseService.insertSingularCommentRow(
           taskId: task.id,
           description: comment.isNotEmpty
@@ -1849,7 +1864,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _postCommentOnly(AppState state, Task task) async {
     final text = stripInlineImageMarkers(_commentController.text);
-    if (text.isEmpty && !_hasPendingInlineImages('task_comment', 'draft')) return;
+    if (text.isEmpty && !_hasPendingInlineImages('task_comment', 'draft'))
+      return;
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
