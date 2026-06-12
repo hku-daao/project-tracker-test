@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
@@ -7,7 +6,6 @@ import '../config/supabase_config.dart';
 import '../services/staff_team_lookup_service.dart';
 import '../services/supabase_service.dart';
 import '../services/task_fetch_visibility.dart';
-import '../web_deep_link.dart';
 import 'asana_landing_screen.dart';
 
 /// All platforms use the Asana shell; legacy Home / Overview routes are removed in phase 2.
@@ -82,7 +80,6 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (!SupabaseConfig.isConfigured) {
       if (mounted) {
         setState(() => _ready = true);
-        _scheduleWebDeepLink();
       }
       return;
     }
@@ -128,16 +125,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     }
     if (mounted) {
       setState(() => _ready = true);
-      _scheduleWebDeepLink();
     }
-  }
-
-  void _scheduleWebDeepLink() {
-    if (!kIsWeb) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      syncWebStaleDetailSessionsIfUrlHasNoTaskOrSubtask();
-    });
   }
 
   @override
