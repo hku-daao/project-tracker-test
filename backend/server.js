@@ -1279,6 +1279,21 @@ function collectTaskAssigneeStaffIds(taskRow) {
   return assigneeIds;
 }
 
+/** Deduped staff UUIDs from project.assignee_01 ... assignee_20. */
+function collectProjectAssigneeStaffIds(projectRow) {
+  const assigneeIds = [];
+  const seen = new Set();
+  for (let i = 1; i <= 20; i++) {
+    const key = `assignee_${String(i).padStart(2, '0')}`;
+    const v = (projectRow[key] || '').toString().trim();
+    const k = v.toLowerCase();
+    if (!v || seen.has(k)) continue;
+    seen.add(k);
+    assigneeIds.push(v);
+  }
+  return assigneeIds;
+}
+
 /**
  * Default recipients for task-updated emails: assignee_01..10 with values plus
  * create_by, deduped (normalized key -> canonical id string).
@@ -4087,7 +4102,7 @@ ${PROJECT_TRACKER_LANDING_URL}`;
 }
 
 /**
- * POST { projectId } — creator only; emails each project assignee (assignee_01..10). Reply-To: creator email.
+ * POST { projectId } — creator only; emails each project assignee (assignee_01..20). Reply-To: creator email.
  * Duplicate assignee slots / create_by also an assignee: one message per distinct recipient email.
  */
 async function handleNotifyProjectAssigned(req, res) {
@@ -4163,7 +4178,7 @@ async function handleNotifyProjectAssigned(req, res) {
       'Colleague';
     const projectName = (projectRow.name || '').toString().trim() || '(no title)';
     const projectUrl = projectWebAppUrl(projectId);
-    const assigneeUuids = collectTaskAssigneeStaffIds(projectRow);
+    const assigneeUuids = collectProjectAssigneeStaffIds(projectRow);
     const subject = "You've been assigned a project";
     const results = [];
     const seenEmails = new Set();
@@ -4247,7 +4262,7 @@ async function handleNotifyProjectAssigned(req, res) {
 
 /**
  * POST { projectId, changes } — signed-in email must match `project.update_by` (`staff` / `app_users`).
- * Emails each non-empty assignee slot only (deduped); skips updater when they are an assignee.
+ * Emails each non-empty project assignee slot (assignee_01..20) only (deduped); skips updater when they are an assignee.
  */
 async function handleNotifyProjectUpdated(req, res) {
   if (req.method !== 'POST') {
@@ -4365,7 +4380,7 @@ async function handleNotifyProjectUpdated(req, res) {
       return;
     }
 
-    const assigneeUuids = collectTaskAssigneeStaffIds(projectRow);
+    const assigneeUuids = collectProjectAssigneeStaffIds(projectRow);
     const updaterNorm = updaterId.toLowerCase();
     const results = [];
     const replyTo = updaterReplyTo || sessionEmail || undefined;

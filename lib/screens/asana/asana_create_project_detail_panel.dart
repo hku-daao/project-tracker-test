@@ -171,16 +171,8 @@ class _AsanaCreateProjectDetailPanelState
   }
 
   void _showEmailWarning(String label, String error) {
+    if (error.trim().toLowerCase() == 'mailgun not configured') return;
     debugPrint('$label: $error');
-    if (!mounted) return;
-    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label: $short'),
-        backgroundColor: Colors.orange,
-        duration: const Duration(seconds: 4),
-      ),
-    );
   }
 
   Future<void> _notifyEmail(
@@ -248,30 +240,22 @@ class _AsanaCreateProjectDetailPanelState
       );
       return;
     }
-    final state = context.read<AppState>();
-    final ids = _assigneeIds.toList()
-      ..sort(
-        (a, b) => _labelForAssigneeId(
-          a,
-          state,
-        ).compareTo(_labelForAssigneeId(b, state)),
-      );
-    final choice = await showAsanaAnchoredOptionMenu<String>(
+    await showAsanaAssigneePicker(
       anchorLink: _picAnchorLink,
       anchorContext: anchorContext,
-      onClosed: _blockAnchoredPickerReopen,
-      options: ids
-          .map(
-            (id) => AsanaAnchoredOption(
-              value: id,
-              label: _labelForAssigneeId(id, state),
-            ),
-          )
-          .toList(),
+      snapshot: _picSnapshot,
+      selectedIds: _picAssigneeIds,
+      whenClosed: _blockAnchoredPickerReopen,
+      directListOnly: true,
+      onSelectionChanged: (s) {
+        if (!mounted) return;
+        setState(() {
+          _picAssigneeIds
+            ..clear()
+            ..addAll(s.where(_assigneeIds.contains));
+        });
+      },
     );
-    if (choice != null && mounted) {
-      setState(() => _picAssigneeIds.add(choice));
-    }
   }
 
   Future<void> _pickStartDate(BuildContext anchorContext) async {
@@ -419,6 +403,15 @@ class _AsanaCreateProjectDetailPanelState
       );
       return;
     }
+    if (_assigneeIds.length > 20) {
+      await showAsanaInfoDialog(
+        context: context,
+        title: 'Too many assignees',
+        content: 'Select no more than 20 assignees.',
+        palette: widget.palette,
+      );
+      return;
+    }
     if (_picAssigneeIds.isEmpty) {
       if (_assigneeIds.length == 1) {
         _picAssigneeIds.add(_assigneeIds.first);
@@ -431,6 +424,15 @@ class _AsanaCreateProjectDetailPanelState
         );
         return;
       }
+    }
+    if (_picAssigneeIds.length > 20) {
+      await showAsanaInfoDialog(
+        context: context,
+        title: 'Too many PICs',
+        content: 'Select no more than 20 PICs.',
+        palette: widget.palette,
+      );
+      return;
     }
     if (_startDate != null &&
         _endDate != null &&
@@ -446,7 +448,7 @@ class _AsanaCreateProjectDetailPanelState
     setState(() => _saving = true);
     await AsanaBlockingLoadingOverlay.showAfterFrame(context);
     try {
-      final slots = await SupabaseService.assigneeSlotsForTask(
+      final slots = await SupabaseService.assigneeSlotsForProject(
         _assigneeIds.toList(),
       );
       final picUuids = <String>[];

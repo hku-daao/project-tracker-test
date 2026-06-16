@@ -35,6 +35,7 @@ Future<void> showAsanaAssigneePicker({
   required Set<String> selectedIds,
   required ValueChanged<Set<String>> onSelectionChanged,
   VoidCallback? whenClosed,
+  bool directListOnly = false,
 }) {
   final media = MediaQuery.of(anchorContext);
   final panelWidth = asanaAnchoredFieldWidth(anchorContext);
@@ -55,6 +56,7 @@ Future<void> showAsanaAssigneePicker({
         snapshot: snapshot,
         initialSelected: selectedIds,
         maxPanelHeight: maxPanelHeight,
+        directListOnly: directListOnly,
         onSelectionChanged: onSelectionChanged,
         onDone: () {
           close();
@@ -69,6 +71,7 @@ class _AssigneePickerOverlay extends StatefulWidget {
     required this.snapshot,
     required this.initialSelected,
     required this.maxPanelHeight,
+    required this.directListOnly,
     required this.onSelectionChanged,
     required this.onDone,
   });
@@ -76,6 +79,7 @@ class _AssigneePickerOverlay extends StatefulWidget {
   final ValueListenable<AsanaAssigneePickerSnapshot> snapshot;
   final Set<String> initialSelected;
   final double maxPanelHeight;
+  final bool directListOnly;
   final ValueChanged<Set<String>> onSelectionChanged;
   final VoidCallback onDone;
 
@@ -117,6 +121,7 @@ class _AssigneePickerOverlayState extends State<_AssigneePickerOverlay> {
           child: _AsanaAssigneePickerBody(
             snapshot: snap,
             selectedIds: _selected,
+            directListOnly: widget.directListOnly,
             onToggle: _toggle,
             onDone: _finish,
           ),
@@ -163,12 +168,14 @@ class _AsanaAssigneePickerBody extends StatefulWidget {
   const _AsanaAssigneePickerBody({
     required this.snapshot,
     required this.selectedIds,
+    required this.directListOnly,
     required this.onToggle,
     required this.onDone,
   });
 
   final AsanaAssigneePickerSnapshot snapshot;
   final Set<String> selectedIds;
+  final bool directListOnly;
   final void Function(String assigneeId, bool checked) onToggle;
   final VoidCallback onDone;
 
@@ -270,7 +277,14 @@ class _AsanaAssigneePickerBodyState extends State<_AsanaAssigneePickerBody> {
                       style: asanaDetailValueStyle(context),
                     ),
                   )
-                else ...[
+                else if (widget.directListOnly) ...[
+                  _AsanaDirectNameChecklist(
+                    members: List<StaffForAssignment>.from(snap.staff)
+                      ..sort((a, b) => a.name.compareTo(b.name)),
+                    selectedIds: widget.selectedIds,
+                    onToggle: widget.onToggle,
+                  ),
+                ] else ...[
                   _AsanaPickerSearchField(
                     controller: _searchController,
                     onChanged: () => setState(() {}),
@@ -520,6 +534,84 @@ class _AsanaPickerTeamList extends StatelessWidget {
 
 /// Below this popup width, name checklist uses 2 columns instead of 3.
 const double kAsanaAssigneeNameGridNarrowWidth = 320;
+
+class _AsanaDirectNameChecklist extends StatefulWidget {
+  const _AsanaDirectNameChecklist({
+    required this.members,
+    required this.selectedIds,
+    required this.onToggle,
+  });
+
+  final List<StaffForAssignment> members;
+  final Set<String> selectedIds;
+  final void Function(String assigneeId, bool checked) onToggle;
+
+  @override
+  State<_AsanaDirectNameChecklist> createState() =>
+      _AsanaDirectNameChecklistState();
+}
+
+class _AsanaDirectNameChecklistState extends State<_AsanaDirectNameChecklist> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final members = widget.members;
+    if (members.isEmpty) {
+      return Text(
+        'No assignees available',
+        style: asanaDetailLabelStyle(context),
+      );
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 300),
+      child: Scrollbar(
+        thumbVisibility: members.length > 8,
+        controller: _scrollController,
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          itemCount: members.length,
+          itemBuilder: (context, index) {
+            final member = members[index];
+            final selected = widget.selectedIds.contains(member.assigneeId);
+            return InkWell(
+              onTap: () => widget.onToggle(member.assigneeId, !selected),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+                child: Row(
+                  children: [
+                    _AsanaMiniCheck(selected: selected),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        member.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: asanaDetailValueStyle(
+                          context,
+                          weight: selected ? FontWeight.w600 : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
 
 class _AsanaPickerNameGrid extends StatelessWidget {
   const _AsanaPickerNameGrid({

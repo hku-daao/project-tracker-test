@@ -1220,7 +1220,7 @@ class SupabaseService {
     if (id == null || id.isEmpty) return null;
     final assignees = <String>[];
     final assigneeNames = <String>[];
-    for (var i = 1; i <= 10; i++) {
+    for (var i = 1; i <= 20; i++) {
       final key = 'assignee_${i.toString().padLeft(2, '0')}';
       final v = row[key]?.toString().trim();
       if (v != null && v.isNotEmpty) {
@@ -1236,19 +1236,17 @@ class SupabaseService {
     }
     final picUuids = <String>[];
     final picNames = <String>[];
-    final rawPic = row['pic'];
-    if (rawPic is List) {
-      for (final e in rawPic) {
-        final s = e?.toString().trim();
-        if (s != null && s.isNotEmpty) {
-          picUuids.add(s);
-          final name = staffUuidToName[s]?.trim();
-          if (name != null && name.isNotEmpty) {
-            picNames.add(name);
-          } else {
-            final appId = staffUuidToAppId[s]?.trim();
-            picNames.add(appId != null && appId.isNotEmpty ? appId : s);
-          }
+    for (var i = 1; i <= 20; i++) {
+      final key = 'pic_${i.toString().padLeft(2, '0')}';
+      final v = row[key]?.toString().trim();
+      if (v != null && v.isNotEmpty) {
+        picUuids.add(v);
+        final name = staffUuidToName[v]?.trim();
+        if (name != null && name.isNotEmpty) {
+          picNames.add(name);
+        } else {
+          final appId = staffUuidToAppId[v]?.trim();
+          picNames.add(appId != null && appId.isNotEmpty ? appId : v);
         }
       }
     }
@@ -1407,12 +1405,12 @@ class SupabaseService {
     }
   }
 
-  /// Inserts [`project`] row; [assignees] are `staff.id` uuid strings (up to 10).
+  /// Inserts [`project`] row; [assignees] are `staff.id` uuid strings (up to 20).
   static Future<({String? error, String? projectId})> insertProjectRow({
     required String name,
     List<String?> assignees = const [],
 
-    /// [`staff.id`] uuids; persisted as JSON array in [`project.pic`].
+    /// [`staff.id`] uuids; persisted in `project.pic_01` ... `pic_20`.
     List<String> picStaffUuids = const [],
     String? description,
     DateTime? startDate,
@@ -1425,10 +1423,15 @@ class SupabaseService {
     if (n.isEmpty) return (error: 'Project name is required', projectId: null);
     try {
       var padded = List<String?>.from(assignees);
-      while (padded.length < 10) {
+      while (padded.length < 20) {
         padded.add(null);
       }
-      if (padded.length > 10) padded = padded.sublist(0, 10);
+      if (padded.length > 20) padded = padded.sublist(0, 20);
+      final picPadded = List<String?>.from(picStaffUuids);
+      while (picPadded.length < 20) {
+        picPadded.add(null);
+      }
+      if (picPadded.length > 20) picPadded.removeRange(20, picPadded.length);
       final now = HkTime.timestampForDb();
       final map = <String, dynamic>{
         'name': n,
@@ -1451,18 +1454,18 @@ class SupabaseService {
       if (endDate != null) {
         map['end_date'] = HkTime.dateOnlyHkMidnightForDb(endDate);
       }
-      for (var i = 0; i < 10; i++) {
+      for (var i = 0; i < 20; i++) {
         final raw = padded[i]?.trim();
         if (raw != null && raw.isNotEmpty) {
           map['assignee_${(i + 1).toString().padLeft(2, '0')}'] = raw;
         }
       }
-      final picJson = <String>[];
-      for (final u in picStaffUuids) {
-        final t = u.trim();
-        if (t.isNotEmpty) picJson.add(t);
+      for (var i = 0; i < 20; i++) {
+        final raw = picPadded[i]?.trim();
+        if (raw != null && raw.isNotEmpty) {
+          map['pic_${(i + 1).toString().padLeft(2, '0')}'] = raw;
+        }
       }
-      map['pic'] = picJson;
       final ins = await Supabase.instance.client
           .from('project')
           .insert(map)
@@ -1481,7 +1484,7 @@ class SupabaseService {
     String? description,
     List<String?>? assigneeSlots,
 
-    /// When non-null, replaces [`project.pic`] JSON array (`staff.id` uuids).
+    /// When non-null, replaces `project.pic_01` ... `pic_20` (`staff.id` uuids).
     List<String>? picStaffUuids,
     DateTime? startDate,
     DateTime? endDate,
@@ -1496,19 +1499,18 @@ class SupabaseService {
       if (name != null) map['name'] = name;
       if (description != null) map['description'] = description;
       if (assigneeSlots != null) {
-        for (var i = 0; i < 10; i++) {
+        for (var i = 0; i < 20; i++) {
           final key = 'assignee_${(i + 1).toString().padLeft(2, '0')}';
           final v = i < assigneeSlots.length ? assigneeSlots[i]?.trim() : null;
           map[key] = (v == null || v.isEmpty) ? null : v;
         }
       }
       if (picStaffUuids != null) {
-        final picJson = <String>[];
-        for (final u in picStaffUuids) {
-          final t = u.trim();
-          if (t.isNotEmpty) picJson.add(t);
+        for (var i = 0; i < 20; i++) {
+          final key = 'pic_${(i + 1).toString().padLeft(2, '0')}';
+          final v = i < picStaffUuids.length ? picStaffUuids[i].trim() : null;
+          map[key] = (v == null || v.isEmpty) ? null : v;
         }
-        map['pic'] = picJson;
       }
       if (clearStartDate) {
         map['start_date'] = null;
@@ -2046,6 +2048,23 @@ class SupabaseService {
       out.add(null);
     }
     return out.take(10).toList();
+  }
+
+  /// Maps assignee keys (`staff.app_id` or `staff.id` uuid) to `staff.id`
+  /// for `project.assignee_01` ... `project.assignee_20`.
+  static Future<List<String?>> assigneeSlotsForProject(
+    List<String> staffKeys,
+  ) async {
+    if (!_enabled) return List<String?>.filled(20, null);
+    final out = <String?>[];
+    for (final key in staffKeys.take(20)) {
+      final id = await _staffRowIdForAssigneeKey(key);
+      out.add(id);
+    }
+    while (out.length < 20) {
+      out.add(null);
+    }
+    return out.take(20).toList();
   }
 
   /// Returns [staff.app_id] when set, else [staffUuid] — matches how [Task.assigneeIds] is stored after fetch.

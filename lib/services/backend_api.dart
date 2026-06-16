@@ -121,7 +121,7 @@ class BackendApi {
     }
   }
 
-  /// Emails each project assignee (`assignee_01`–`assignee_10`) after project creation.
+  /// Emails each project assignee (`assignee_01`–`assignee_20`) after project creation.
   /// Server: `POST /api/notify/project-assigned` (`handleNotifyProjectAssigned`).
   Future<String?> notifyProjectAssigned({
     required String idToken,

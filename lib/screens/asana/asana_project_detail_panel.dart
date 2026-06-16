@@ -265,17 +265,9 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       ..sort((a, b) => a.name.compareTo(b.name));
   }
 
-  Future<void> _showEmailWarning(String label, String error) async {
+  void _showEmailWarning(String label, String error) {
+    if (error.trim().toLowerCase() == 'mailgun not configured') return;
     debugPrint('$label: $error');
-    if (!mounted) return;
-    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
-    AsanaBlockingLoadingOverlay.hideAll();
-    await showAsanaInfoDialog(
-      context: context,
-      title: label,
-      content: short,
-      palette: widget.palette,
-    );
   }
 
   Future<void> _notifyEmail(
@@ -285,13 +277,13 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (token == null) {
-        await _showEmailWarning(label, 'sign-in token missing');
+        _showEmailWarning(label, 'sign-in token missing');
         return;
       }
       final err = await send(token);
-      if (err != null) await _showEmailWarning(label, err);
+      if (err != null) _showEmailWarning(label, err);
     } catch (e) {
-      await _showEmailWarning(label, e.toString());
+      _showEmailWarning(label, e.toString());
     }
   }
 
@@ -472,30 +464,22 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       );
       return;
     }
-    final state = context.read<AppState>();
-    final ids = _assigneeIds.toList()
-      ..sort(
-        (a, b) => _labelForAssigneeId(
-          a,
-          state,
-        ).compareTo(_labelForAssigneeId(b, state)),
-      );
-    final choice = await showAsanaAnchoredOptionMenu<String>(
+    await showAsanaAssigneePicker(
       anchorLink: _picAnchorLink,
       anchorContext: anchorContext,
-      onClosed: _blockAnchoredPickerReopen,
-      options: ids
-          .map(
-            (id) => AsanaAnchoredOption(
-              value: id,
-              label: _labelForAssigneeId(id, state),
-            ),
-          )
-          .toList(),
+      snapshot: _picSnapshot,
+      selectedIds: _picAssigneeIds,
+      whenClosed: _blockAnchoredPickerReopen,
+      directListOnly: true,
+      onSelectionChanged: (s) {
+        if (!mounted) return;
+        setState(() {
+          _picAssigneeIds
+            ..clear()
+            ..addAll(s.where(_assigneeIds.contains));
+        });
+      },
     );
-    if (choice != null && mounted) {
-      setState(() => _picAssigneeIds.add(choice));
-    }
   }
 
   Future<void> _pickStartDate(BuildContext anchorContext) async {
@@ -836,6 +820,15 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       );
       return;
     }
+    if (_assigneeIds.length > 20) {
+      await showAsanaInfoDialog(
+        context: context,
+        title: 'Too many assignees',
+        content: 'Select no more than 20 assignees.',
+        palette: widget.palette,
+      );
+      return;
+    }
     if (_picAssigneeIds.isEmpty) {
       if (_assigneeIds.length == 1) {
         _picAssigneeIds.add(_assigneeIds.first);
@@ -848,6 +841,15 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         );
         return;
       }
+    }
+    if (_picAssigneeIds.length > 20) {
+      await showAsanaInfoDialog(
+        context: context,
+        title: 'Too many PICs',
+        content: 'Select no more than 20 PICs.',
+        palette: widget.palette,
+      );
+      return;
     }
     for (final id in _picAssigneeIds) {
       if (!_assigneeIds.contains(id)) {
@@ -875,7 +877,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
-      final slots = await SupabaseService.assigneeSlotsForTask(
+      final slots = await SupabaseService.assigneeSlotsForProject(
         _assigneeIds.toList(),
       );
       final picUuids = <String>[];
