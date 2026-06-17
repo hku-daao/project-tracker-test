@@ -610,16 +610,9 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     );
   }
 
-  Future<void> _showEmailWarning(String label, String error) async {
+  void _showEmailWarning(String label, String error) {
+    if (error.trim().toLowerCase() == 'mailgun not configured') return;
     debugPrint('$label: $error');
-    if (!mounted) return;
-    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
-    await showAsanaInfoDialog(
-      context: context,
-      title: label,
-      content: short,
-      palette: widget.palette,
-    );
   }
 
   Future<void> _notifyEmail(
@@ -629,13 +622,13 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (token == null) {
-        await _showEmailWarning(label, 'sign-in token missing');
+        _showEmailWarning(label, 'sign-in token missing');
         return;
       }
       final err = await send(token);
-      if (err != null) await _showEmailWarning(label, err);
+      if (err != null) _showEmailWarning(label, err);
     } catch (e) {
-      await _showEmailWarning(label, e.toString());
+      _showEmailWarning(label, e.toString());
     }
   }
 
@@ -768,6 +761,52 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     }
     _postedCommentSavedText[comment.id] = newBody;
     await _loadComments(_subtask);
+  }
+
+  Future<bool> _saveDirtyPostedComments(AppState state) async {
+    for (final comment in _comments) {
+      if (!_isOwnComment(state, comment)) continue;
+      final ctrl = _postedCommentControllers[comment.id];
+      if (ctrl == null) continue;
+
+      final newBody = stripInlineImageMarkers(ctrl.text);
+      final saved = stripInlineImageMarkers(
+        _postedCommentSavedText[comment.id] ?? comment.description,
+      );
+      if (newBody == saved) continue;
+
+      if (newBody.isEmpty) {
+        ctrl.text = saved;
+        await showAsanaInfoDialog(
+          context: context,
+          title: 'Comment required',
+          content: 'Comment cannot be empty.',
+          palette: widget.palette,
+        );
+        return false;
+      }
+
+      _savingPostedCommentId = comment.id;
+      final err = await SupabaseService.updateSubtaskCommentRow(
+        commentId: comment.id,
+        description: newBody,
+        updaterStaffLookupKey: state.userStaffAppId,
+      );
+      _savingPostedCommentId = null;
+      if (!mounted) return false;
+      if (err != null) {
+        ctrl.text = saved;
+        await showAsanaInfoDialog(
+          context: context,
+          title: 'Could not update comment',
+          content: err,
+          palette: widget.palette,
+        );
+        return false;
+      }
+      _postedCommentSavedText[comment.id] = newBody;
+    }
+    return true;
   }
 
   bool _canMarkComplete(SingularSubtask s) {
@@ -1530,6 +1569,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
 
       final commentText = stripInlineImageMarkers(_commentController.text);
       String? commentId;
+      if (!await _saveDirtyPostedComments(state)) return;
       if (commentText.isNotEmpty ||
           _hasPendingInlineImages('subtask_comment', 'draft')) {
         final ins = await SupabaseService.insertSubtaskCommentRow(

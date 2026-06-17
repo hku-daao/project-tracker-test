@@ -807,6 +807,56 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     await _loadComments();
   }
 
+  bool _hasDirtyPostedComments() {
+    for (final c in _comments) {
+      if (!_isOwnComment(c)) continue;
+      final ctrl = _postedCommentControllers[c.id];
+      if (ctrl == null) continue;
+      final newBody = stripInlineImageMarkers(ctrl.text);
+      final saved = stripInlineImageMarkers(
+        _postedCommentSavedText[c.id] ?? c.description,
+      );
+      if (newBody != saved) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _saveDirtyPostedComments(AppState state) async {
+    for (final c in _comments) {
+      if (!_isOwnComment(c)) continue;
+      final ctrl = _postedCommentControllers[c.id];
+      if (ctrl == null) continue;
+
+      final newBody = stripInlineImageMarkers(ctrl.text);
+      final saved = stripInlineImageMarkers(
+        _postedCommentSavedText[c.id] ?? c.description,
+      );
+      if (newBody == saved) continue;
+
+      if (newBody.isEmpty) {
+        ctrl.text = saved;
+        await _showInfo('Comment required', 'Comment cannot be empty.');
+        return false;
+      }
+
+      _savingPostedCommentId = c.id;
+      final err = await SupabaseService.updateSingularCommentRow(
+        commentId: c.id,
+        description: newBody,
+        updaterStaffLookupKey: state.userStaffAppId,
+      );
+      _savingPostedCommentId = null;
+      if (!mounted) return false;
+      if (err != null) {
+        ctrl.text = saved;
+        await _showInfo('Could not update comment', err);
+        return false;
+      }
+      _postedCommentSavedText[c.id] = newBody;
+    }
+    return true;
+  }
+
   Future<void> _loadAttachments() async {
     final id = widget.taskId;
     if (id == null || !SupabaseConfig.isConfigured) return;
@@ -961,16 +1011,8 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   void _showEmailWarning(String label, String error) {
+    if (error.trim().toLowerCase() == 'mailgun not configured') return;
     debugPrint('$label: $error');
-    if (!mounted) return;
-    final short = error.length > 160 ? '${error.substring(0, 160)}...' : error;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label: $short'),
-        backgroundColor: Colors.orange,
-        duration: const Duration(seconds: 4),
-      ),
-    );
   }
 
   Future<void> _notifyEmail(
@@ -1964,55 +2006,89 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       } else {
         await _loadAttachments();
       }
+      if (!await _saveDirtyPostedComments(state)) return;
+      if (!await _postDraftCommentWithoutOverlay(
+        state,
+        task,
+        picKey: task.pic,
+      )) {
+        return;
+      }
+      await _loadComments();
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
     }
   }
 
+  Future<bool> _postDraftCommentWithoutOverlay(
+    AppState state,
+    Task task, {
+    required String? picKey,
+  }) async {
+    final text = stripInlineImageMarkers(_commentController.text);
+    if (text.isEmpty && !_hasPendingInlineImages('task_comment', 'draft')) {
+      return true;
+    }
+
+    final c = await SupabaseService.insertSingularCommentRow(
+      taskId: task.id,
+      description: text.isNotEmpty ? text : inlineImageOnlyCommentPlaceholder,
+      creatorStaffLookupKey: state.userStaffAppId,
+    );
+    if (c.error != null && mounted) {
+      await _showInfo('Could not add comment', c.error!);
+      return false;
+    }
+    final commentId = c.commentId;
+    if (commentId == null || commentId.isEmpty) {
+      await _showInfo(
+        'Could not add comment',
+        'The comment was not saved because Supabase did not return a comment id.',
+      );
+      return false;
+    }
+    final inlineErr = await _commitPendingInlineImages(
+      taskId: task.id,
+      state: state,
+      picKey: picKey,
+      entityIdOverrides: {'draft': commentId},
+    );
+    if (inlineErr != null) {
+      await _showInfo('Could not save inline image', inlineErr);
+      return false;
+    }
+    _commentController.clear();
+    await _notifyEmail(
+      'Task comment email',
+      (token) => BackendApi().notifyTaskCommentAdded(
+        idToken: token,
+        commentId: commentId,
+      ),
+    );
+    return true;
+  }
+
   Future<void> _postCommentOnly(AppState state, Task task) async {
     final text = stripInlineImageMarkers(_commentController.text);
-    if (text.isEmpty && !_hasPendingInlineImages('task_comment', 'draft'))
+    final dirtyPosted = _hasDirtyPostedComments();
+    if (text.isEmpty &&
+        !_hasPendingInlineImages('task_comment', 'draft') &&
+        !dirtyPosted) {
       return;
+    }
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
-      final c = await SupabaseService.insertSingularCommentRow(
-        taskId: task.id,
-        description: text.isNotEmpty ? text : inlineImageOnlyCommentPlaceholder,
-        creatorStaffLookupKey: state.userStaffAppId,
-      );
-      if (c.error != null && mounted) {
-        await _showInfo('Could not add comment', c.error!);
-        return;
-      }
-      final commentId = c.commentId;
-      if (commentId == null || commentId.isEmpty) {
-        await _showInfo(
-          'Could not add comment',
-          'The comment was not saved because Supabase did not return a comment id.',
-        );
-        return;
-      }
-      final inlineErr = await _commitPendingInlineImages(
-        taskId: task.id,
-        state: state,
+      if (!await _saveDirtyPostedComments(state)) return;
+      if (!await _postDraftCommentWithoutOverlay(
+        state,
+        task,
         picKey: task.pic,
-        entityIdOverrides: {'draft': commentId},
-      );
-      if (inlineErr != null) {
-        await _showInfo('Could not save inline image', inlineErr);
+      )) {
         return;
       }
-      _commentController.clear();
       await _loadComments();
-      await _notifyEmail(
-        'Task comment email',
-        (token) => BackendApi().notifyTaskCommentAdded(
-          idToken: token,
-          commentId: c.commentId ?? '',
-        ),
-      );
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
