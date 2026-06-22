@@ -531,16 +531,24 @@ async function handleAttachmentOpenSession(req, res) {
   try {
     [meta] = await bucket.file(objectPath).getMetadata();
   } catch (e) {
+    const debugPayload = {
+      bucketName,
+      objectPath,
+      code: e && e.code,
+      message: e && e.message,
+    };
     console.warn(
       'attachment open-session metadata not found',
-      JSON.stringify({
-        bucketName,
-        objectPath,
-        code: e && e.code,
-        message: e && e.message,
-      }),
+      JSON.stringify(debugPayload),
     );
-    sendJson(req, res, 404, { error: 'Not found' });
+    sendJson(
+      req,
+      res,
+      404,
+      process.env.ATTACHMENT_DEBUG_RESPONSE === 'true'
+        ? { error: 'Not found', debug: debugPayload }
+        : { error: 'Not found' },
+    );
     return;
   }
   if (!canReadAttachmentObject(session.uid, session.staffKeys, objectPath, meta)) {
