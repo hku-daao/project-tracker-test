@@ -92,6 +92,9 @@ class AsanaStatusChip extends StatelessWidget {
     if (s == 'deleted' || s == 'delete') {
       return ('Deleted', const Color(0xFFFFEBEE), const Color(0xFFC62828));
     }
+    if (s == 'paused') {
+      return ('Paused', const Color(0xFFEFEBE9), const Color(0xFF6D4C41));
+    }
     if (s == 'not started') {
       return ('Not started', const Color(0xFFFFF3E0), const Color(0xFFE65100));
     }

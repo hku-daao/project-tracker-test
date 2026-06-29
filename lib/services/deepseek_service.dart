@@ -190,26 +190,32 @@ Schema:
 {
   "related": true or false,
   "message": "optional short note when nothing can be suggested",
-  "overallComment": "when you suggest any field change: 1-3 sentences summarizing what you inferred (required if any name/description/status/assigneeNames/picNames/startDate/dueDate are set)",
+  "overallComment": "when you suggest any field change: 1-3 sentences summarizing what you inferred (required if any name/description/comment/status/assigneeNames/picNames/startDate/dueDate/websiteLinks are set)",
   "name": "string or null",
   "description": "string or null",
+  "comment": "comment body for the Comments field (posted when the user saves), or null",
   "status": "Not started" or "In progress" or "Completed" or null,
   "assigneeNames": ["names from available staff list"] or [],
   "picNames": ["names from available staff list, must be assignees"] or [],
   "startDate": "YYYY-MM-DD" or null,
-  "dueDate": "YYYY-MM-DD" or null
+  "dueDate": "YYYY-MM-DD" or null,
+  "websiteLinks": [
+    { "url": "https://...", "description": "short label for the link" }
+  ] or []
 }
 
 Rules:
 - The user is already working inside a project create/edit slide. Treat every prompt as an attempt to fill or improve this project form. Always set "related": true.
 - Always try to suggest at least one useful field. Prefer name and description when the prompt contains project details; if the prompt is vague, make a best-effort improvement based on the prompt plus current project form values.
-- For optional structured fields (status, assigneeNames, picNames, startDate, dueDate), suggest them when the prompt mentions or implies them. Use null or omit fields you cannot infer.
+- For optional structured fields (status, assigneeNames, picNames, startDate, dueDate, comment, websiteLinks), suggest them when the prompt mentions or implies them. Use null or omit fields you cannot infer.
 - Avoid echoing unchanged values: compare each field to "Current project form values" in context. If a suggested value would be identical to what is already on the form, improve/expand it when reasonable; otherwise omit that specific field.
 - Use assignee and PIC names only from the provided staff list.
 - assigneeNames: full resulting assignee list when the user changes assignees.
 - picNames: PIC(s) must be chosen from assigneeNames. When one assignee, they are usually PIC too.
 - Dates must be YYYY-MM-DD. startDate must be on or before dueDate when both are set.
 - status must be exactly one of: Not started, In progress, Completed.
+- comment: text for the Comments field. When the user asks to write, add, or improve a comment, set comment to the full suggested text. Compare to "comment (draft)" in context; omit if identical.
+- Website links: when the user mentions one or more URLs (http/https or bare domains), add each as an entry in websiteLinks with a concise description. Use full https URLs when possible. Do not repeat URLs already listed under "Current website link attachments" in context. Omit websiteLinks when no URLs are mentioned.
 - overallComment: required whenever you output at least one non-null field suggestion.
 - You are suggesting values only; the user adopts them. Do not mention overwriting.
 ''';

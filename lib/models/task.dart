@@ -58,8 +58,15 @@ class Task {
   /// When task became **Completed**; product rule: equals [submitDate] at accept (`task.completion_date`).
   final DateTime? completionDate;
 
+  /// Manual archive marker for completed tasks. Deleted tasks are archived by status.
+  final DateTime? archivedAt;
+  final String? archivedByStaffId;
+
   /// When start→due span exceeds policy for priority (`task.change_due_reason`).
   final String? changeDueReason;
+
+  /// `Paused` | `Not Paused`; parent project pause is computed separately.
+  final String pauseStatus;
 
   /// HK calendar days past due from DB (`task.overdue_day`); 0 when not overdue.
   final int overdueDay;
@@ -75,6 +82,10 @@ class Task {
 
   /// [`project.description`] when joined at load time (landing search).
   final String? projectDescription;
+
+  bool get isArchivedCompleted => archivedAt != null;
+
+  bool get isPaused => pauseStatus.trim().toLowerCase() == 'paused';
 
   const Task({
     required this.id,
@@ -99,7 +110,10 @@ class Task {
     this.submission,
     this.submitDate,
     this.completionDate,
+    this.archivedAt,
+    this.archivedByStaffId,
     this.changeDueReason,
+    this.pauseStatus = 'Not Paused',
     this.overdueDay = 0,
     this.overdue = 'No',
     this.projectId,
@@ -133,7 +147,12 @@ class Task {
     bool clearSubmitDate = false,
     DateTime? completionDate,
     bool clearCompletionDate = false,
+    DateTime? archivedAt,
+    bool clearArchivedAt = false,
+    String? archivedByStaffId,
+    bool clearArchivedByStaffId = false,
     Object? changeDueReason = _unsetChangeDueReason,
+    String? pauseStatus,
     int? overdueDay,
     String? overdue,
     String? projectId,
@@ -166,9 +185,14 @@ class Task {
       completionDate: clearCompletionDate
           ? null
           : (completionDate ?? this.completionDate),
+      archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
+      archivedByStaffId: clearArchivedByStaffId
+          ? null
+          : (archivedByStaffId ?? this.archivedByStaffId),
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
           : changeDueReason as String?,
+      pauseStatus: pauseStatus ?? this.pauseStatus,
       overdueDay: overdueDay ?? this.overdueDay,
       overdue: overdue ?? this.overdue,
       projectId: clearProject ? null : (projectId ?? this.projectId),

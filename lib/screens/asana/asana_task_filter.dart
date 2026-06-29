@@ -2,6 +2,7 @@ import '../../app_state.dart';
 import '../../models/singular_subtask.dart';
 import '../../models/task.dart';
 import '../../services/landing_task_filters_storage.dart';
+import '../../widgets/task_list_card.dart';
 
 /// One row in **All tasks & sub-tasks** (flattened task or sub-task).
 class AsanaFlatRow {
@@ -37,6 +38,7 @@ class AsanaTaskFilterState {
   List<String> picStaffIds = [];
   List<String> creatorStaffIds = [];
   static const statusIncomplete = 'incomplete';
+  static const statusPaused = 'paused';
   static const statusCompleted = 'completed';
   static const statusDeleted = 'deleted';
   static const submissionPending = 'pending';
@@ -123,7 +125,10 @@ class AsanaTaskFilterState {
     if (ft != 'all') scopes.add(ft);
     statuses.clear();
     for (final s in data.statuses) {
-      if (s == statusIncomplete || s == statusCompleted || s == statusDeleted) {
+      if (s == statusIncomplete ||
+          s == statusPaused ||
+          s == statusCompleted ||
+          s == statusDeleted) {
         statuses.add(s);
       }
     }
@@ -201,6 +206,8 @@ class AsanaTaskFilter {
     final s = t.dbStatus?.trim().toLowerCase() ?? '';
     return s == 'delete' || s == 'deleted';
   }
+
+  static bool taskIsArchivedCompleted(Task t) => t.archivedAt != null;
 
   static Set<String> _normalizedStatuses(AsanaTaskFilterState filters) =>
       filters.statuses.difference({'all', '__all__'});
@@ -353,18 +360,55 @@ class AsanaTaskFilter {
     ], tokens);
   }
 
+  static bool _taskProjectPaused(AppState state, Task t) {
+    final projectId = t.projectId?.trim();
+    if (projectId == null || projectId.isEmpty) return false;
+    for (final project in state.projects) {
+      if (project.id == projectId) return project.isPaused;
+    }
+    return false;
+  }
+
+  static bool taskEffectivelyPaused(AppState state, Task t) =>
+      t.isPaused || _taskProjectPaused(state, t);
+
+  static bool subtaskEffectivelyPaused(
+    AppState state,
+    Task parentTask,
+    SingularSubtask s,
+  ) {
+    return s.isPaused ||
+        parentTask.isPaused ||
+        _taskProjectPaused(state, parentTask);
+  }
+
+  static String taskDisplayStatus(AppState state, Task t) =>
+      taskEffectivelyPaused(state, t) ? 'Paused' : TaskListCard.statusLabel(t);
+
+  static String subtaskDisplayStatus(
+    AppState state,
+    Task parentTask,
+    SingularSubtask s,
+  ) {
+    return subtaskEffectivelyPaused(state, parentTask, s) ? 'Paused' : s.status;
+  }
+
   static bool _subtaskPassesStatusChips(
+    AppState state,
+    Task parentTask,
     SingularSubtask s,
     AsanaTaskFilterState filters,
   ) {
     final statuses = _normalizedStatuses(filters);
     if (statuses.isEmpty) return true;
     final wantInc = statuses.contains(AsanaTaskFilterState.statusIncomplete);
+    final wantPaused = statuses.contains(AsanaTaskFilterState.statusPaused);
     final wantComp = statuses.contains(AsanaTaskFilterState.statusCompleted);
     final wantDel = statuses.contains(AsanaTaskFilterState.statusDeleted);
-    if (!wantInc && !wantComp && !wantDel) return true;
+    if (!wantInc && !wantPaused && !wantComp && !wantDel) return true;
     if (s.isDeleted) return wantDel;
     if (_singularSubtaskCompleted(s)) return wantComp;
+    if (subtaskEffectivelyPaused(state, parentTask, s)) return wantPaused;
     return wantInc;
   }
 
@@ -495,7 +539,7 @@ class AsanaTaskFilter {
     }
     final tasksList = tasks.toList();
     final tasksNonDeleted = tasksList
-        .where((t) => !_singularDeleted(t))
+        .where((t) => !_singularDeleted(t) && !taskIsArchivedCompleted(t))
         .toList();
     final tasksDeletedSingular = tasksList.where(_singularDeleted).toList();
     bool taskMatchesSubmission(Task t) {
@@ -507,12 +551,17 @@ class AsanaTaskFilter {
     bool nonDeletedMatchesStatus(Task t) {
       if (statuses.isEmpty) return taskMatchesSubmission(t);
       if (_singularDeleted(t)) return false;
-      if (statuses.contains(AsanaTaskFilterState.statusIncomplete) &&
-          _singularIncomplete(t)) {
-        return taskMatchesSubmission(t);
-      }
       if (statuses.contains(AsanaTaskFilterState.statusCompleted) &&
           _singularCompleted(t)) {
+        return taskMatchesSubmission(t);
+      }
+      if (statuses.contains(AsanaTaskFilterState.statusPaused) &&
+          taskEffectivelyPaused(state, t)) {
+        return taskMatchesSubmission(t);
+      }
+      if (statuses.contains(AsanaTaskFilterState.statusIncomplete) &&
+          _singularIncomplete(t) &&
+          !taskEffectivelyPaused(state, t)) {
         return taskMatchesSubmission(t);
       }
       return false;
@@ -527,10 +576,7 @@ class AsanaTaskFilter {
       return taskMatchesSubmission(t);
     }
 
-    bool shouldShowDeleted() {
-      if (statuses.isEmpty) return true;
-      return statuses.contains(AsanaTaskFilterState.statusDeleted);
-    }
+    bool shouldShowDeleted() => false;
 
     List<Task> withScopeAndStatus(
       List<Task> source,
@@ -587,7 +633,12 @@ class AsanaTaskFilter {
     const allTeams = <String>{};
     final scope = state
         .tasksForTeams(allTeams)
-        .where((t) => t.isSingularTableRow);
+        .where(
+          (t) =>
+              t.isSingularTableRow &&
+              !_singularDeleted(t) &&
+              !taskIsArchivedCompleted(t),
+        );
     Iterable<Task> it =
         statuses.isEmpty ||
             statuses.contains(AsanaTaskFilterState.statusDeleted)
@@ -636,6 +687,7 @@ class AsanaTaskFilter {
         if (have.contains(tid)) continue;
         final task = state.taskById(tid);
         if (task == null || !task.isSingularTableRow) continue;
+        if (taskIsArchivedCompleted(task)) continue;
         if (!_landingVisible(state, task, landingFk)) continue;
         final ds = task.dbStatus?.trim().toLowerCase() ?? '';
         if (ds == 'delete' || ds == 'deleted') continue;
@@ -651,6 +703,7 @@ class AsanaTaskFilter {
         if (have.contains(tid)) continue;
         final task = state.taskById(tid);
         if (task == null || !task.isSingularTableRow) continue;
+        if (taskIsArchivedCompleted(task)) continue;
         if (!_landingVisible(state, task, landingFk)) continue;
         final ds = task.dbStatus?.trim().toLowerCase() ?? '';
         if (ds == 'delete' || ds == 'deleted') continue;
@@ -663,7 +716,12 @@ class AsanaTaskFilter {
       const allTeams = <String>{};
       Iterable<Task> scopeIt = state
           .tasksForTeams(allTeams)
-          .where((t) => t.isSingularTableRow && !_singularDeleted(t));
+          .where(
+            (t) =>
+                t.isSingularTableRow &&
+                !_singularDeleted(t) &&
+                !taskIsArchivedCompleted(t),
+          );
       if (filters.scopes.isNotEmpty && !filters.scopes.contains('all')) {
         scopeIt = scopeIt.where((t) {
           bool pass = false;
@@ -877,7 +935,7 @@ class AsanaTaskFilter {
       final taskPassesRole = _rowPassesRoleFilters(t, null, filters);
       final subs = grouped[t.id] ?? [];
       final subsFiltered = subs
-          .where((s) => _subtaskPassesStatusChips(s, filters))
+          .where((s) => _subtaskPassesStatusChips(state, t, s, filters))
           .toList();
       final subsRoleFiltered = subsFiltered
           .where((s) => _rowPassesRoleFilters(t, s, filters))
@@ -1044,7 +1102,7 @@ class AsanaTaskFilter {
         out.add(AsanaFlatRow.task(t));
         final subs = grouped[t.id] ?? [];
         for (final s in subs) {
-          if (!_subtaskPassesStatusChips(s, filters)) continue;
+          if (!_subtaskPassesStatusChips(state, t, s, filters)) continue;
           if (_shouldOmitSubtaskRow(t, s, filters)) continue;
           if (!_rowPassesDueDateSubtask(t, s, filters)) continue;
           out.add(AsanaFlatRow.subtask(t, s));
@@ -1156,7 +1214,7 @@ class AsanaTaskFilter {
     final statuses = _normalizedStatuses(filters);
 
     final subsFiltered = subs
-        .where((s) => _subtaskPassesStatusChips(s, filters))
+        .where((s) => _subtaskPassesStatusChips(state, task, s, filters))
         .where((s) => _rowPassesRoleFilters(task, s, filters))
         .toList();
     final subsNonDeleted = subsFiltered.where((s) => !s.isDeleted).toList();

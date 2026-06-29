@@ -1196,6 +1196,66 @@ class _AsanaSubtaskDetailPanelState extends State<AsanaSubtaskDetailPanel> {
     }
   }
 
+  bool _parentProjectPaused(AppState state) {
+    final project = _parentProject;
+    if (project != null) return project.isPaused;
+    final projectId = _parentTask?.projectId?.trim();
+    if (projectId == null || projectId.isEmpty) return false;
+    for (final p in state.projects) {
+      if (p.id == projectId) return p.isPaused;
+    }
+    return false;
+  }
+
+  bool _subtaskEffectivelyPaused(AppState state, SingularSubtask s) {
+    return s.isPaused ||
+        (_parentTask?.isPaused ?? false) ||
+        _parentProjectPaused(state);
+  }
+
+  String _subtaskDisplayStatus(AppState state, SingularSubtask? s) {
+    if (s != null && _subtaskEffectivelyPaused(state, s)) return 'Paused';
+    return _draftStatus ?? s?.status ?? 'Todo';
+  }
+
+  Future<void> _setSubtaskPause(
+    AppState state,
+    SingularSubtask s, {
+    required bool paused,
+  }) async {
+    if (!_isCreator(state) || s.isDeleted || s.isPaused == paused) return;
+    setState(() => _saving = true);
+    AsanaBlockingLoadingOverlay.show(context);
+    try {
+      final err = await SupabaseService.updateSubtaskRow(
+        subtaskId: s.id,
+        updatePauseStatus: true,
+        pauseStatus: paused ? 'Paused' : 'Not Paused',
+        updaterStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null && mounted) {
+        await showAsanaInfoDialog(
+          context: context,
+          title: paused
+              ? 'Could not pause sub-task'
+              : 'Could not resume sub-task',
+          content: err,
+          palette: widget.palette,
+        );
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _subtask = s.copyWith(pauseStatus: paused ? 'Paused' : 'Not Paused');
+        });
+      }
+      widget.onChanged?.call();
+    } finally {
+      AsanaBlockingLoadingOverlay.hide();
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   String _buildParentContext(Task? p, AppState state) {
     if (p == null) return '';
     return '''
@@ -1443,7 +1503,6 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       );
       return;
     }
-
     setState(() => _saving = true);
     await AsanaBlockingLoadingOverlay.showAfterFrame(context);
     try {
@@ -1454,6 +1513,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
           subtaskName: newName,
           description: stripInlineImageMarkers(_descController.text),
           priorityDisplay: priorityToDisplayName(_localPriority),
+          status: _draftStatus,
           startDate: _startDate,
           dueDate: _dueDate,
           assigneeStaffUuids: _assigneeIds.toList(),
@@ -2585,6 +2645,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
     final s = subtask;
     if (s == null) return const [];
     final deleted = s.isDeleted;
+    final effectivelyPaused = _subtaskEffectivelyPaused(state, s);
     final mobileButtons = AsanaTaskDetailActionStyles.isMobile(context);
     final buttons = <Widget>[];
     final showUpdate = !deleted && (isCreator || isPic || isAssigneeOnly);
@@ -2600,7 +2661,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         ),
       );
     }
-    if (!deleted && isCreator && _canMarkComplete(s)) {
+    if (!effectivelyPaused && !deleted && isCreator && _canMarkComplete(s)) {
       buttons.add(
         FilledButton(
           onPressed: _saving ? null : () => _markCompleted(state, s),
@@ -2609,7 +2670,10 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         ),
       );
     }
-    if (!deleted && isCreator && _canUndoAcceptOrReturn(s)) {
+    if (!effectivelyPaused &&
+        !deleted &&
+        isCreator &&
+        _canUndoAcceptOrReturn(s)) {
       buttons.add(
         OutlinedButton(
           onPressed: _saving ? null : () => _undoAcceptOrReturn(state, s),
@@ -2621,7 +2685,7 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         ),
       );
     }
-    if (!deleted && isPic && _canPicSubmit(s)) {
+    if (!effectivelyPaused && !deleted && isPic && _canPicSubmit(s)) {
       buttons.add(
         FilledButton(
           onPressed: _saving ? null : () => _submitSubtask(state, s),
@@ -2633,7 +2697,10 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
         ),
       );
     }
-    if (!deleted && isCreator && s.submission?.trim() == 'Submitted') {
+    if (!effectivelyPaused &&
+        !deleted &&
+        isCreator &&
+        s.submission?.trim() == 'Submitted') {
       buttons.add(
         FilledButton(
           onPressed: _saving ? null : () => _markCompleted(state, s),
@@ -2650,6 +2717,28 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
       );
     }
     if (isCreator) {
+      if (!deleted && !effectivelyPaused && !s.isPaused) {
+        buttons.add(
+          OutlinedButton(
+            onPressed: _saving
+                ? null
+                : () => _setSubtaskPause(state, s, paused: true),
+            style: AsanaTaskDetailActionStyles.pauseOutlined(context: context),
+            child: const Text('Pause'),
+          ),
+        );
+      }
+      if (!deleted && s.isPaused) {
+        buttons.add(
+          OutlinedButton(
+            onPressed: _saving
+                ? null
+                : () => _setSubtaskPause(state, s, paused: false),
+            style: AsanaTaskDetailActionStyles.resumeOutlined(context: context),
+            child: const Text('Resume'),
+          ),
+        );
+      }
       if (deleted) {
         buttons.add(
           OutlinedButton(
@@ -2906,17 +2995,25 @@ Allowable sub-task assignees: ${p.assigneeIds.map((id) => _nameFor(state, id)).j
                 link: _statusAnchorLink,
                 child: isCreator
                     ? MouseRegion(
-                        cursor: SystemMouseCursors.click,
+                        cursor:
+                            (s != null && _subtaskEffectivelyPaused(state, s))
+                            ? SystemMouseCursors.basic
+                            : SystemMouseCursors.click,
                         child: GestureDetector(
-                          onTap: _saving
+                          onTap:
+                              _saving ||
+                                  (s != null &&
+                                      _subtaskEffectivelyPaused(state, s))
                               ? null
                               : () => _pickStatus(anchorContext),
                           child: AsanaDetailStatusPill(
-                            status: _draftStatus ?? s?.status ?? 'Todo',
+                            status: _subtaskDisplayStatus(state, s),
                           ),
                         ),
                       )
-                    : AsanaDetailStatusPill(status: s?.status ?? 'Todo'),
+                    : AsanaDetailStatusPill(
+                        status: _subtaskDisplayStatus(state, s),
+                      ),
               ),
             ),
           ),

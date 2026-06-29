@@ -234,6 +234,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   Future<void> _showInfo(String title, String content) {
     dismissAsanaCheckboxFilterPanels();
+    AsanaBlockingLoadingOverlay.hideAll();
     return showAsanaInfoDialog(
       context: context,
       title: title,
@@ -700,6 +701,21 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
     } catch (_) {}
   }
 
+  Future<List<SingularSubtask>?> _loadFreshActiveSubtasksForCompletion(
+    String taskId,
+  ) async {
+    if (!SupabaseConfig.isConfigured) return _subtasks;
+    try {
+      SupabaseService.invalidateSubtasksCacheForTask(taskId);
+      final list = await SupabaseService.fetchSubtasksForTask(taskId);
+      final active = list.where((s) => !s.isDeleted).toList();
+      if (mounted) setState(() => _subtasks = active);
+      return active;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadComments() async {
     final id = widget.taskId;
     if (id == null || !SupabaseConfig.isConfigured) return;
@@ -1018,6 +1034,35 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
 
   bool _taskDeleted(Task task) =>
       (task.dbStatus ?? '').trim().toLowerCase() == 'deleted';
+
+  bool _taskPaused(Task task) => task.isPaused;
+
+  bool _taskProjectPaused(AppState state, Task task) {
+    final projectId = task.projectId?.trim();
+    if (projectId == null || projectId.isEmpty) return false;
+    for (final project in state.projects) {
+      if (project.id == projectId) return project.isPaused;
+    }
+    for (final project in _myProjects) {
+      if (project.id == projectId) return project.isPaused;
+    }
+    return false;
+  }
+
+  bool _taskEffectivelyPaused(AppState state, Task task) =>
+      _taskPaused(task) || _taskProjectPaused(state, task);
+
+  String _taskDisplayStatus(AppState state, Task task) =>
+      _taskEffectivelyPaused(state, task)
+      ? 'Paused'
+      : TaskListCard.statusLabel(task);
+
+  bool _taskCompleted(Task task) {
+    final s = (task.dbStatus ?? '').trim().toLowerCase();
+    return s == 'completed' ||
+        s == 'complete' ||
+        task.status == TaskStatus.done;
+  }
 
   bool _canEditMetadata(AppState state, Task task) =>
       _isCreator(state, task) && !_taskDeleted(task);
@@ -2162,6 +2207,21 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   }
 
   Future<void> _markCompleted(AppState state, Task task) async {
+    final activeSubtasks = await _loadFreshActiveSubtasksForCompletion(task.id);
+    if (activeSubtasks == null) {
+      await _showInfo(
+        'Could not check sub-tasks',
+        'Please try again before marking this task as completed.',
+      );
+      return;
+    }
+    if (activeSubtasks.any(subtaskPreventsParentTaskSubmission)) {
+      await _showInfo(
+        'Sub-tasks incomplete',
+        'All sub-tasks must be completed or deleted before this task can be marked as completed.',
+      );
+      return;
+    }
     _setSaving(true);
     AsanaBlockingLoadingOverlay.show(context);
     try {
@@ -2363,6 +2423,54 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
       state.replaceTask(task.copyWith(dbStatus: 'Deleted'));
       _notifyChanged();
       await _loadSubtasks();
+    } finally {
+      AsanaBlockingLoadingOverlay.hide();
+      if (mounted) _setSaving(false);
+    }
+  }
+
+  Future<void> _pauseTask(AppState state, Task task) async {
+    if (!_isCreator(state, task) || _taskDeleted(task) || _taskPaused(task)) {
+      return;
+    }
+    _setSaving(true);
+    AsanaBlockingLoadingOverlay.show(context);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        updatePauseStatus: true,
+        pauseStatus: 'Paused',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null && mounted) {
+        await _showInfo('Could not pause task', err);
+        return;
+      }
+      state.replaceTask(task.copyWith(pauseStatus: 'Paused'));
+      _notifyChanged();
+    } finally {
+      AsanaBlockingLoadingOverlay.hide();
+      if (mounted) _setSaving(false);
+    }
+  }
+
+  Future<void> _resumeTask(AppState state, Task task) async {
+    if (!_isCreator(state, task) || !_taskPaused(task)) return;
+    _setSaving(true);
+    AsanaBlockingLoadingOverlay.show(context);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        updatePauseStatus: true,
+        pauseStatus: 'Not Paused',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (err != null && mounted) {
+        await _showInfo('Could not resume task', err);
+        return;
+      }
+      state.replaceTask(task.copyWith(pauseStatus: 'Not Paused'));
+      _notifyChanged();
     } finally {
       AsanaBlockingLoadingOverlay.hide();
       if (mounted) _setSaving(false);
@@ -3056,6 +3164,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
   ) {
     final canEdit = _canEditMetadata(state, task);
     final tc = widget.palette.tableColors;
+    final effectivelyPaused = _taskEffectivelyPaused(state, task);
 
     final showActionFooter = _ActionBar.hasVisibleActions(
       createMode: false,
@@ -3067,8 +3176,15 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           !_isCreator(state, task) &&
           !_isPic(state, task),
       canDelete: _isCreator(state, task),
-      canMarkComplete: _canMarkComplete(task),
-      canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
+      canMarkComplete: !effectivelyPaused && _canMarkComplete(task),
+      canUndoAcceptOrReturn: !effectivelyPaused && _canUndoAcceptOrReturn(task),
+      canPause:
+          _isCreator(state, task) &&
+          !_taskDeleted(task) &&
+          !effectivelyPaused &&
+          !_taskCompleted(task),
+      canResume: _isCreator(state, task) && _taskPaused(task),
+      workflowPaused: effectivelyPaused,
     );
 
     final showCommentAi = _canWriteComments(state, task) && !canEdit;
@@ -3101,10 +3217,20 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
             onAccept: () => _acceptTask(state, task),
             onReturn: () => _returnTask(state, task),
             onDelete: () => _deleteTask(state, task),
+            onPause: () => _pauseTask(state, task),
+            onResume: () => _resumeTask(state, task),
             onUndoAcceptOrReturn: () => _undoAcceptOrReturn(state, task),
             onUndoDeleted: () => _undoDeleted(state, task),
-            canMarkComplete: _canMarkComplete(task),
-            canUndoAcceptOrReturn: _canUndoAcceptOrReturn(task),
+            canMarkComplete: !effectivelyPaused && _canMarkComplete(task),
+            canUndoAcceptOrReturn:
+                !effectivelyPaused && _canUndoAcceptOrReturn(task),
+            canPause:
+                _isCreator(state, task) &&
+                !_taskDeleted(task) &&
+                !effectivelyPaused &&
+                !_taskCompleted(task),
+            canResume: _isCreator(state, task) && _taskPaused(task),
+            workflowPaused: effectivelyPaused,
           )
         : null;
 
@@ -3206,6 +3332,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
                   tableColors: tc,
                   appState: state,
                   nameAndDueOnly: true,
+                  parentPaused: _taskEffectivelyPaused(state, task),
                   onOpenSubtask: widget.onPushSubtask,
                 );
               },
@@ -3237,7 +3364,7 @@ class _AsanaTaskDetailPanelState extends State<AsanaTaskDetailPanel> {
           AsanaDetailTwoColumnRow(
             label: 'Status',
             child: AsanaDetailStatusPill(
-              status: TaskListCard.statusLabel(task),
+              status: _taskDisplayStatus(state, task),
             ),
           ),
           AsanaDetailTwoColumnRow(
@@ -3411,10 +3538,15 @@ class _ActionBar extends StatelessWidget {
     this.onAccept,
     this.onReturn,
     this.onDelete,
+    this.onPause,
+    this.onResume,
     this.onUndoAcceptOrReturn,
     this.onUndoDeleted,
     this.canMarkComplete = false,
     this.canUndoAcceptOrReturn = false,
+    this.canPause = false,
+    this.canResume = false,
+    this.workflowPaused = false,
   });
 
   final bool createMode;
@@ -3433,10 +3565,15 @@ class _ActionBar extends StatelessWidget {
   final VoidCallback? onAccept;
   final VoidCallback? onReturn;
   final VoidCallback? onDelete;
+  final VoidCallback? onPause;
+  final VoidCallback? onResume;
   final VoidCallback? onUndoAcceptOrReturn;
   final VoidCallback? onUndoDeleted;
   final bool canMarkComplete;
   final bool canUndoAcceptOrReturn;
+  final bool canPause;
+  final bool canResume;
+  final bool workflowPaused;
 
   /// Whether the slide footer should render (avoids an empty white bar).
   static bool hasVisibleActions({
@@ -3448,6 +3585,9 @@ class _ActionBar extends StatelessWidget {
     bool canDelete = false,
     bool canMarkComplete = false,
     bool canUndoAcceptOrReturn = false,
+    bool canPause = false,
+    bool canResume = false,
+    bool workflowPaused = false,
   }) {
     if (createMode) return true;
     if (task == null) return false;
@@ -3455,8 +3595,15 @@ class _ActionBar extends StatelessWidget {
     if (!deleted && (isCreator || isPic || isAssigneeOnly)) return true;
     if (!deleted && isCreator && canMarkComplete) return true;
     if (!deleted && isCreator && canUndoAcceptOrReturn) return true;
-    if (!deleted && isPic && _canPicSubmit(task)) return true;
-    if (!deleted && isCreator && task.submission?.trim() == 'Submitted') {
+    if (!deleted && isCreator && canPause) return true;
+    if (!deleted && isCreator && canResume) return true;
+    if (!workflowPaused && !deleted && isPic && _canPicSubmit(task)) {
+      return true;
+    }
+    if (!workflowPaused &&
+        !deleted &&
+        isCreator &&
+        task.submission?.trim() == 'Submitted') {
       return true;
     }
     if (canDelete) return true;
@@ -3520,7 +3667,25 @@ class _ActionBar extends StatelessWidget {
         ),
       );
     }
-    if (!deleted && isPic && _canPicSubmit(t)) {
+    if (!deleted && isCreator && canPause) {
+      buttons.add(
+        OutlinedButton(
+          onPressed: saving ? null : onPause,
+          style: AsanaTaskDetailActionStyles.pauseOutlined(context: context),
+          child: const Text('Pause'),
+        ),
+      );
+    }
+    if (!deleted && isCreator && canResume) {
+      buttons.add(
+        OutlinedButton(
+          onPressed: saving ? null : onResume,
+          style: AsanaTaskDetailActionStyles.resumeOutlined(context: context),
+          child: const Text('Resume'),
+        ),
+      );
+    }
+    if (!workflowPaused && !deleted && isPic && _canPicSubmit(t)) {
       buttons.add(
         FilledButton(
           onPressed: saving ? null : onSubmit,
@@ -3532,7 +3697,10 @@ class _ActionBar extends StatelessWidget {
         ),
       );
     }
-    if (!deleted && isCreator && t.submission?.trim() == 'Submitted') {
+    if (!workflowPaused &&
+        !deleted &&
+        isCreator &&
+        t.submission?.trim() == 'Submitted') {
       buttons.add(
         FilledButton(
           onPressed: saving ? null : onAccept,

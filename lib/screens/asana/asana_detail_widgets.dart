@@ -637,6 +637,8 @@ class AsanaTaskDetailActionStyles {
   static const Color successGreen = Color(0xFF2E7D32);
   static const Color returnOrange = Color(0xFFEF6C00);
   static const Color deleteRed = Color(0xFFC62828);
+  static const Color pauseAmber = Color(0xFF8A5A00);
+  static const Color resumeBlue = Color(0xFF1565C0);
   static const double _cornerRadius = 8;
 
   static const EdgeInsets _padding = EdgeInsets.symmetric(
@@ -769,6 +771,32 @@ class AsanaTaskDetailActionStyles {
         foregroundColor: kAsanaTextPrimary,
         backgroundColor: palette.listSurface,
         side: BorderSide(color: palette.accent.withValues(alpha: 0.35)),
+        padding: _responsivePadding(context),
+        textStyle: _responsiveTextStyle(context),
+      ),
+      minimumSize: _responsiveActionMinimumSize(context),
+    );
+  }
+
+  static ButtonStyle pauseOutlined({BuildContext? context}) {
+    return _rounded(
+      OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: pauseAmber,
+        side: const BorderSide(color: pauseAmber),
+        padding: _responsivePadding(context),
+        textStyle: _responsiveTextStyle(context),
+      ),
+      minimumSize: _responsiveActionMinimumSize(context),
+    );
+  }
+
+  static ButtonStyle resumeOutlined({BuildContext? context}) {
+    return _rounded(
+      OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: resumeBlue,
+        side: const BorderSide(color: resumeBlue),
         padding: _responsivePadding(context),
         textStyle: _responsiveTextStyle(context),
       ),

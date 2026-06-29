@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../services/asana_filter_cookie_storage.dart';
 import '../web_deep_link.dart';
 import 'asana/asana_blocking_loading_overlay.dart';
+import 'asana/asana_archived_panel.dart';
 import 'asana/asana_detail_selection.dart';
 import 'asana/asana_detail_slide_panel.dart';
 import 'asana/asana_detail_widgets.dart';
@@ -310,6 +311,18 @@ class _AsanaLandingScreenState extends State<AsanaLandingScreen> {
         onOpenTask: (id) => _openRootDetail(AsanaDetailSelection.task(id)),
         onCreateProject: () =>
             _openRootDetail(const AsanaDetailSelection.createProject()),
+      );
+    }
+    if (_selectedNav == 'Archived') {
+      return AsanaArchivedPanel(
+        palette: palette,
+        searchQuery: searchQuery,
+        refreshToken: _detailRefreshToken,
+        onOpenProject: (id) =>
+            _openRootDetail(AsanaDetailSelection.project(id)),
+        onOpenTask: (id) => _openRootDetail(AsanaDetailSelection.task(id)),
+        onOpenSubtask: (id) =>
+            _openRootDetail(AsanaDetailSelection.subtask(id)),
       );
     }
     if (_selectedNav == 'Home') {
@@ -1089,49 +1102,57 @@ class _SidebarUserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final id = state.userStaffAppId?.trim();
-    var displayName = '';
-    if (id != null && id.isNotEmpty) {
-      displayName = state.assigneeById(id)?.name.trim() ?? '';
-    }
-    final initials = asanaStaffInitials(
-      displayName.isNotEmpty ? displayName : '?',
-    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 104) {
+          return const SizedBox(height: 64);
+        }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: palette.accent,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initials,
-              style: asanaTextStyle(
-                Theme.of(context).textTheme.labelLarge,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                height: 1,
+        final state = context.watch<AppState>();
+        final id = state.userStaffAppId?.trim();
+        var displayName = '';
+        if (id != null && id.isNotEmpty) {
+          displayName = state.assigneeById(id)?.name.trim() ?? '';
+        }
+        final initials = asanaStaffInitials(
+          displayName.isNotEmpty ? displayName : '?',
+        );
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: palette.accent,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initials,
+                  style: asanaTextStyle(
+                    Theme.of(context).textTheme.labelLarge,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    height: 1,
+                  ),
+                ),
               ),
-            ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => _confirmLogOut(context),
+                icon: const Icon(Icons.logout),
+                color: palette.darkChrome ? Colors.white : kAsanaTextSecondary,
+                tooltip: 'Log out',
+                splashRadius: 20,
+              ),
+            ],
           ),
-          const Spacer(),
-          IconButton(
-            onPressed: () => _confirmLogOut(context),
-            icon: const Icon(Icons.logout),
-            color: palette.darkChrome ? Colors.white : kAsanaTextSecondary,
-            tooltip: 'Log out',
-            splashRadius: 20,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

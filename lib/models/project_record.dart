@@ -17,6 +17,7 @@ class ProjectRecord {
     this.updateByStaffUuid,
     this.updateByDisplayName,
     this.updateDate,
+    this.pauseStatus = 'Not Paused',
   });
 
   final String id;
@@ -38,7 +39,7 @@ class ProjectRecord {
   final DateTime? startDate;
   final DateTime? endDate;
 
-  /// `Not started` | `In progress` | `Completed`
+  /// `Not started` | `In progress` | `Completed` | `Deleted`
   final String status;
 
   final String? createByStaffUuid;
@@ -48,6 +49,11 @@ class ProjectRecord {
   final String? updateByStaffUuid;
   final String? updateByDisplayName;
   final DateTime? updateDate;
+
+  /// `Paused` | `Not Paused`.
+  final String pauseStatus;
+
+  bool get isPaused => pauseStatus.trim().toLowerCase() == 'paused';
 
   /// True if [staffRowUuid] is project creator, assignee slot, or PIC.
   bool staffMayLinkTasks(String staffRowUuid) {

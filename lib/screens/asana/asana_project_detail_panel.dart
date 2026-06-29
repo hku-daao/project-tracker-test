@@ -231,7 +231,11 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         widget.projectId,
       );
       if (!mounted) return;
-      setState(() => _tasks = list.where((t) => !_taskDeleted(t)).toList());
+      setState(
+        () => _tasks = list
+            .where((t) => !_taskDeleted(t) && !t.isArchivedCompleted)
+            .toList(),
+      );
     } catch (_) {}
   }
 
@@ -401,6 +405,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
   }
 
   String _taskStatusLabel(Task t) {
+    if ((_project?.isPaused ?? false) || t.isPaused) return 'Paused';
     final raw = t.dbStatus?.trim();
     if (raw != null && raw.isNotEmpty) return raw;
     return taskStatusDisplayNames[t.status] ?? 'Incomplete';
@@ -685,9 +690,12 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
   }
 
   String _effectiveStatus(ProjectRecord p) => (_draftStatus ?? p.status).trim();
+  String _displayStatus(ProjectRecord p) =>
+      p.isPaused ? 'Paused' : _effectiveStatus(p);
 
   bool _canMarkProjectComplete(ProjectRecord p) =>
       _isCreator(p) &&
+      !p.isPaused &&
       _effectiveStatus(p) != 'Completed' &&
       _effectiveStatus(p) != 'Deleted';
 
@@ -696,6 +704,44 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
 
   bool _canRestoreProject(ProjectRecord p) =>
       _isCreator(p) && _effectiveStatus(p) == 'Deleted';
+
+  Future<void> _setProjectPause(
+    AppState state,
+    ProjectRecord p, {
+    required bool paused,
+  }) async {
+    if (!_isCreator(p) || _effectiveStatus(p) == 'Deleted') return;
+    if (p.isPaused == paused) return;
+    _setSaving(true);
+    AsanaBlockingLoadingOverlay.show(context);
+    try {
+      final err = await SupabaseService.updateProjectRow(
+        projectId: widget.projectId,
+        updatePauseStatus: true,
+        pauseStatus: paused ? 'Paused' : 'Not Paused',
+        updateByStaffLookupKey: state.userStaffAppId,
+      );
+      if (!mounted) return;
+      if (err != null) {
+        await showAsanaInfoDialog(
+          context: context,
+          title: paused
+              ? 'Could not pause project'
+              : 'Could not resume project',
+          content: err,
+          palette: widget.palette,
+        );
+        return;
+      }
+      final projects = await SupabaseService.fetchAllProjectsFromSupabase();
+      if (mounted) state.applyProjects(projects);
+      await _loadProject();
+      widget.onChanged?.call();
+    } finally {
+      AsanaBlockingLoadingOverlay.hide();
+      if (mounted) _setSaving(false);
+    }
+  }
 
   Future<void> _confirmDeleteProject(AppState state) async {
     final ok = await showAsanaConfirmDialog(
@@ -818,6 +864,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
     return AsanaProjectAiFormSnapshot(
       name: _nameController.text.trim(),
       description: _descController.text.trim(),
+      commentDraft: stripInlineImageMarkers(_commentController.text),
       status: _effectiveStatus(_project!),
       startDate: _startDate,
       dueDate: _endDate,
@@ -826,6 +873,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       staff: staff,
       selectedAssigneeIds: Set<String>.from(_assigneeIds),
       selectedPicAssigneeIds: Set<String>.from(_picAssigneeIds),
+      websiteAttachments: _websiteAttachmentsForAi(),
     );
   }
 
@@ -847,6 +895,12 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       applyStatus: (s) => setState(() => _draftStatus = s),
       applyStartDate: (d) => setState(() => _startDate = d),
       applyDueDate: (d) => setState(() => _endDate = d),
+      applyComment: (v) => setState(() => _commentController.text = v),
+      applyWebsiteLink: (url, desc) => setState(() {
+        _attachments.add(
+          _ProjectAttachmentDraft(url: url, desc: desc, isWebsiteLink: true),
+        );
+      }),
     );
   }
 
@@ -1287,6 +1341,19 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
   List<_ProjectAttachmentDraft> get _urlAttachments => _attachments
       .where((a) => !a.isPendingFile && _draftShowsAsWebsiteLink(a))
       .toList();
+
+  List<({String url, String description})> _websiteAttachmentsForAi() {
+    return _attachments
+        .where((a) => !a.isPendingFile && _draftShowsAsWebsiteLink(a))
+        .map(
+          (a) => (
+            url: a.urlController.text.trim(),
+            description: a.descController.text.trim(),
+          ),
+        )
+        .where((a) => a.url.isNotEmpty)
+        .toList();
+  }
 
   Future<void> _savePostedCommentOnBlur(
     ProjectCommentRowDisplay comment,
@@ -1737,6 +1804,31 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         ),
       );
     }
+    if (!deleted &&
+        _isCreator(p) &&
+        !p.isPaused &&
+        _effectiveStatus(p) != 'Completed') {
+      buttons.add(
+        OutlinedButton(
+          onPressed: _saving
+              ? null
+              : () => _setProjectPause(state, p, paused: true),
+          style: AsanaTaskDetailActionStyles.pauseOutlined(context: context),
+          child: const Text('Pause'),
+        ),
+      );
+    }
+    if (!deleted && _isCreator(p) && p.isPaused) {
+      buttons.add(
+        OutlinedButton(
+          onPressed: _saving
+              ? null
+              : () => _setProjectPause(state, p, paused: false),
+          style: AsanaTaskDetailActionStyles.resumeOutlined(context: context),
+          child: const Text('Resume'),
+        ),
+      );
+    }
     if (_canRestoreProject(p)) {
       buttons.add(
         OutlinedButton(
@@ -1859,6 +1951,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
       );
       return;
     }
+    final status = _effectiveStatus(p);
 
     _setSaving(true);
     try {
@@ -1891,7 +1984,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
         endDate: _endDate,
         clearStartDate: _startDate == null,
         clearEndDate: _endDate == null,
-        status: _effectiveStatus(p),
+        status: status,
         updateByStaffLookupKey: state.userStaffAppId,
       );
       if (!mounted) return;
@@ -2109,22 +2202,22 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
                     builder: (anchorContext) => CompositedTransformTarget(
                       link: _statusAnchorLink,
                       child: MouseRegion(
-                        cursor: _saving
+                        cursor: _saving || p.isPaused
                             ? SystemMouseCursors.basic
                             : SystemMouseCursors.click,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onTap: _saving
+                          onTap: _saving || p.isPaused
                               ? null
                               : () => _pickStatus(anchorContext),
                           child: AsanaDetailStatusPill(
-                            status: _effectiveStatus(p),
+                            status: _displayStatus(p),
                           ),
                         ),
                       ),
                     ),
                   )
-                : AsanaDetailStatusPill(status: _effectiveStatus(p)),
+                : AsanaDetailStatusPill(status: _displayStatus(p)),
           ),
           if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.projectStatus),
           AsanaDetailTwoColumnRow(
@@ -2177,6 +2270,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
               editAnchorContext: anchorContext,
             ),
           ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.websiteLink),
           if ((p.updateByDisplayName ?? '').trim().isNotEmpty)
             AsanaDetailTwoColumnRow(
               label: 'Last updated by',
@@ -2222,6 +2316,7 @@ class _AsanaProjectDetailPanelState extends State<AsanaProjectDetailPanel> {
               ],
             ),
           ),
+          if (canEdit) _aiSuggestions(AsanaTaskAiFieldKey.comment),
         ],
       ),
     );

@@ -68,6 +68,7 @@ String _mobileStatusLabel(String raw) {
   final s = raw.trim().toLowerCase();
   if (s == 'completed' || s == 'complete') return 'COM';
   if (s == 'deleted' || s == 'delete') return 'DEL';
+  if (s == 'paused') return 'PAU';
   if (s == 'not started') return 'NST';
   if (s == 'in progress') return 'INP';
   if (s.isEmpty || s == 'incomplete') return 'INC';
@@ -100,6 +101,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
     required this.appState,
     this.projectName = '—',
     this.nameAndDueOnly = false,
+    this.parentPaused = false,
     this.onOpenSubtask,
   });
 
@@ -109,6 +111,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
   final AppState appState;
   final String projectName;
   final bool nameAndDueOnly;
+  final bool parentPaused;
   final void Function(String subtaskId)? onOpenSubtask;
 
   @override
@@ -263,6 +266,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
           final name = s.subtaskName.trim().isEmpty
               ? '(Unnamed sub-task)'
               : s.subtaskName.trim();
+          final status = (parentPaused || s.isPaused) ? 'Paused' : s.status;
 
           return Material(
             color: tableColors.subtaskRow,
@@ -330,9 +334,9 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                         width: compactStatusCol,
                         child: AsanaTableCellChip(
                           child: AsanaStatusChip(
-                            status: s.status,
+                            status: status,
                             displayLabel: compactMobile
-                                ? _mobileStatusLabel(s.status)
+                                ? _mobileStatusLabel(status)
                                 : null,
                             fontSize: compactMobile
                                 ? 12
@@ -392,7 +396,7 @@ class AsanaDetailSubtaskList extends StatelessWidget {
                       SizedBox(
                         width: cols.statusCol,
                         child: AsanaTableCellChip(
-                          child: AsanaStatusChip(status: s.status),
+                          child: AsanaStatusChip(status: status),
                         ),
                       ),
                       SizedBox(

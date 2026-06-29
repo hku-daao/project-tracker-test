@@ -529,6 +529,8 @@ class SupabaseService {
     /// When true, sets `change_due_reason` (null clears).
     bool updateChangeDueReason = false,
     String? changeDueReason,
+    bool updatePauseStatus = false,
+    String? pauseStatus,
 
     /// Sets `task.submit_date` to current HK instant (PIC **Submit**).
     bool stampSubmitDateNow = false,
@@ -542,6 +544,10 @@ class SupabaseService {
     /// Sets or clears `task.project_id`.
     String? projectId,
     bool clearProjectId = false,
+
+    /// Sets or clears manual archive marker for completed tasks.
+    bool archiveNow = false,
+    bool clearArchive = false,
   }) async {
     if (!_enabled) return 'Supabase not configured';
     try {
@@ -588,6 +594,10 @@ class SupabaseService {
         final t = changeDueReason?.trim();
         map['change_due_reason'] = (t == null || t.isEmpty) ? null : t;
       }
+      if (updatePauseStatus) {
+        final t = pauseStatus?.trim();
+        map['pause_status'] = t == 'Paused' ? 'Paused' : 'Not Paused';
+      }
       if (clearCompletionDate) {
         map['completion_date'] = null;
       } else if (completionDateAt != null) {
@@ -604,6 +614,20 @@ class SupabaseService {
         final p = projectId?.trim();
         if (p != null && p.isNotEmpty) {
           map['project_id'] = p;
+        }
+      }
+      if (clearArchive) {
+        map['archived_at'] = null;
+        map['archived_by'] = null;
+      } else if (archiveNow) {
+        map['archived_at'] = HkTime.timestampForDb();
+        final lookup = updateByStaffLookupKey?.trim();
+        if (lookup != null && lookup.isNotEmpty) {
+          final staffId = await _staffRowIdForAssigneeKey(lookup);
+          if (staffId == null || staffId.isEmpty) {
+            return 'Could not resolve staff id for archived_by';
+          }
+          map['archived_by'] = staffId;
         }
       }
       if (map.isEmpty) return null;
@@ -1178,7 +1202,10 @@ class SupabaseService {
       submission: _submissionFromRow(row['submission']),
       submitDate: _parseDateTimeNullable(row['submit_date']),
       completionDate: _parseDateTimeNullable(row['completion_date']),
+      archivedAt: _parseDateTimeNullable(row['archived_at']),
+      archivedByStaffId: _nullableTrimmedString(row['archived_by']),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
+      pauseStatus: _nullableTrimmedString(row['pause_status']) ?? 'Not Paused',
       overdueDay: _flexIntFromRow(row['overdue_day']),
       overdue: _overdueYnFromRow(row['overdue']),
       projectId: projectId,
@@ -1273,6 +1300,7 @@ class SupabaseService {
           ? (staffUuidToName[ub] ?? ub)
           : null,
       updateDate: _parseDateTimeNullable(row['update_date']),
+      pauseStatus: _nullableTrimmedString(row['pause_status']) ?? 'Not Paused',
     );
   }
 
@@ -1683,6 +1711,8 @@ class SupabaseService {
     bool clearStartDate = false,
     bool clearEndDate = false,
     String? status,
+    bool updatePauseStatus = false,
+    String? pauseStatus,
     String? updateByStaffLookupKey,
   }) async {
     if (!_enabled) return 'Supabase not configured';
@@ -1715,6 +1745,10 @@ class SupabaseService {
         map['end_date'] = HkTime.dateOnlyHkMidnightForDb(endDate);
       }
       if (status != null) map['status'] = status;
+      if (updatePauseStatus) {
+        final t = pauseStatus?.trim();
+        map['pause_status'] = t == 'Paused' ? 'Paused' : 'Not Paused';
+      }
       final lookup = updateByStaffLookupKey?.trim();
       if (lookup != null && lookup.isNotEmpty) {
         final staffId = await _staffRowIdForAssigneeKey(lookup);
@@ -2710,6 +2744,7 @@ class SupabaseService {
       lastUpdated: _parseDateTimeNullable(row['last_updated']),
       updateByStaffName: _updateByDisplayName(row, staffUuidToName),
       changeDueReason: _nullableTrimmedString(row['change_due_reason']),
+      pauseStatus: _nullableTrimmedString(row['pause_status']) ?? 'Not Paused',
       overdueDay: _flexIntFromRow(row['overdue_day']),
       overdue: _overdueYnFromRow(row['overdue']),
     );
@@ -2951,6 +2986,69 @@ class SupabaseService {
     return List<SingularSubtask>.from(out);
   }
 
+  static Future<List<SingularSubtask>> fetchSubtasksForTaskIncludingDeleted(
+    String taskId,
+  ) async {
+    final tid = taskId.trim();
+    if (!_enabled || tid.isEmpty) return [];
+    try {
+      final maps = await _loadMaps();
+      final staffMap =
+          maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
+      final staffNames = maps?.staffUuidToName ?? <String, String>{};
+      final rawRows = await _fetchSubtaskRawRowsForTask(tid);
+      final out = <SingularSubtask>[];
+      for (final row in rawRows) {
+        final st = _singularSubtaskFromRow(row, staffMap, staffNames);
+        if (st != null) out.add(st);
+      }
+      _sortSingularSubtasksNewestFirst(out);
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<Map<String, List<SingularSubtask>>>
+  fetchSubtasksGroupedIncludingDeleted(List<String> taskIds) async {
+    final out = <String, List<SingularSubtask>>{};
+    final ids =
+        taskIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList()
+          ..sort();
+    if (!_enabled || ids.isEmpty) return out;
+    try {
+      final maps = await _loadMaps();
+      final staffMap =
+          maps?.staffUuidToAppId ?? await _staffUuidToAppIdMapAll();
+      final staffNames = maps?.staffUuidToName ?? <String, String>{};
+      final client = Supabase.instance.client;
+      const chunkSize = 80;
+      for (var i = 0; i < ids.length; i += chunkSize) {
+        final end = min(i + chunkSize, ids.length);
+        final chunk = ids.sublist(i, end);
+        final res = await client
+            .from('subtask')
+            .select()
+            .inFilter('task_id', chunk);
+        for (final raw in (res as List)) {
+          final st = _singularSubtaskFromRow(
+            Map<String, dynamic>.from(raw as Map),
+            staffMap,
+            staffNames,
+          );
+          if (st == null) continue;
+          out.putIfAbsent(st.taskId, () => []).add(st);
+        }
+      }
+      for (final list in out.values) {
+        _sortSingularSubtasksNewestFirst(list);
+      }
+      return out;
+    } catch (_) {
+      return out;
+    }
+  }
+
   /// Few HTTP calls instead of one per task — used by landing prefetch only.
   /// Seeds [_subtaskListMemoryCache] per id so [fetchSubtasksForTask] hits memory on cards.
   static Future<Map<String, List<SingularSubtask>>>
@@ -3051,6 +3149,8 @@ class SupabaseService {
     String? creatorStaffLookupKey,
     String? initialComment,
     String? changeDueReason,
+    String? status,
+    String? pauseStatus,
   }) async {
     if (!_enabled) return (error: 'Supabase not configured', subtaskId: null);
     final name = subtaskName.trim();
@@ -3066,7 +3166,9 @@ class SupabaseService {
         'subtask_name': name,
         'description': description.trim(),
         'priority': priorityDisplay,
-        'status': 'Incomplete',
+        'status': status?.trim().isNotEmpty == true
+            ? status!.trim()
+            : 'Incomplete',
         'submission': 'Pending',
         'create_date': now,
         'update_date': now,
@@ -3106,6 +3208,10 @@ class SupabaseService {
       final cdr = changeDueReason?.trim();
       if (cdr != null && cdr.isNotEmpty) {
         map['change_due_reason'] = cdr;
+      }
+      final pr = pauseStatus?.trim();
+      if (pr != null && pr.isNotEmpty) {
+        map['pause_status'] = pr == 'Paused' ? 'Paused' : 'Not Paused';
       }
       final ins = await Supabase.instance.client
           .from('subtask')
@@ -3154,6 +3260,8 @@ class SupabaseService {
     /// When true, sets `change_due_reason` (null clears).
     bool updateChangeDueReason = false,
     String? changeDueReason,
+    bool updatePauseStatus = false,
+    String? pauseStatus,
 
     bool stampSubmitDateNow = false,
     DateTime? completionDateAt,
@@ -3211,6 +3319,10 @@ class SupabaseService {
       if (updateChangeDueReason) {
         final t = changeDueReason?.trim();
         map['change_due_reason'] = (t == null || t.isEmpty) ? null : t;
+      }
+      if (updatePauseStatus) {
+        final t = pauseStatus?.trim();
+        map['pause_status'] = t == 'Paused' ? 'Paused' : 'Not Paused';
       }
       if (clearCompletionDate) {
         map['completion_date'] = null;

@@ -12,7 +12,6 @@ import '../../models/task.dart';
 import '../../services/asana_filter_cookie_storage.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/hk_time.dart';
-import '../../widgets/task_list_card.dart';
 import '../asana_landing_screen.dart';
 import 'asana_blocking_loading_overlay.dart';
 import 'asana_filter_widgets.dart';
@@ -257,6 +256,36 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
     }
   }
 
+  Future<void> _archiveCompletedTask(Task task) async {
+    if (!_taskCompleted(task) || task.isArchivedCompleted) return;
+    AsanaBlockingLoadingOverlay.show(context);
+    try {
+      final err = await SupabaseService.updateSingularTaskRow(
+        taskId: task.id,
+        updateByStaffLookupKey: context.read<AppState>().userStaffAppId,
+        archiveNow: true,
+      );
+      if (err != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not archive task: $err')));
+        return;
+      }
+      if (!mounted) return;
+      final archived = DateTime.now().toUtc();
+      context.read<AppState>().replaceTask(
+        task.copyWith(
+          archivedAt: archived,
+          archivedByStaffId: context.read<AppState>().userStaffId,
+        ),
+      );
+      await _rebuildTaskList(showBlockingOverlay: false);
+    } finally {
+      AsanaBlockingLoadingOverlay.hide();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppState state;
@@ -420,6 +449,9 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                               appState: state,
                               task: row.task,
                               subtask: sub,
+                              onArchiveTask: !isSub && _taskCompleted(row.task)
+                                  ? () => _archiveCompletedTask(row.task)
+                                  : null,
                               onTap: isSub
                                   ? () => widget.onOpenSubtask?.call(sub.id)
                                   : () => widget.onOpenTask?.call(row.task.id),
@@ -455,6 +487,9 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                               tableColors: tableColors,
                               appState: state,
                               task: t,
+                              onArchiveTask: _taskCompleted(t)
+                                  ? () => _archiveCompletedTask(t)
+                                  : null,
                               onTap: () => widget.onOpenTask?.call(t.id),
                               expandControl: visibleSubCount > 0
                                   ? _ExpandChevron(
@@ -572,11 +607,22 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                                         ? sub.priority
                                         : row.task.priority,
                                     status: isSub
-                                        ? sub.status
-                                        : TaskListCard.statusLabel(row.task),
+                                        ? AsanaTaskFilter.subtaskDisplayStatus(
+                                            state,
+                                            row.task,
+                                            sub,
+                                          )
+                                        : AsanaTaskFilter.taskDisplayStatus(
+                                            state,
+                                            row.task,
+                                          ),
                                     submission: isSub
                                         ? sub.submission
                                         : row.task.submission,
+                                    onArchiveTask:
+                                        !isSub && _taskCompleted(row.task)
+                                        ? () => _archiveCompletedTask(row.task)
+                                        : null,
                                   ),
                                 ],
                               );
@@ -615,6 +661,9 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
                                   expanded: _expandedTaskIds.contains(t.id),
                                   onToggleExpand: () =>
                                       _toggleTaskExpanded(t.id),
+                                  onArchiveTask: _taskCompleted(t)
+                                      ? () => _archiveCompletedTask(t)
+                                      : null,
                                 ),
                               ],
                             );
@@ -682,6 +731,7 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
     if (_filters.statuses.isEmpty) return 'All';
     const labels = {
       AsanaTaskFilterState.statusIncomplete: 'Incomplete',
+      AsanaTaskFilterState.statusPaused: 'Paused',
       AsanaTaskFilterState.statusCompleted: 'Completed',
       AsanaTaskFilterState.statusDeleted: 'Deleted',
     };
@@ -872,6 +922,10 @@ class _AsanaTasksPanelState extends State<AsanaTasksPanel> {
         AsanaFilterCheckboxOption(
           key: AsanaTaskFilterState.statusIncomplete,
           label: 'Incomplete',
+        ),
+        AsanaFilterCheckboxOption(
+          key: AsanaTaskFilterState.statusPaused,
+          label: 'Paused',
         ),
         AsanaFilterCheckboxOption(
           key: AsanaTaskFilterState.statusCompleted,
@@ -1151,6 +1205,7 @@ class _ExpandableTaskTableRow extends StatelessWidget {
     required this.onToggleExpand,
     this.onOpenTask,
     this.onOpenSubtask,
+    this.onArchiveTask,
   });
 
   final double tableWidth;
@@ -1159,6 +1214,7 @@ class _ExpandableTaskTableRow extends StatelessWidget {
   final AppState appState;
   final void Function(String taskId)? onOpenTask;
   final void Function(String subtaskId)? onOpenSubtask;
+  final VoidCallback? onArchiveTask;
   final int subtaskCount;
   final List<SingularSubtask> expandedSubtasks;
   final bool expanded;
@@ -1186,8 +1242,9 @@ class _ExpandableTaskTableRow extends StatelessWidget {
             creator: task.createByStaffName,
             picKey: task.pic,
             priority: task.priority,
-            status: TaskListCard.statusLabel(task),
+            status: AsanaTaskFilter.taskDisplayStatus(appState, task),
             submission: task.submission,
+            onArchiveTask: onArchiveTask,
             expandControl: hasSubs
                 ? _ExpandChevron(expanded: expanded, onPressed: onToggleExpand)
                 : null,
@@ -1321,7 +1378,11 @@ class _SubtaskDataRow extends StatelessWidget {
           creator: subtask.createByStaffName,
           picKey: subtask.pic,
           priority: subtask.priority,
-          status: subtask.status,
+          status: AsanaTaskFilter.subtaskDisplayStatus(
+            appState,
+            parent,
+            subtask,
+          ),
           submission: subtask.submission,
           indentSubtaskBadge: true,
         ),
@@ -1469,6 +1530,7 @@ class _ItemTableRow extends StatelessWidget {
     required this.priority,
     required this.status,
     required this.submission,
+    this.onArchiveTask,
     this.expandControl,
     this.indentSubtaskBadge = false,
   });
@@ -1487,6 +1549,7 @@ class _ItemTableRow extends StatelessWidget {
   final int priority;
   final String status;
   final String? submission;
+  final VoidCallback? onArchiveTask;
 
   /// Expand/collapse control shown in the fixed name gutter (tasks with sub-tasks).
   final Widget? expandControl;
@@ -1616,7 +1679,19 @@ class _ItemTableRow extends StatelessWidget {
                 SizedBox(
                   width: cols.statusCol,
                   child: AsanaTableCellChip(
-                    child: AsanaStatusChip(status: status),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(child: AsanaStatusChip(status: status)),
+                        if (onArchiveTask != null) ...[
+                          const SizedBox(width: 4),
+                          _ArchiveIconButton(
+                            tooltip: 'Archive task',
+                            onPressed: onArchiveTask!,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -1642,6 +1717,7 @@ class _FlatMobileRow extends StatelessWidget {
     this.subtask,
     this.onTap,
     this.expandControl,
+    this.onArchiveTask,
   });
 
   final AsanaTableColors tableColors;
@@ -1650,6 +1726,7 @@ class _FlatMobileRow extends StatelessWidget {
   final SingularSubtask? subtask;
   final VoidCallback? onTap;
   final Widget? expandControl;
+  final VoidCallback? onArchiveTask;
 
   @override
   Widget build(BuildContext context) {
@@ -1667,7 +1744,13 @@ class _FlatMobileRow extends StatelessWidget {
         ? subtask!.createByStaffName
         : task.createByStaffName;
     final picKey = isSubtask ? subtask!.pic : task.pic;
-    final status = isSubtask ? subtask!.status : TaskListCard.statusLabel(task);
+    final status = isSubtask
+        ? AsanaTaskFilter.subtaskDisplayStatus(
+            context.read<AppState>(),
+            task,
+            subtask!,
+          )
+        : AsanaTaskFilter.taskDisplayStatus(context.read<AppState>(), task);
     final submission = isSubtask ? subtask!.submission : task.submission;
     final projectName = task.projectName?.trim() ?? '';
     final rowBg = isSubtask ? tableColors.subtaskRow : tableColors.taskRow;
@@ -1692,7 +1775,7 @@ class _FlatMobileRow extends StatelessWidget {
       deleted: _rowDeleted(isSubtask: isSubtask, status: status),
     );
 
-    return Material(
+    final row = Material(
       color: rowBg,
       child: InkWell(
         onTap: onTap,
@@ -1747,6 +1830,124 @@ class _FlatMobileRow extends StatelessWidget {
         ),
       ),
     );
+    if (onArchiveTask == null) return row;
+    return _SwipeRevealAction(
+      actionIcon: Icons.archive_outlined,
+      tooltip: 'Archive task',
+      onAction: onArchiveTask!,
+      child: row,
+    );
+  }
+}
+
+class _SwipeRevealAction extends StatefulWidget {
+  const _SwipeRevealAction({
+    required this.child,
+    required this.actionIcon,
+    required this.tooltip,
+    required this.onAction,
+  });
+
+  final Widget child;
+  final IconData actionIcon;
+  final String tooltip;
+  final VoidCallback onAction;
+
+  @override
+  State<_SwipeRevealAction> createState() => _SwipeRevealActionState();
+}
+
+class _SwipeRevealActionState extends State<_SwipeRevealAction> {
+  bool _open = false;
+  double _dragDx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final actionWidth = constraints.maxWidth * 0.30;
+        final dragOffset = _dragDx.clamp(-actionWidth, 0.0);
+        final restingOffset = _open ? -actionWidth : 0.0;
+        final offset = _dragDx == 0 ? restingOffset : dragOffset;
+
+        return ClipRect(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: actionWidth,
+                    child: Material(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      child: Tooltip(
+                        message: widget.tooltip,
+                        child: InkWell(
+                          onTap: () {
+                            setState(() => _open = false);
+                            widget.onAction();
+                          },
+                          child: Center(
+                            child: Icon(
+                              widget.actionIcon,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragUpdate: (details) {
+                  setState(() => _dragDx += details.delta.dx);
+                },
+                onHorizontalDragEnd: (_) {
+                  setState(() {
+                    _open = _dragDx < -actionWidth * 0.35;
+                    _dragDx = 0;
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: _dragDx == 0
+                      ? const Duration(milliseconds: 180)
+                      : Duration.zero,
+                  curve: Curves.easeOutCubic,
+                  transform: Matrix4.translationValues(offset, 0, 0),
+                  child: widget.child,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ArchiveIconButton extends StatelessWidget {
+  const _ArchiveIconButton({required this.tooltip, required this.onPressed});
+
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkResponse(
+        onTap: onPressed,
+        radius: 16,
+        child: const Padding(
+          padding: EdgeInsets.all(2),
+          child: Icon(Icons.archive_outlined, size: 17),
+        ),
+      ),
+    );
   }
 }
 
@@ -1775,6 +1976,8 @@ String _tasksContentSig(List<Task> tasks) {
       ..write('|')
       ..write(t.dbStatus)
       ..write('|')
+      ..write(t.pauseStatus)
+      ..write('|')
       ..write(t.priority)
       ..write('|')
       ..write(t.endDate?.millisecondsSinceEpoch)
@@ -1784,6 +1987,8 @@ String _tasksContentSig(List<Task> tasks) {
       ..write(t.submission)
       ..write('|')
       ..write(t.pic)
+      ..write('|')
+      ..write(t.archivedAt?.millisecondsSinceEpoch)
       ..write(';');
   }
   return b.toString();

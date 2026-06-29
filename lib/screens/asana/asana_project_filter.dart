@@ -274,11 +274,18 @@ class AsanaProjectFilter {
   }) {
     var list = state.projects
         .where((p) => _projectVisible(p, state, filters.scopes))
+        .where((p) {
+          final s = p.status.trim().toLowerCase();
+          return s != 'deleted' && s != 'delete';
+        })
         .toList();
 
     final statuses = filters.statuses.difference({'all', '__all__'});
     if (statuses.isNotEmpty) {
-      list = list.where((p) => statuses.contains(p.status)).toList();
+      list = list.where((p) {
+        if (p.isPaused) return statuses.contains('Paused');
+        return statuses.contains(p.status);
+      }).toList();
     }
 
     list = list.where((p) => _projectPassesDueDate(p, filters)).toList();

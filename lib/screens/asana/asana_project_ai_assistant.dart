@@ -6,6 +6,7 @@ class AsanaProjectAiFormSnapshot {
   const AsanaProjectAiFormSnapshot({
     required this.name,
     required this.description,
+    required this.commentDraft,
     required this.status,
     required this.startDate,
     required this.dueDate,
@@ -14,10 +15,12 @@ class AsanaProjectAiFormSnapshot {
     required this.staff,
     required this.selectedAssigneeIds,
     required this.selectedPicAssigneeIds,
+    this.websiteAttachments = const [],
   });
 
   final String name;
   final String description;
+  final String commentDraft;
   final String status;
   final DateTime? startDate;
   final DateTime? dueDate;
@@ -26,6 +29,7 @@ class AsanaProjectAiFormSnapshot {
   final List<({String id, String name})> staff;
   final Set<String> selectedAssigneeIds;
   final Set<String> selectedPicAssigneeIds;
+  final List<({String url, String description})> websiteAttachments;
 
   String buildLlmContext() {
     final buf = StringBuffer()
@@ -34,6 +38,9 @@ class AsanaProjectAiFormSnapshot {
       ..writeln('- name: ${name.isEmpty ? "(empty)" : name}')
       ..writeln(
         '- description: ${description.isEmpty ? "(empty)" : description}',
+      )
+      ..writeln(
+        '- comment (draft, posted on save): ${commentDraft.isEmpty ? "(empty)" : commentDraft}',
       )
       ..writeln('- status: ${status.isEmpty ? "(empty)" : status}')
       ..writeln(
@@ -44,6 +51,17 @@ class AsanaProjectAiFormSnapshot {
         '- assignees: ${assigneesLabel.isEmpty ? "(none)" : assigneesLabel}',
       )
       ..writeln('- PIC: ${picLabel.isEmpty ? "(none)" : picLabel}');
+
+    if (websiteAttachments.isNotEmpty) {
+      buf.writeln('Current website link attachments:');
+      for (final w in websiteAttachments) {
+        buf.writeln(
+          '- ${w.url} — ${w.description.isEmpty ? "(no description)" : w.description}',
+        );
+      }
+    } else {
+      buf.writeln('Current website link attachments: (none)');
+    }
 
     if (staff.isNotEmpty) {
       buf.writeln('Available staff: ${staff.map((s) => s.name).join('; ')}');
@@ -66,6 +84,8 @@ class AsanaProjectAiApply {
     required this.applyStatus,
     required this.applyStartDate,
     required this.applyDueDate,
+    required this.applyComment,
+    required this.applyWebsiteLink,
   });
 
   final void Function(String name) applyName;
@@ -75,6 +95,8 @@ class AsanaProjectAiApply {
   final void Function(String status) applyStatus;
   final void Function(DateTime start) applyStartDate;
   final void Function(DateTime due) applyDueDate;
+  final void Function(String comment) applyComment;
+  final void Function(String url, String description) applyWebsiteLink;
 }
 
 /// Validates LLM JSON and builds adoptable lines for project fields.
@@ -118,6 +140,23 @@ class AsanaProjectAiSuggestionBuilder {
       );
     }
 
+    final comment = _str(raw['comment']);
+    if (comment != null &&
+        comment.isNotEmpty &&
+        !_sameNormalizedText(comment, form.commentDraft)) {
+      lines.add(
+        AsanaTaskAiSuggestionLine.adopt(
+          fieldKey: AsanaTaskAiFieldKey.comment,
+          fieldLabel: 'Comment',
+          currentValue: AsanaTaskAiSuggestionLine.displayCurrent(
+            form.commentDraft,
+          ),
+          suggestedText: comment,
+          onAdopt: () => apply.applyComment(comment),
+        ),
+      );
+    }
+
     final names = _stringList(raw['assigneeNames']);
     if (names.isNotEmpty) {
       final resolved = <String>{};
@@ -153,6 +192,26 @@ class AsanaProjectAiSuggestionBuilder {
           ),
         );
       }
+    }
+
+    final links = _websiteLinksList(raw['websiteLinks']);
+    var linkIndex = 0;
+    for (final link in links) {
+      if (_hasWebsiteUrl(form, link.url)) continue;
+      final idx = linkIndex++;
+      final display = link.description.trim().isEmpty
+          ? link.url
+          : '${link.url}\n${link.description.trim()}';
+      lines.add(
+        AsanaTaskAiSuggestionLine.adopt(
+          fieldKey: AsanaTaskAiFieldKey.websiteLink,
+          linkIndex: idx,
+          fieldLabel: 'Website link',
+          currentValue: '(none)',
+          suggestedText: display,
+          onAdopt: () => apply.applyWebsiteLink(link.url, link.description),
+        ),
+      );
     }
 
     final picNames = _stringList(raw['picNames']);
@@ -301,6 +360,39 @@ class AsanaProjectAiSuggestionBuilder {
         .map((e) => e?.toString().trim() ?? '')
         .where((s) => s.isNotEmpty)
         .toList();
+  }
+
+  static List<({String url, String description})> _websiteLinksList(dynamic v) {
+    if (v is! List) return [];
+    final out = <({String url, String description})>[];
+    for (final item in v) {
+      if (item is! Map) continue;
+      final url = _str(item['url']);
+      if (url == null || url.isEmpty) continue;
+      final desc = _str(item['description']) ?? '';
+      out.add((url: _normalizeUrlForDisplay(url), description: desc));
+    }
+    return out;
+  }
+
+  static bool _hasWebsiteUrl(AsanaProjectAiFormSnapshot form, String url) {
+    final n = _normalizeUrl(url);
+    return form.websiteAttachments.any((w) => _normalizeUrl(w.url) == n);
+  }
+
+  static String _normalizeUrl(String raw) {
+    var s = raw.trim().toLowerCase();
+    if (s.isEmpty) return s;
+    if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+    if (s.startsWith('http://')) s = s.substring(7);
+    if (s.startsWith('https://')) s = s.substring(8);
+    return s;
+  }
+
+  static String _normalizeUrlForDisplay(String raw) {
+    final t = raw.trim();
+    if (t.startsWith('http://') || t.startsWith('https://')) return t;
+    return 'https://$t';
   }
 
   static List<String> _matchStaffIds(

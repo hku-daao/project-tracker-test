@@ -23,6 +23,7 @@ class SingularSubtask {
     this.lastUpdated,
     this.updateByStaffName,
     this.changeDueReason,
+    this.pauseStatus = 'Not Paused',
     this.overdueDay = 0,
     this.overdue = 'No',
   });
@@ -68,6 +69,9 @@ class SingularSubtask {
   /// When start→due span exceeds policy (`subtask.change_due_reason`).
   final String? changeDueReason;
 
+  /// `Paused` | `Not Paused`; parent task/project pause is computed separately.
+  final String pauseStatus;
+
   /// HK calendar days past due (`subtask.overdue_day`).
   final int overdueDay;
 
@@ -78,6 +82,8 @@ class SingularSubtask {
     final x = status.trim().toLowerCase();
     return x == 'deleted' || x == 'delete';
   }
+
+  bool get isPaused => pauseStatus.trim().toLowerCase() == 'paused';
 
   /// Comma-separated staff names (same order as `assignee_01`… in DB).
   String assigneeNamesDisplayLine(String Function(String assigneeKey) nameFor) {
@@ -116,6 +122,7 @@ class SingularSubtask {
     bool clearLastUpdated = false,
     String? updateByStaffName,
     Object? changeDueReason = _unsetChangeDueReason,
+    String? pauseStatus,
     int? overdueDay,
     String? overdue,
   }) {
@@ -144,6 +151,7 @@ class SingularSubtask {
       changeDueReason: identical(changeDueReason, _unsetChangeDueReason)
           ? this.changeDueReason
           : changeDueReason as String?,
+      pauseStatus: pauseStatus ?? this.pauseStatus,
       overdueDay: overdueDay ?? this.overdueDay,
       overdue: overdue ?? this.overdue,
     );

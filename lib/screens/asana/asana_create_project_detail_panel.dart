@@ -371,6 +371,7 @@ class _AsanaCreateProjectDetailPanelState
     return AsanaProjectAiFormSnapshot(
       name: _nameController.text.trim(),
       description: _descController.text.trim(),
+      commentDraft: stripInlineImageMarkers(_commentController.text),
       status: _draftStatus,
       startDate: _startDate,
       dueDate: _endDate,
@@ -379,6 +380,7 @@ class _AsanaCreateProjectDetailPanelState
       staff: staff,
       selectedAssigneeIds: Set<String>.from(_assigneeIds),
       selectedPicAssigneeIds: Set<String>.from(_picAssigneeIds),
+      websiteAttachments: _websiteAttachmentsForAi(),
     );
   }
 
@@ -400,6 +402,16 @@ class _AsanaCreateProjectDetailPanelState
       applyStatus: (s) => setState(() => _draftStatus = s),
       applyStartDate: (d) => setState(() => _startDate = d),
       applyDueDate: (d) => setState(() => _endDate = d),
+      applyComment: (v) => setState(() => _commentController.text = v),
+      applyWebsiteLink: (url, desc) => setState(() {
+        _attachments.add(
+          _CreateProjectAttachmentDraft(
+            url: url,
+            desc: desc,
+            isWebsiteLink: true,
+          ),
+        );
+      }),
     );
   }
 
@@ -736,6 +748,19 @@ class _AsanaCreateProjectDetailPanelState
   List<_CreateProjectAttachmentDraft> get _urlAttachments => _attachments
       .where((a) => !a.isPendingFile && _draftShowsAsWebsiteLink(a))
       .toList();
+
+  List<({String url, String description})> _websiteAttachmentsForAi() {
+    return _attachments
+        .where((a) => !a.isPendingFile && _draftShowsAsWebsiteLink(a))
+        .map(
+          (a) => (
+            url: a.urlController.text.trim(),
+            description: a.descController.text.trim(),
+          ),
+        )
+        .where((a) => a.url.isNotEmpty)
+        .toList();
+  }
 
   Future<void> _editAttachmentLink(
     BuildContext anchorContext,
@@ -1232,6 +1257,7 @@ class _AsanaCreateProjectDetailPanelState
               editAnchorContext: anchorContext,
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.websiteLink),
           AsanaDetailLabelValue(
             label: 'Comments',
             child: Column(
@@ -1262,6 +1288,7 @@ class _AsanaCreateProjectDetailPanelState
               ],
             ),
           ),
+          _aiSuggestions(AsanaTaskAiFieldKey.comment),
         ],
       ),
     );

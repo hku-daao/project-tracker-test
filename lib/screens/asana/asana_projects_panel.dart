@@ -9,11 +9,11 @@ import '../../models/project_record.dart';
 import '../../models/task.dart';
 import '../../services/asana_filter_cookie_storage.dart';
 import '../../utils/hk_time.dart';
-import '../../widgets/task_list_card.dart';
 import '../asana_landing_screen.dart';
 import 'asana_blocking_loading_overlay.dart';
 import 'asana_filter_widgets.dart';
 import 'asana_project_filter.dart';
+import 'asana_task_filter.dart';
 import 'asana_theme.dart';
 import 'asana_value_chips.dart';
 
@@ -149,7 +149,9 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
       );
     }
 
-    final sig = state.projects.map((p) => p.id).join('|');
+    final sig = state.projects
+        .map((p) => '${p.id}:${p.status}:${p.pauseStatus}')
+        .join('|');
     if (sig != _projectsDataSig) {
       _projectsDataSig = sig;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -565,7 +567,13 @@ class _AsanaProjectsPanelState extends State<AsanaProjectsPanel> {
 
   Future<void> _showStatusMenu(BuildContext buttonContext) async {
     const allKey = '__all__';
-    const options = ['Not started', 'In progress', 'Completed', 'Deleted'];
+    const options = [
+      'Not started',
+      'In progress',
+      'Paused',
+      'Completed',
+      'Deleted',
+    ];
     final selection = await showAsanaCheckboxFilterPanel(
       anchorContext: buttonContext,
       options: [
@@ -1048,7 +1056,7 @@ class _ProjectTaskDataRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = TaskListCard.statusLabel(task);
+    final status = AsanaTaskFilter.taskDisplayStatus(appState, task);
     final completed = _taskCompleted(task);
     final rowValueStyle = asanaTableRowValueStyle(
       context,
@@ -1337,7 +1345,9 @@ class _ProjectTableRow extends StatelessWidget {
                 SizedBox(
                   width: cols.statusCol,
                   child: AsanaTableCellChip(
-                    child: AsanaStatusChip(status: project.status),
+                    child: AsanaStatusChip(
+                      status: project.isPaused ? 'Paused' : project.status,
+                    ),
                   ),
                 ),
               ],
@@ -1457,7 +1467,11 @@ class _ProjectMobileRow extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            AsanaStatusChip(status: project.status),
+                            AsanaStatusChip(
+                              status: project.isPaused
+                                  ? 'Paused'
+                                  : project.status,
+                            ),
                           ],
                         ),
                       ],
@@ -1559,7 +1573,7 @@ class _ProjectMobileTaskRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final completed = _taskCompleted(task);
-    final status = TaskListCard.statusLabel(task);
+    final status = AsanaTaskFilter.taskDisplayStatus(appState, task);
     final nameStyle = asanaTableRowNameStyle(
       context,
       completed: completed,
